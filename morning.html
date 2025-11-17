@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Register for Morning Session - Online Tutoring">
+    <title>Morning Session Registration</title>
+    
+    <!-- Bootstrap 5.3 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    
+    <!-- Registration Container -->
+    <div class="hero-section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="hero-overlay"></div>
+        
+        <div class="container position-relative">
+            <div class="row min-vh-100 align-items-center justify-content-center py-5">
+                <div class="col-lg-6 col-md-8">
+                    
+                    <!-- Back Link -->
+                    <div class="mb-4 text-center">
+                        <a href="index.html" class="text-white text-decoration-none">
+                            <i class="bi bi-arrow-left me-2"></i>
+                            Back to Home
+                        </a>
+                    </div>
+                    
+                    <!-- Session Badge -->
+                    <div class="text-center mb-4 animate-fade-in-up">
+                        <div class="session-badge morning-badge d-inline-flex">
+                            <i class="bi bi-sunrise-fill me-2"></i>
+                            Morning Session
+                        </div>
+                    </div>
+                    
+                    <!-- Check-in Card (Initial State) -->
+                    <div class="glass-card animate-fade-in-up" id="checkinCard" style="animation-delay: 0.1s;">
+                        <div class="text-center mb-4">
+                            <h2 class="fw-bold mb-2">Welcome to Class</h2>
+                            <p class="text-muted">Enter your parent's phone number to continue</p>
+                        </div>
+                        
+                        <form id="checkinForm">
+                            
+                            <!-- Country & Phone Number -->
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">
+                                    Parent's Phone Number <span class="text-danger">*</span>
+                                </label>
+                                
+                                <div class="country-phone-group">
+                                    <!-- Country Selector -->
+                                    <div class="country-select-wrapper">
+                                        <select class="form-select form-select-lg" id="countrySelect" required>
+                                            <option value="">Select Country</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <!-- Phone Input -->
+                                    <div class="phone-input-wrapper">
+                                        <div class="input-group input-group-lg">
+                                            <span class="input-group-text" id="dialCode">+</span>
+                                            <input 
+                                                type="tel" 
+                                                class="form-control" 
+                                                id="parentPhone" 
+                                                placeholder="Enter phone number"
+                                                required
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-text" id="phoneHelp">
+                                    Select your country and enter your parent's phone number
+                                </div>
+                                <div class="invalid-feedback" id="phoneError">
+                                    Please enter a valid phone number
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary btn-lg w-100" id="continueBtn">
+                                Continue
+                                <i class="bi bi-arrow-right ms-2"></i>
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Registration Form Card (Hidden Initially) -->
+                    <div class="glass-card d-none" id="registrationCard">
+                        <!-- Will be populated dynamically by JavaScript -->
+                    </div>
+                    
+                    <!-- Welcome Back Card (Hidden Initially) -->
+                    <div class="glass-card d-none" id="welcomeCard">
+                        <!-- Will be populated dynamically by JavaScript -->
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Session Variable -->
+    <script>
+        const SESSION = 'morning';
+    </script>
+    
+    <!-- Student App Module -->
+    <script type="module" src="js/student-app.js"></script>
+    
+</body>
+</html>

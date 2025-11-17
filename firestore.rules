@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated (teacher)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to validate phone number format (international)
+    function isValidPhone(phone) {
+      return phone is string && 
+             phone.size() >= 10 && 
+             phone.size() <= 20 &&
+             phone.matches('^\\+[0-9]+$');
+    }
+    
+    // Helper function to validate student data
+    function isValidStudentData(data) {
+      return data.keys().hasAll(['studentName', 'parentPhone', 'class', 'subjects', 'receiptMessage', 'registeredAt', 'session']) &&
+             data.studentName is string && 
+             data.studentName.size() >= 2 && 
+             data.studentName.size() <= 100 &&
+             data.parentPhone is string && 
+             isValidPhone(data.parentPhone) &&
+             data.class is string && 
+             data.class.size() > 0 &&
+             data.subjects is string && 
+             data.subjects.size() >= 3 && 
+             data.subjects.size() <= 200 &&
+             data.receiptMessage is string && 
+             data.receiptMessage.size() >= 10 && 
+             data.receiptMessage.size() <= 500 &&
+             data.session is string && 
+             (data.session == 'morning' || data.session == 'evening');
+    }
+    
+    // Config collection - Zoom links
+    match /config/zoomLinks {
+      // Anyone can read (students need to get Zoom links)
+      allow read: if true;
+      
+      // Only authenticated teachers can write
+      allow write: if isAuthenticated();
+    }
+    
+    // Sessions collection - Student registrations
+    match /sessions/{session}/{phone} {
+      // Students can create their own registration
+      // Phone number in path must match parentPhone in data
+      allow create: if isValidPhone(phone) &&
+                       phone == request.resource.data.parentPhone &&
+                       isValidStudentData(request.resource.data) &&
+                       request.resource.data.session == session;
+      
+      // Anyone can read (for student check-in verification)
+      allow read: if true;
+      
+      // Only authenticated teachers can delete
+      allow delete: if isAuthenticated();
+      
+      // Students can update their lastAccessed timestamp
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAccessed']);
+    }
+    
+    // Admin collection (optional - for future use)
+    match /admin/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
