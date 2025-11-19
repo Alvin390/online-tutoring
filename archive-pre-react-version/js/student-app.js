@@ -1,12 +1,21 @@
 // Student Registration Application
 import { db } from './firebase-config.js';
-import { doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+import { doc, getDoc, setDoc, serverTimestamp, collection } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 import { countries, validatePhoneNumber, formatPhoneNumber } from './countries.js';
+import { logger } from './logger.js';
 
 // DOM Elements
 let countrySelect, dialCodeSpan, parentPhoneInput, continueBtn;
 let checkinCard, registrationCard, welcomeCard;
 let selectedCountry = null;
+
+// Global error handlers
+window.addEventListener('error', (e) => {
+    logger.error('Uncaught error', { message: e.message, filename: e.filename, lineno: e.lineno, colno: e.colno, error: e.error });
+});
+window.addEventListener('unhandledrejection', (e) => {
+    logger.error('Unhandled promise rejection', { reason: e.reason });
+});
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -117,8 +126,10 @@ function validatePhoneInput() {
 
 async function handleCheckin(e) {
     e.preventDefault();
+    logger.info('handleCheckin - started');
     
     if (!selectedCountry) {
+        logger.warn('handleCheckin - no country selected');
         showErrorToast('Please select a country');
         countrySelect.focus();
         return;
@@ -128,6 +139,7 @@ async function handleCheckin(e) {
     
     // Validate
     if (!validatePhoneNumber(selectedCountry, phoneNumber)) {
+        logger.warn('handleCheckin - invalid phone', { country: selectedCountry.code, phone: phoneNumber });
         parentPhoneInput.classList.add('is-invalid');
         document.getElementById('phoneError').textContent = 
             `Please enter a valid ${selectedCountry.length}-digit phone number`;
@@ -138,34 +150,44 @@ async function handleCheckin(e) {
     
     // Create full phone number with country code
     const fullPhoneNumber = `${selectedCountry.dial}${phoneNumber}`;
+    logger.debug('handleCheckin - fullPhoneNumber', { fullPhoneNumber });
     
     // Show loading
     setButtonLoading(continueBtn, true, 'Checking registration...');
     
     try {
         await checkRegistration(fullPhoneNumber);
+        logger.info('handleCheckin - completed checkRegistration', { phone: fullPhoneNumber });
     } catch (error) {
-        console.error('Error during check-in:', error);
+        logger.error('Error during check-in', { error });
         setButtonLoading(continueBtn, false);
         showErrorAlert('Unable to check registration. Please check your connection and try again.');
     }
 }
 
 async function checkRegistration(phoneNumber) {
-    const docRef = doc(db, 'sessions', SESSION, phoneNumber);
+    logger.info('checkRegistration - started', { session: SESSION, phoneNumber });
+    // Use students subcollection under the session document
+    const studentsCol = collection(db, 'sessions', SESSION, 'students');
+    const docRef = doc(studentsCol, phoneNumber);
+    logger.debug('checkRegistration - docPath', { path: docRef.path });
     
     try {
         const docSnap = await getDoc(docRef);
+        logger.info('checkRegistration - getDoc result', { exists: docSnap.exists() });
         
         if (docSnap.exists()) {
             // Returning student
             const studentData = docSnap.data();
+            logger.info('checkRegistration - returning student found', { phoneNumber });
             showWelcomeScreen(studentData);
         } else {
             // New student
+            logger.info('checkRegistration - new student', { phoneNumber });
             showRegistrationForm(phoneNumber);
         }
     } catch (error) {
+        logger.error('checkRegistration error', { path: docRef.path, error });
         throw error;
     }
 }
@@ -462,7 +484,11 @@ async function handleRegistration(e, phoneNumber) {
 }
 
 async function saveRegistration(data) {
-    const docRef = doc(db, 'sessions', SESSION, data.parentPhone);
+    logger.info('saveRegistration - started', { parentPhone: data.parentPhone });
+    // Save under students subcollection for the session
+    const studentsCol = collection(db, 'sessions', SESSION, 'students');
+    const docRef = doc(studentsCol, data.parentPhone);
+    logger.debug('saveRegistration - saving to', { path: docRef.path });
     
     // Prepare document
     const registrationDoc = {
@@ -476,10 +502,30 @@ async function saveRegistration(data) {
         session: SESSION
     };
     
-    // Save to Firestore
-    await setDoc(docRef, registrationDoc);
-    
-    console.log('Registration saved successfully:', data.parentPhone);
+    try {
+        // Save to Firestore
+        await setDoc(docRef, registrationDoc);
+        logger.info('Registration saved successfully', { parentPhone: data.parentPhone, path: docRef.path });
+    } catch (error) {
+        logger.error('saveRegistration - failed to save', { error, path: docRef.path });
+        throw error;
+    }
+}
+
+async function checkInStudent(sessionId, phoneNumber, studentData) {
+    logger.info('checkInStudent - started', { sessionId, phoneNumber });
+	try {
+		// Use a students subcollection under the session document to ensure even path segments
+		const studentsCol = collection(db, "sessions", sessionId, "students");
+		const studentRef = doc(studentsCol, phoneNumber);
+		logger.debug('checkInStudent - writing to', { path: studentRef.path, studentData });
+		await setDoc(studentRef, studentData);
+		logger.info('checkInStudent - success', { path: studentRef.path });
+	} catch (err) {
+		logger.error('Error during check-in', { err });
+		// rethrow so existing callers still see the error
+		throw err;
+	}
 }
 
 async function handleSuccessfulRegistration() {
@@ -584,13 +630,17 @@ function showWelcomeScreen(studentData) {
 }
 
 async function updateLastAccessed(phoneNumber) {
+    logger.info('updateLastAccessed - started', { phoneNumber });
     try {
-        const docRef = doc(db, 'sessions', SESSION, phoneNumber);
+        const studentsCol = collection(db, 'sessions', SESSION, 'students');
+        const docRef = doc(studentsCol, phoneNumber);
+        logger.debug('updateLastAccessed - updating path', { path: docRef.path });
         await setDoc(docRef, {
             lastAccessed: serverTimestamp()
         }, { merge: true });
+        logger.info('updateLastAccessed - success', { path: docRef.path });
     } catch (error) {
-        console.error('Error updating last accessed:', error);
+        logger.error('Error updating last accessed:', { error });
     }
 }
 
@@ -629,19 +679,24 @@ async function joinNow() {
 // ============================================
 
 async function redirectToZoom() {
+    logger.info('redirectToZoom - started', { session: SESSION });
     try {
         // Get Zoom link from config
         const configRef = doc(db, 'config', 'zoomLinks');
         const configSnap = await getDoc(configRef);
+        logger.debug('redirectToZoom - configSnap exists', { exists: configSnap.exists() });
         
         if (!configSnap.exists()) {
+            logger.warn('redirectToZoom - config not found');
             throw new Error('Configuration not found');
         }
         
         const zoomLink = configSnap.data()[SESSION];
+        logger.debug('redirectToZoom - zoomLink', { zoomLink });
         
         if (!zoomLink || zoomLink.trim() === '') {
             // No link configured yet
+            logger.info('redirectToZoom - no zoom link configured');
             showSuccessScreen(
                 'Registration Successful! ✓',
                 'Your registration has been saved. The teacher will share the Zoom link soon. Please check back later or contact your teacher.',
@@ -652,6 +707,7 @@ async function redirectToZoom() {
         
         // Validate Zoom link
         if (!zoomLink.includes('zoom.us')) {
+            logger.error('redirectToZoom - invalid zoom link');
             throw new Error('Invalid Zoom link configuration');
         }
         
@@ -665,11 +721,12 @@ async function redirectToZoom() {
         
         // Redirect after brief delay
         setTimeout(() => {
+            logger.info('redirectToZoom - redirecting to zoom', { zoomLink });
             window.location.href = zoomLink;
         }, 2000);
         
     } catch (error) {
-        console.error('Error redirecting to Zoom:', error);
+        logger.error('Error redirecting to Zoom', { error });
         
         if (error.message === 'Configuration not found') {
             showErrorAlert('Class links are not configured yet. Please contact your teacher.');

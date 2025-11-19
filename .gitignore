@@ -1,3 +1,39 @@
-firebase-config.js
-// Firebase configuration file
-firebase-config/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Service account keys and other sensitive files (production)
+*.key
+*.pem
+
+# Archive folder (DO NOT IGNORE - contains historical reference files)
+# The archive-pre-react-version/ folder contains the original vanilla JS version
+# Keep this folder tracked in git for reference purposes
+# !archive-pre-react-version/

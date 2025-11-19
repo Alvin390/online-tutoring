@@ -1,0 +1,12 @@
+[2025-11-17T16:10:13.265Z] [info] handleCheckin - started 
+[2025-11-17T16:10:13.353Z] [debug] handleCheckin - fullPhoneNumber {"fullPhoneNumber": "+254707427850"}
+[2025-11-17T16:10:13.762Z] [info] checkRegistration - started {"session": "morning", "phoneNumber": "+254707427850"}
+[2025-11-17T16:10:13.764Z] [debug] checkRegistration - docPath {"path": "sessions/morning/students/+254707427850"}
+[2025-11-17T16:10:14.587Z] [error] checkRegistration error {"path": "sessions/morning/students/+254707427850", "error": {"code": "unavailable", "name": "FirebaseError"}}
+[2025-11-17T16:10:14.589Z] [error] Error during check-in {"error": {"code": "unavailable", "name": "FirebaseError"}}
+[2025-11-17T16:22:29.603Z] [info] handleCheckin - started 
+[2025-11-17T16:22:29.605Z] [debug] handleCheckin - fullPhoneNumber {"fullPhoneNumber": "+254707427850"}
+[2025-11-17T16:22:29.607Z] [info] checkRegistration - started {"session": "morning", "phoneNumber": "+254707427850"}
+[2025-11-17T16:22:29.612Z] [debug] checkRegistration - docPath {"path": "sessions/morning/students/+254707427850"}
+[2025-11-17T16:22:30.237Z] [error] checkRegistration error {"path": "sessions/morning/students/+254707427850", "error": {"code": "unavailable", "name": "FirebaseError"}}
+[2025-11-17T16:22:30.239Z] [error] Error during check-in {"error": {"code": "unavailable", "name": "FirebaseError"}}

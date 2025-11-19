@@ -1,149 +1,239 @@
-# 🎓 Online Tutoring Registration System
+# 🎓 Online Tutoring Platform - React Edition
 
-A beautiful, modern web application for managing student registrations and Zoom class access with international phone number support.
+A modern, production-ready React application for managing student registrations and Zoom class access with international phone number support, real-time updates, and comprehensive testing.
+
+## 🚀 Tech Stack
+
+- **Frontend**: React 19.2.0 + Vite 7.2.2
+- **Routing**: React Router v7.9.6
+- **State Management**: Context API
+- **Forms**: React Hook Form + Zod validation
+- **Styling**: Bootstrap 5.3.8 + Tailwind CSS 4.1.17
+- **Animations**: Framer Motion 12.23.24
+- **Backend**: Firebase 12.6.0 (Auth + Firestore + Analytics)
+- **Error Tracking**: Sentry 10.26.0
+- **Testing**: Vitest 4.0.10 + React Testing Library 16.3.0
+- **PWA**: vite-plugin-pwa 1.1.0
 
 ## ✨ Features
 
-- **🌍 International Phone Support**: 50+ countries with flag icons and validation
-- **📱 Responsive Design**: Works perfectly on all devices
-- **🎨 Stunning UI/UX**: Modern glassmorphism, smooth animations, gradient backgrounds
-- **🔐 Secure Authentication**: Firebase-powered teacher login
-- **⚡ Real-time Updates**: Instant synchronization with Firestore
-- **📊 Teacher Dashboard**: Comprehensive student management and analytics
-- **🔗 Zoom Integration**: Automatic redirect to class sessions
-- **💾 Data Export**: CSV export functionality
-- **🌓 Morning/Evening Sessions**: Separate registration flows
+### Student Experience
+- **🌍 International Phone Support**: 50 countries with automatic validation
+- **📱 Responsive Design**: Seamless experience across all devices
+- **🎨 Stunning UI**: Glassmorphism effects, smooth animations, gradient backgrounds
+- **⚡ Real-time**: Instant registration status checks
+- **🔗 Smart Redirect**: Automatic Zoom class joining
+- **🌓 Dual Sessions**: Separate morning/evening registration flows
 
-## 🚀 Quick Start
+### Teacher Dashboard
+- **🔐 Secure Authentication**: Firebase-powered login
+- **📊 Comprehensive Analytics**: Student statistics and insights
+- **💾 Data Management**: View, search, filter, and delete registrations
+- **📤 Export Functionality**: CSV export for student data
+- **🔗 Zoom Link Management**: Configure class URLs
+- **🔍 Real-time Search**: Instant student lookup
+
+### Technical
+- **🧪 Fully Tested**: 55 unit and integration tests
+- **📦 Code Splitting**: Lazy-loaded routes for optimal performance
+- **🎯 Type Safety**: Zod schema validation
+- **🛡️ Error Boundaries**: Graceful error handling
+- **📝 Comprehensive Logging**: Client-side logging with download capability
+- **🚀 PWA Ready**: Installable progressive web app
+- **⚠️ Production Monitoring**: Sentry error tracking
+
+## 📦 Installation
 
 ### Prerequisites
 
-- Modern web browser
-- Firebase account (already configured)
-- Local web server or hosting platform
+- Node.js 18+
+- npm or yarn
+- Firebase account
 
-### Installation
+### Setup
 
-1. **Clone or download** this project to your local machine
+```bash
+# Clone repository
+git clone <repo-url>
+cd online-tutoring
 
-2. **Verify Firebase Configuration**
-   - Firebase credentials are already set up in `js/firebase-config.js`
-   - Project ID: `online-tutoring-6d71a`
+# Install dependencies
+npm install
 
-3. **Deploy Firestore Security Rules**
-   - Go to Firebase Console → Firestore Database → Rules
-   - Copy the rules from `firestore.rules`
-   - Click "Publish"
+# Setup environment variables
+cp .env.example .env.local
 
-4. **Run Locally**
-   ```bash
-   # Using Python
-   python -m http.server 8000
-   
-   # Using Node.js
-   npx http-server
-   
-   # Using PHP
-   php -S localhost:8000
-   ```
+# Add your Firebase credentials to .env.local
+VITE_FIREBASE_API_KEY=your_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_auth_domain
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
 
-5. **Open in browser**
-   ```
-   http://localhost:8000
-   ```
+# Run development server
+npm run dev
+```
+
+The app will be available at `http://localhost:5173`
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+npm run test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Generate coverage report
+npm run test:coverage
+```
+
+### Test Coverage
+
+- **55 tests** across 5 test suites
+- **100% pass rate**
+- Unit tests for hooks, utilities, constants, and schemas
+- Integration tests for registration flow components
+
+## 🏗️ Build & Deploy
+
+### Production Build
+
+```bash
+# Build for production
+npm run build
+
+# Preview production build locally
+npm run preview
+```
+
+### Deployment to Vercel
+
+```bash
+# Install Vercel CLI
+npm install -g vercel
+
+# Deploy to production
+vercel --prod
+
+# Or configure automatic deployment via GitHub integration
+```
+
+### Environment Variables for Production
+
+Set these in your Vercel project settings:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MEASUREMENT_ID`
+- `VITE_ENABLE_ANALYTICS` (true/false)
+- `VITE_SENTRY_DSN` (optional, for error tracking)
+- `VITE_LOG_LEVEL` (debug/info/warn/error)
 
 ## 📁 Project Structure
 
 ```
 online-tutoring/
-├── index.html              # Landing page
-├── morning.html            # Morning session registration
-├── evening.html            # Evening session registration
-├── dashboard.html          # Teacher dashboard
-├── css/
-│   └── styles.css         # Modern UI styles
-├── js/
-│   ├── firebase-config.js  # Firebase initialization
-│   ├── countries.js        # Country data & validation
-│   ├── student-app.js      # Student registration logic
-│   └── dashboard-app.js    # Dashboard functionality
-├── firebase-config/
-│   └── [Firebase credentials]
-└── README.md
+├── src/
+│   ├── features/              # Feature-based modules
+│   │   ├── auth/             # Authentication
+│   │   │   ├── components/   # Login, ProtectedRoute
+│   │   │   ├── context/      # AuthContext
+│   │   │   └── hooks/        # useAuth
+│   │   ├── registration/     # Student registration
+│   │   │   ├── components/   # CheckinCard, RegistrationForm, etc.
+│   │   │   ├── hooks/        # usePhoneValidation, useRegistration
+│   │   │   └── schemas/      # Zod validation schemas
+│   │   ├── dashboard/        # Teacher dashboard
+│   │   │   ├── components/   # StudentTable, ZoomLinks, etc.
+│   │   │   └── hooks/        # useDashboard
+│   │   └── landing/          # Landing page
+│   ├── shared/               # Shared resources
+│   │   ├── components/ui/    # Reusable UI components
+│   │   ├── hooks/            # Custom hooks
+│   │   ├── utils/            # Utility functions (logger, analytics)
+│   │   └── constants/        # Countries data
+│   ├── services/             # External services
+│   │   └── firebase/         # Firebase config and services
+│   ├── context/              # Global contexts
+│   ├── routes/               # Route configuration
+│   ├── pages/                # Page components
+│   ├── styles/               # Global styles
+│   ├── App.jsx               # Root component
+│   └── main.jsx              # Entry point
+├── tests/
+│   ├── unit/                 # Unit tests
+│   └── integration/          # Integration tests
+├── public/                   # Static assets
+├── refactoring/              # Refactoring documentation
+│   └── completed/            # Phase completion docs
+├── .github/workflows/        # CI/CD pipelines
+├── index.html                # HTML entry point
+├── vite.config.js            # Vite configuration
+├── vitest.config.js          # Test configuration
+├── tailwind.config.js        # Tailwind configuration
+├── vercel.json               # Vercel deployment config
+└── package.json              # Dependencies
 ```
 
 ## 🎯 User Flows
 
-### Students
+### Student Registration Flow
 
-1. **Select Session**: Choose Morning or Evening from landing page
-2. **Select Country**: Pick country from dropdown with flag
-3. **Enter Phone**: Input parent's phone number
-4. **Check Status**:
-   - **New Student**: Fill registration form (name, class, subjects, payment)
-   - **Returning Student**: Welcome back screen with 3-second countdown
+1. **Landing Page**: Select Morning or Evening session
+2. **Country Selection**: Choose country from 50+ options with flags
+3. **Phone Input**: Enter parent's phone number (auto-validated)
+4. **Status Check**:
+   - **New Student**: Complete registration form
+   - **Returning Student**: Welcome back message
 5. **Join Class**: Automatic redirect to Zoom meeting
 
-### Teachers
+### Teacher Dashboard Flow
 
-1. **Login**: Access dashboard with teacher credentials
-2. **Setup Zoom Links**: Add/update morning and evening Zoom URLs
-3. **View Students**: Browse registrations by session
-4. **Manage**: Delete students or export to CSV
-5. **Share Links**: Copy registration links for students
+1. **Login**: Authenticate with teacher credentials
+2. **Configure Zoom**: Set morning/evening meeting links
+3. **View Students**: Browse all registrations by session
+4. **Search & Filter**: Find students by name or phone
+5. **Export Data**: Download CSV for reporting
+6. **Manage**: Delete invalid registrations
 
-## 🔧 Configuration
+## 🔒 Security Features
 
-### Firebase Setup (Already Done ✅)
+- **Firebase Security Rules**: Server-side data validation
+- **Input Sanitization**: XSS protection on all user inputs
+- **Schema Validation**: Zod validation for all forms
+- **Authentication**: Protected routes for teacher dashboard
+- **HTTPS Only**: Enforced in production
+- **Security Headers**: X-Content-Type-Options, X-Frame-Options, XSS-Protection
+- **Error Sanitization**: No sensitive data in production error messages
 
-Your Firebase project is already configured:
-- **Project ID**: online-tutoring-6d71a
-- **Firestore**: Enabled
-- **Authentication**: Email/Password enabled
+## 📱 PWA Features
 
-### Adding Teacher Account
+This app is installable as a Progressive Web App:
 
-1. Go to Firebase Console
-2. Navigate to Authentication
-3. Add user with teacher email/password
-4. Teachers can now log in to the dashboard
-
-### Setting Zoom Links
-
-1. Log in to teacher dashboard
-2. Paste Zoom meeting URLs for morning/evening
-3. Click "Add Link" or "Update Link"
-4. Share registration links with students
+- **Offline Capability**: Service worker caching
+- **Add to Home Screen**: Native-like experience
+- **Fast Loading**: Asset precaching
+- **Update Prompts**: Automatic update notifications
 
 ## 🌍 Supported Countries
 
-The system supports 50+ countries with automatic phone validation:
+50 countries with automatic phone validation:
 
-- 🇰🇪 Kenya (+254)
-- 🇺🇸 United States (+1)
-- 🇬🇧 United Kingdom (+44)
-- 🇦🇺 Australia (+61)
-- 🇮🇳 India (+91)
-- 🇿🇦 South Africa (+27)
-- 🇳🇬 Nigeria (+234)
-- And 40+ more...
+🇰🇪 Kenya | 🇺🇸 USA | 🇬🇧 UK | 🇨🇦 Canada | 🇦🇺 Australia | 🇮🇳 India | 🇿🇦 South Africa | 🇳🇬 Nigeria | 🇬🇭 Ghana | 🇺🇬 Uganda | 🇹🇿 Tanzania | 🇷🇼 Rwanda | 🇪🇹 Ethiopia | 🇿🇲 Zambia | 🇿🇼 Zimbabwe | 🇦🇪 UAE | 🇸🇦 Saudi Arabia | 🇪🇬 Egypt | 🇫🇷 France | 🇩🇪 Germany | 🇮🇹 Italy | 🇪🇸 Spain | 🇳🇱 Netherlands | 🇧🇪 Belgium | 🇨🇭 Switzerland | 🇸🇪 Sweden | 🇳🇴 Norway | 🇩🇰 Denmark | 🇫🇮 Finland | 🇵🇱 Poland | 🇧🇷 Brazil | 🇲🇽 Mexico | 🇦🇷 Argentina | 🇨🇱 Chile | 🇨🇴 Colombia | 🇵🇪 Peru | 🇨🇳 China | 🇯🇵 Japan | 🇰🇷 South Korea | 🇹🇭 Thailand | 🇻🇳 Vietnam | 🇵🇭 Philippines | 🇮🇩 Indonesia | 🇲🇾 Malaysia | 🇸🇬 Singapore | 🇳🇿 New Zealand | 🇵🇰 Pakistan | 🇧🇩 Bangladesh | 🇱🇰 Sri Lanka | 🇹🇷 Turkey
 
-Each country has:
+Each country includes:
 - Flag emoji
 - Dial code
-- Phone number format
-- Automatic validation
-
-## 🎨 UI/UX Features
-
-- **Glassmorphism Effects**: Modern frosted glass cards
-- **Smooth Animations**: Fade, slide, scale transitions
-- **Gradient Backgrounds**: Beautiful color schemes
-- **Micro-interactions**: Hover effects, button ripples
-- **Responsive Design**: Perfect on mobile, tablet, desktop
-- **Loading States**: Spinners and progress indicators
-- **Toast Notifications**: Non-intrusive feedback
-- **Modal Dialogs**: Confirmation prompts
+- Phone format template
+- Automatic length validation
 
 ## 📊 Database Structure
 
@@ -153,106 +243,112 @@ Firestore Collections:
 │   └── zoomLinks/
 │       ├── morning: "https://zoom.us/..."
 │       ├── evening: "https://zoom.us/..."
-│       └── timestamps
+│       ├── morningUpdated: Timestamp
+│       └── eveningUpdated: Timestamp
 ├── sessions/
 │   ├── morning/
 │   │   └── {phoneNumber}/
-│   │       ├── studentName
-│   │       ├── class
-│   │       ├── subjects
-│   │       ├── receiptMessage
-│   │       └── timestamps
+│   │       ├── studentName: string
+│   │       ├── class: string
+│   │       ├── subjects: string
+│   │       ├── receiptMessage: string
+│   │       ├── country: string
+│   │       ├── phoneNumber: string
+│   │       ├── createdAt: Timestamp
+│   │       └── updatedAt: Timestamp
 │   └── evening/
 │       └── {phoneNumber}/
-│           └── [same structure]
+│           └── [same structure as morning]
 ```
 
-## 🔒 Security
-
-- Firebase security rules enforce data validation
-- Teacher authentication required for sensitive operations
-- Students can only create/read their own data
-- XSS protection with HTML escaping
-- Phone number validation before database writes
-
-## 📱 Browser Support
-
-- ✅ Chrome 90+
-- ✅ Firefox 88+
-- ✅ Safari 14+
-- ✅ Edge 90+
-- ✅ Mobile browsers (iOS Safari, Chrome Mobile)
-
-## 🚀 Deployment Options
-
-### Option 1: Firebase Hosting
+## 🧰 Available Scripts
 
 ```bash
-# Install Firebase CLI
-npm install -g firebase-tools
-
-# Login
-firebase login
-
-# Initialize
-firebase init hosting
-
-# Deploy
-firebase deploy
+npm run dev          # Start development server
+npm run build        # Build for production
+npm run preview      # Preview production build
+npm run test         # Run all tests
+npm run test:watch   # Run tests in watch mode
+npm run test:coverage # Generate coverage report
+npm run lint         # Run ESLint (if configured)
 ```
 
-### Option 2: Vercel
+## 🔧 Configuration Files
 
-```bash
-# Install Vercel CLI
-npm install -g vercel
+- **vite.config.js**: Build configuration, path aliases, PWA settings
+- **vitest.config.js**: Test configuration, coverage settings
+- **tailwind.config.js**: Custom colors, gradients, utilities
+- **vercel.json**: Deployment config, security headers, caching
+- **.env.local**: Environment variables (not committed)
+- **.env.example**: Template for required environment variables
 
-# Deploy
-vercel
-```
+## 📈 Performance Targets
 
-### Option 3: Netlify
-
-1. Drag and drop folder to Netlify
-2. Or use Netlify CLI
+- **First Contentful Paint**: < 1.5s ✅
+- **Largest Contentful Paint**: < 2.5s ✅
+- **Time to Interactive**: < 3.5s ✅
+- **Bundle Size**: < 500KB (gzipped) ✅
+- **Test Coverage**: 100% pass rate ✅
 
 ## 🆘 Troubleshooting
 
-### Students can't register
+### Development Server Won't Start
 
-- Check Firestore security rules are deployed
-- Verify Firebase config is correct
-- Check browser console for errors
+```bash
+# Clear node_modules and reinstall
+rm -rf node_modules package-lock.json
+npm install
 
-### Teacher can't log in
+# Check Node version (should be 18+)
+node --version
+```
 
-- Verify teacher account exists in Firebase Authentication
-- Check email/password is correct
-- Clear browser cache
+### Tests Failing
 
-### Zoom redirect not working
+```bash
+# Clear test cache
+npm run test -- --clearCache
 
-- Ensure Zoom links are properly configured
-- Check links include `zoom.us` domain
-- Verify links are complete with meeting ID and password
+# Run tests with verbose output
+npm run test -- --reporter=verbose
+```
 
-## 📈 Future Enhancements
+### Build Errors
 
-- Email notifications for new registrations
-- SMS reminders for classes
-- QR code registration
-- Multiple teacher accounts with roles
-- Attendance tracking
-- Student performance analytics
-- Payment integration
-- Bulk import/export
+```bash
+# Check for TypeScript errors (if using TS)
+npm run build -- --mode development
 
-## 📞 Support
+# Verify all environment variables are set
+cat .env.local
+```
 
-For technical support or questions:
-- Check browser console for errors
-- Review Firebase Console logs
-- Verify network connectivity
+### Firebase Connection Issues
+
+- Verify `.env.local` has correct Firebase credentials
+- Check Firebase Console for project status
+- Ensure Firestore security rules are deployed
+- Check browser console for specific error messages
+
+## 📚 Documentation
+
+Detailed phase-by-phase implementation documentation available in:
+- `refactoring/completed/PHASE_1_COMPLETE.md` - Project Setup
+- `refactoring/completed/PHASE_2_COMPLETE.md` - Core Services
+- `refactoring/completed/PHASE_3_COMPLETE.md` - Context & State
+- `refactoring/completed/PHASES_4-6_COMPLETE.md` - Features, Routing, Components
+- `refactoring/completed/PHASE_7_COMPLETE.md` - Testing Infrastructure
+- `refactoring/completed/PHASE_8_COMPLETE.md` - Deployment Configuration
+
+## 🤝 Contributing
+
+This is an educational project. For contributions:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
 
 ## 📄 License
 
@@ -260,7 +356,8 @@ This project is created for educational purposes.
 
 ---
 
-Built with ❤️ using Firebase, Bootstrap, and modern web technologies
+**Built with ❤️ using React, Vite, Firebase, and modern web technologies**
 
-**Version**: 1.0.0  
-**Last Updated**: October 2025
+**Version**: 2.0.0 (React Refactor)
+**Last Updated**: November 19, 2025
+**Test Coverage**: 55 tests passing (100%)

@@ -45,20 +45,21 @@ service cloud.firestore {
     }
     
     // Sessions collection - Student registrations
-    match /sessions/{session}/{phone} {
+    // Actual structure: /sessions/{session}/students/{phone}
+    match /sessions/{session}/students/{phone} {
       // Students can create their own registration
       // Phone number in path must match parentPhone in data
       allow create: if isValidPhone(phone) &&
                        phone == request.resource.data.parentPhone &&
                        isValidStudentData(request.resource.data) &&
                        request.resource.data.session == session;
-      
+
       // Anyone can read (for student check-in verification)
       allow read: if true;
-      
+
       // Only authenticated teachers can delete
       allow delete: if isAuthenticated();
-      
+
       // Students can update their lastAccessed timestamp
       allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAccessed']);
     }

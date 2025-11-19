@@ -401,7 +401,9 @@ async function loadStudents(session) {
     `;
     
     try {
-        const studentsRef = collection(db, 'sessions', session);
+        // Use students subcollection under each session
+        const studentsRef = collection(db, 'sessions', session, 'students');
+        console.debug('loadStudents - querying path:', studentsRef.path || `${'sessions/' + session + '/students'}`);
         const querySnapshot = await getDocs(studentsRef);
         
         const students = [];
@@ -414,8 +416,8 @@ async function loadStudents(session) {
         
         // Sort by registration date (newest first)
         students.sort((a, b) => {
-            const dateA = a.registeredAt?.toMillis() || 0;
-            const dateB = b.registeredAt?.toMillis() || 0;
+            const dateA = a.registeredAt?.toMillis ? a.registeredAt.toMillis() : (a.registeredAt?.toDate ? a.registeredAt.toDate().getTime() : 0);
+            const dateB = b.registeredAt?.toMillis ? b.registeredAt.toMillis() : (b.registeredAt?.toDate ? b.registeredAt.toDate().getTime() : 0);
             return dateB - dateA;
         });
         
@@ -568,7 +570,9 @@ async function deleteStudent(session, phoneNumber, studentName) {
     showLoadingToast('Deleting student...');
     
     try {
-        const docRef = doc(db, 'sessions', session, phoneNumber);
+        // Delete from students subcollection
+        const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
+        console.debug('deleteStudent - deleting path:', docRef.path);
         await deleteDoc(docRef);
         
         hideLoadingToast();
@@ -592,7 +596,9 @@ async function exportToCSV(session) {
     try {
         showLoadingToast('Preparing export...');
         
-        const studentsRef = collection(db, 'sessions', session);
+        // Use students subcollection under the session document
+        const studentsRef = collection(db, 'sessions', session, 'students');
+        console.debug('exportToCSV - querying path:', studentsRef.path || `${'sessions/' + session + '/students'}`);
         const querySnapshot = await getDocs(studentsRef);
         
         const students = [];
