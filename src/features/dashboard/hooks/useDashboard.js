@@ -10,7 +10,7 @@ import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
 import { trackStudentDelete, trackCSVExport } from '@utils/analytics';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 export const useDashboard = () => {
   const [morningStudents, setMorningStudents] = useState([]);
@@ -135,7 +135,7 @@ export const useDashboard = () => {
     });
 
     // Add table
-    doc.autoTable({
+    autoTable(doc, {
       head: [['#', 'Student Name', 'Parent Phone', 'Class', 'Subjects', 'Payment Receipt', 'Registered']],
       body: tableData,
       startY: 35,

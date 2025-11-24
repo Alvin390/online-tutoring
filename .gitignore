@@ -33,6 +33,10 @@ dist-ssr
 *.key
 *.pem
 
+archive-pre-react-version/firebase-config/online-tutoring-6d71a-firebase-adminsdk-fbsvc-aad574be11.json
+archive-pre-react-version/
+refactoring/
+
 # Archive folder (DO NOT IGNORE - contains historical reference files)
 # The archive-pre-react-version/ folder contains the original vanilla JS version
 # Keep this folder tracked in git for reference purposes
