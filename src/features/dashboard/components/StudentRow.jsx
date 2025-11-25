@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
 const escapeHtml = (text) => {
@@ -16,6 +16,7 @@ const escapeHtml = (text) => {
 export default function StudentRow({ student, index, session, onDelete, onEdit, onBlock, onUnblock, onApprove, onDecline }) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   const isBlocked = student.blocked || false;
   const hasPendingReceipt = student.receiptStatus === 'pending' && student.pendingReceipt;
@@ -30,12 +31,23 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
       minute: '2-digit'
     }) || 'N/A';
 
+  // Detect touch device on mount
+  useEffect(() => {
+    const checkTouchDevice = () => {
+      return ('ontouchstart' in window) ||
+             (navigator.maxTouchPoints > 0) ||
+             (navigator.msMaxTouchPoints > 0) ||
+             !window.matchMedia('(hover: hover)').matches;
+    };
+    setIsTouchDevice(checkTouchDevice());
+  }, []);
+
   const handleMouseEnter = () => {
-    // Only use hover delay on desktop (not touch devices)
-    if (window.matchMedia('(hover: hover)').matches) {
+    // Only use hover on desktop
+    if (!isTouchDevice) {
       const timeout = setTimeout(() => {
         setShowPopup(true);
-      }, 1500); // 1.5 seconds delay
+      }, 1500);
       setHoverTimeout(timeout);
     }
   };
@@ -45,16 +57,19 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
       clearTimeout(hoverTimeout);
       setHoverTimeout(null);
     }
-    // Only auto-close on desktop hover
-    if (window.matchMedia('(hover: hover)').matches) {
+    // Only auto-close on desktop
+    if (!isTouchDevice) {
       setShowPopup(false);
     }
   };
 
-  const handleClick = () => {
-    // On mobile/touch devices, toggle popup on click
-    if (!window.matchMedia('(hover: hover)').matches) {
-      setShowPopup(!showPopup);
+  const handleClick = (e) => {
+    // On mobile: toggle popup on click
+    if (isTouchDevice) {
+      // Don't trigger if clicking action buttons
+      if (!e.target.closest('.table-action-btn')) {
+        setShowPopup(!showPopup);
+      }
     }
   };
 
@@ -166,14 +181,16 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
       {/* Hover Popup Portal */}
       {showPopup && createPortal(
         <AnimatePresence>
-          {/* Backdrop for mobile - click to close */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="student-info-backdrop"
-            onClick={() => setShowPopup(false)}
-          />
+          {/* Backdrop for mobile only - click to close */}
+          {isTouchDevice && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="student-info-backdrop"
+              onClick={() => setShowPopup(false)}
+            />
+          )}
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -182,11 +199,13 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
             className="student-info-popup"
             onClick={(e) => e.stopPropagation()}
             onMouseEnter={() => {
-              if (hoverTimeout) {
+              if (!isTouchDevice && hoverTimeout) {
                 clearTimeout(hoverTimeout);
                 setHoverTimeout(null);
               }
-              setShowPopup(true);
+              if (!isTouchDevice) {
+                setShowPopup(true);
+              }
             }}
             onMouseLeave={handleMouseLeave}
           >
