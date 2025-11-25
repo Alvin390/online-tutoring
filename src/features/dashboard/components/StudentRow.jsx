@@ -31,10 +31,13 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
     }) || 'N/A';
 
   const handleMouseEnter = () => {
-    const timeout = setTimeout(() => {
-      setShowPopup(true);
-    }, 1500); // 1.5 seconds delay
-    setHoverTimeout(timeout);
+    // Only use hover delay on desktop (not touch devices)
+    if (window.matchMedia('(hover: hover)').matches) {
+      const timeout = setTimeout(() => {
+        setShowPopup(true);
+      }, 1500); // 1.5 seconds delay
+      setHoverTimeout(timeout);
+    }
   };
 
   const handleMouseLeave = () => {
@@ -42,7 +45,17 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
       clearTimeout(hoverTimeout);
       setHoverTimeout(null);
     }
-    setShowPopup(false);
+    // Only auto-close on desktop hover
+    if (window.matchMedia('(hover: hover)').matches) {
+      setShowPopup(false);
+    }
+  };
+
+  const handleClick = () => {
+    // On mobile/touch devices, toggle popup on click
+    if (!window.matchMedia('(hover: hover)').matches) {
+      setShowPopup(!showPopup);
+    }
   };
 
   return (
@@ -55,6 +68,8 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
         className="student-row-wrapper"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
+        style={{ cursor: 'pointer' }}
       >
       <td><strong>{index + 1}</strong></td>
       <td>
@@ -113,7 +128,10 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
         <div className="d-flex gap-1 flex-wrap">
           <button
             className="btn btn-primary btn-sm table-action-btn"
-            onClick={() => onEdit(student)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(student);
+            }}
             title="Edit student"
           >
             <i className="bi bi-pencil" />
@@ -121,7 +139,10 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
           {!isBlocked && (
             <button
               className="btn btn-warning btn-sm table-action-btn"
-              onClick={onBlock}
+              onClick={(e) => {
+                e.stopPropagation();
+                onBlock();
+              }}
               title="Block student"
             >
               <i className="bi bi-slash-circle" />
@@ -129,7 +150,10 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
           )}
           <button
             className="btn btn-danger btn-sm table-action-btn"
-            onClick={onDelete}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
             title="Delete student"
           >
             <i className="bi bi-trash" />
@@ -142,12 +166,21 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
       {/* Hover Popup Portal */}
       {showPopup && createPortal(
         <AnimatePresence>
+          {/* Backdrop for mobile - click to close */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="student-info-backdrop"
+            onClick={() => setShowPopup(false)}
+          />
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className="student-info-popup"
+            onClick={(e) => e.stopPropagation()}
             onMouseEnter={() => {
               if (hoverTimeout) {
                 clearTimeout(hoverTimeout);
