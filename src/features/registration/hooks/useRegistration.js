@@ -4,6 +4,7 @@ import {
   registerStudent,
   updateLastAccessed,
   getZoomLinks,
+  submitNewReceipt,
 } from '@services/firebase/firestore';
 import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
@@ -13,17 +14,22 @@ export const useRegistration = (session) => {
   const [loading, setLoading] = useState(false);
   const [studentData, setStudentData] = useState(null);
   const [isReturningStudent, setIsReturningStudent] = useState(false);
+  const [currentPhoneNumber, setCurrentPhoneNumber] = useState('');
   const { showError, showSuccess } = useToast();
 
   const checkStudent = useCallback(async (phoneNumber) => {
     setLoading(true);
+    setCurrentPhoneNumber(phoneNumber);
     try {
       const { exists, data } = await checkStudentExists(session, phoneNumber);
 
       if (exists) {
         setStudentData(data);
         setIsReturningStudent(true);
-        await updateLastAccessed(session, phoneNumber);
+        // Don't update lastAccessed if blocked, as we want to show blocked screen
+        if (!data.blocked) {
+          await updateLastAccessed(session, phoneNumber);
+        }
       } else {
         setIsReturningStudent(false);
       }
@@ -92,6 +98,26 @@ export const useRegistration = (session) => {
     }
   }, [session, showError]);
 
+  const submitReceipt = useCallback(async (receiptMessage) => {
+    setLoading(true);
+    try {
+      await submitNewReceipt(session, currentPhoneNumber, receiptMessage);
+      showSuccess('Payment receipt submitted successfully! Awaiting teacher approval.');
+
+      // Refresh student data to show pending status
+      const { data } = await checkStudentExists(session, currentPhoneNumber);
+      setStudentData(data);
+
+      return { success: true };
+    } catch (error) {
+      logger.error('Submit receipt failed', error);
+      showError('Failed to submit receipt. Please try again.');
+      return { success: false, error };
+    } finally {
+      setLoading(false);
+    }
+  }, [session, currentPhoneNumber, showSuccess, showError]);
+
   return {
     loading,
     studentData,
@@ -99,5 +125,6 @@ export const useRegistration = (session) => {
     checkStudent,
     register,
     redirectToZoom,
+    submitReceipt,
   };
 };

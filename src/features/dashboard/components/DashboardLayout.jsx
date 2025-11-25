@@ -21,6 +21,10 @@ export default function DashboardLayout() {
     deleteStudent,
     updateStudent,
     exportToPDF,
+    blockStudent,
+    unblockStudent,
+    approveReceipt,
+    declineReceipt,
     totalStudents,
   } = useDashboard();
 
@@ -128,6 +132,10 @@ export default function DashboardLayout() {
                   onDelete={deleteStudent}
                   onEdit={updateStudent}
                   onExport={exportToPDF}
+                  onBlock={blockStudent}
+                  onUnblock={unblockStudent}
+                  onApprove={approveReceipt}
+                  onDecline={declineReceipt}
                   loading={loading}
                 />
               ) : (
@@ -137,6 +145,10 @@ export default function DashboardLayout() {
                   onDelete={deleteStudent}
                   onEdit={updateStudent}
                   onExport={exportToPDF}
+                  onBlock={blockStudent}
+                  onUnblock={unblockStudent}
+                  onApprove={approveReceipt}
+                  onDecline={declineReceipt}
                   loading={loading}
                 />
               )}

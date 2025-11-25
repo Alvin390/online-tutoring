@@ -62,6 +62,13 @@ service cloud.firestore {
 
       // Students can update their lastAccessed timestamp
       allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAccessed']);
+
+      // Students can submit new payment receipts when blocked
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingReceipt', 'receiptStatus', 'receiptSubmittedAt']) &&
+                       request.resource.data.receiptStatus == 'pending';
+
+      // Authenticated teachers can update block status and receipt approvals
+      allow update: if isAuthenticated();
     }
     
     // Admin collection (optional - for future use)

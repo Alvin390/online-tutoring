@@ -4,13 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import CheckinCard from '@features/registration/components/CheckinCard';
 import RegistrationForm from '@features/registration/components/RegistrationForm';
 import WelcomeBackCard from '@features/registration/components/WelcomeBackCard';
+import BlockedStudentScreen from '@features/registration/components/BlockedStudentScreen';
 import SuccessScreen from '@features/registration/components/SuccessScreen';
 import { useRegistration } from '@features/registration/hooks/useRegistration';
 
 const SESSION = 'evening';
 
 export default function EveningPage() {
-  const [step, setStep] = useState('checkin'); // checkin, register, welcome, success, redirect
+  const [step, setStep] = useState('checkin'); // checkin, register, welcome, blocked, success, redirect
   const [phoneNumber, setPhoneNumber] = useState('');
   const [zoomLink, setZoomLink] = useState('');
 
@@ -21,6 +22,7 @@ export default function EveningPage() {
     checkStudent,
     register,
     redirectToZoom,
+    submitReceipt,
   } = useRegistration(SESSION);
 
   const handleCheckin = async (phone) => {
@@ -28,7 +30,12 @@ export default function EveningPage() {
     const { exists, data } = await checkStudent(phone);
 
     if (exists) {
-      setStep('welcome');
+      // Check if student is blocked
+      if (data.blocked) {
+        setStep('blocked');
+      } else {
+        setStep('welcome');
+      }
     } else {
       setStep('register');
     }
@@ -48,6 +55,11 @@ export default function EveningPage() {
     if (result.success) {
       setZoomLink(result.zoomLink);
     }
+  };
+
+  const handleSubmitReceipt = async (receiptMessage) => {
+    await submitReceipt(receiptMessage);
+    // Keep student on blocked screen to see pending status
   };
 
   const handleBack = () => {
@@ -102,6 +114,17 @@ export default function EveningPage() {
                   session={SESSION}
                   phoneNumber={phoneNumber}
                   onSubmit={handleRegistration}
+                  onBack={handleBack}
+                  loading={loading}
+                />
+              )}
+
+              {step === 'blocked' && studentData && (
+                <BlockedStudentScreen
+                  key="blocked"
+                  session={SESSION}
+                  studentData={studentData}
+                  onSubmitReceipt={handleSubmitReceipt}
                   onBack={handleBack}
                   loading={loading}
                 />

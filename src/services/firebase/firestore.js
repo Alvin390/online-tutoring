@@ -80,6 +80,99 @@ export const deleteStudent = async (session, phoneNumber) => {
   }
 };
 
+export const blockStudent = async (session, phoneNumber, blockReason = '') => {
+  try {
+    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
+    await setDoc(docRef, {
+      blocked: true,
+      blockReason: blockReason,
+      blockedAt: serverTimestamp(),
+      receiptStatus: 'expired'
+    }, { merge: true });
+    console.log(`✅ blockStudent success: session=${session}, phone=${phoneNumber}`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ blockStudent failed:', error);
+    throw error;
+  }
+};
+
+export const unblockStudent = async (session, phoneNumber) => {
+  try {
+    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
+    await setDoc(docRef, {
+      blocked: false,
+      blockReason: '',
+      blockedAt: null,
+      receiptStatus: 'approved',
+      pendingReceipt: null
+    }, { merge: true });
+    console.log(`✅ unblockStudent success: session=${session}, phone=${phoneNumber}`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ unblockStudent failed:', error);
+    throw error;
+  }
+};
+
+export const submitNewReceipt = async (session, phoneNumber, receiptMessage) => {
+  try {
+    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
+    await setDoc(docRef, {
+      pendingReceipt: receiptMessage,
+      receiptStatus: 'pending',
+      receiptSubmittedAt: serverTimestamp()
+    }, { merge: true });
+    console.log(`✅ submitNewReceipt success: session=${session}, phone=${phoneNumber}`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ submitNewReceipt failed:', error);
+    throw error;
+  }
+};
+
+export const approveReceipt = async (session, phoneNumber) => {
+  try {
+    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
+    const docSnap = await getDoc(docRef);
+
+    if (!docSnap.exists()) {
+      throw new Error('Student not found');
+    }
+
+    const data = docSnap.data();
+    await setDoc(docRef, {
+      blocked: false,
+      blockReason: '',
+      receiptMessage: data.pendingReceipt || data.receiptMessage,
+      pendingReceipt: null,
+      receiptStatus: 'approved',
+      receiptApprovedAt: serverTimestamp()
+    }, { merge: true });
+    console.log(`✅ approveReceipt success: session=${session}, phone=${phoneNumber}`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ approveReceipt failed:', error);
+    throw error;
+  }
+};
+
+export const declineReceipt = async (session, phoneNumber) => {
+  try {
+    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
+    await setDoc(docRef, {
+      receiptStatus: 'declined',
+      pendingReceipt: null,
+      receiptDeclinedAt: serverTimestamp()
+    }, { merge: true });
+    console.log(`✅ declineReceipt success: session=${session}, phone=${phoneNumber}`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ declineReceipt failed:', error);
+    throw error;
+  }
+};
+
 // ============================================
 // DASHBOARD OPERATIONS
 // ============================================

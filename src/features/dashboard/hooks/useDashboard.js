@@ -5,6 +5,10 @@ import {
   getZoomLinks,
   updateZoomLink as updateZoomLinkService,
   registerStudent as updateStudentService,
+  blockStudent as blockStudentService,
+  unblockStudent as unblockStudentService,
+  approveReceipt as approveReceiptService,
+  declineReceipt as declineReceiptService,
 } from '@services/firebase/firestore';
 import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
@@ -189,6 +193,54 @@ export const useDashboard = () => {
     showSuccess('PDF exported successfully');
   }, [morningStudents, eveningStudents, showSuccess, showError]);
 
+  const blockStudent = useCallback(async (session, phoneNumber, studentName, blockReason) => {
+    try {
+      await blockStudentService(session, phoneNumber, blockReason);
+      showSuccess(`${studentName} has been blocked`);
+      return { success: true };
+    } catch (error) {
+      logger.error('Block student failed', error);
+      showError('Failed to block student. Please try again.');
+      return { success: false };
+    }
+  }, [showSuccess, showError]);
+
+  const unblockStudent = useCallback(async (session, phoneNumber, studentName) => {
+    try {
+      await unblockStudentService(session, phoneNumber);
+      showSuccess(`${studentName} has been unblocked`);
+      return { success: true };
+    } catch (error) {
+      logger.error('Unblock student failed', error);
+      showError('Failed to unblock student. Please try again.');
+      return { success: false };
+    }
+  }, [showSuccess, showError]);
+
+  const approveReceipt = useCallback(async (session, phoneNumber, studentName) => {
+    try {
+      await approveReceiptService(session, phoneNumber);
+      showSuccess(`Payment receipt approved for ${studentName}`);
+      return { success: true };
+    } catch (error) {
+      logger.error('Approve receipt failed', error);
+      showError('Failed to approve receipt. Please try again.');
+      return { success: false };
+    }
+  }, [showSuccess, showError]);
+
+  const declineReceipt = useCallback(async (session, phoneNumber, studentName) => {
+    try {
+      await declineReceiptService(session, phoneNumber);
+      showSuccess(`Payment receipt declined for ${studentName}`);
+      return { success: true };
+    } catch (error) {
+      logger.error('Decline receipt failed', error);
+      showError('Failed to decline receipt. Please try again.');
+      return { success: false };
+    }
+  }, [showSuccess, showError]);
+
   return {
     morningStudents,
     eveningStudents,
@@ -200,6 +252,10 @@ export const useDashboard = () => {
     deleteStudent,
     updateStudent,
     exportToPDF,
+    blockStudent,
+    unblockStudent,
+    approveReceipt,
+    declineReceipt,
     totalStudents: morningStudents.length + eveningStudents.length,
   };
 };

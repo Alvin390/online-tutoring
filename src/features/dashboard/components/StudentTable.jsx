@@ -9,14 +9,21 @@ export default function StudentTable({
   onDelete,
   onEdit,
   onExport,
+  onBlock,
+  onUnblock,
+  onApprove,
+  onDecline,
   loading
 }) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [blocking, setBlocking] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [blockReason, setBlockReason] = useState('');
 
   const handleDeleteClick = (student) => {
     setSelectedStudent(student);
@@ -33,6 +40,12 @@ export default function StudentTable({
       receiptMessage: student.receiptMessage
     });
     setShowEditModal(true);
+  };
+
+  const handleBlockClick = (student) => {
+    setSelectedStudent(student);
+    setBlockReason('');
+    setShowBlockModal(true);
   };
 
   const handleDeleteConfirm = async () => {
@@ -53,6 +66,17 @@ export default function StudentTable({
     setSaving(false);
     setShowEditModal(false);
     setSelectedStudent(null);
+  };
+
+  const handleBlockConfirm = async () => {
+    if (!selectedStudent) return;
+
+    setBlocking(true);
+    await onBlock(session, selectedStudent.id, selectedStudent.studentName, blockReason);
+    setBlocking(false);
+    setShowBlockModal(false);
+    setSelectedStudent(null);
+    setBlockReason('');
   };
 
   if (loading) {
@@ -117,8 +141,13 @@ export default function StudentTable({
                   key={student.id}
                   student={student}
                   index={index}
+                  session={session}
                   onDelete={() => handleDeleteClick(student)}
                   onEdit={() => handleEditClick(student)}
+                  onBlock={() => handleBlockClick(student)}
+                  onUnblock={onUnblock}
+                  onApprove={onApprove}
+                  onDecline={onDecline}
                 />
               ))}
             </AnimatePresence>
@@ -247,6 +276,48 @@ export default function StudentTable({
           <div className="alert alert-info">
             <i className="bi bi-info-circle me-2" />
             <small>If you change the phone number, a new record will be created and the old one will be removed.</small>
+          </div>
+        </Modal>
+      )}
+
+      {/* Block Student Modal */}
+      {showBlockModal && selectedStudent && (
+        <Modal
+          title="Block Student"
+          onClose={() => setShowBlockModal(false)}
+          onConfirm={handleBlockConfirm}
+          loading={blocking}
+          type="danger"
+        >
+          <div className="text-center">
+            <div className="modal-icon danger mb-3">
+              <i className="bi bi-slash-circle" />
+            </div>
+            <p className="mb-3">
+              Block <strong>{selectedStudent.studentName}</strong> from accessing {session} session?
+            </p>
+            <p className="text-muted mb-3">
+              <small>Parent Phone: {selectedStudent.id}</small>
+            </p>
+
+            <div className="mb-3 text-start">
+              <label className="form-label fw-bold">
+                <i className="bi bi-chat-left-text me-2" />
+                Block Reason (Optional)
+              </label>
+              <textarea
+                className="form-control"
+                rows="3"
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                placeholder="e.g., Fee arrears for January 2025"
+              />
+            </div>
+
+            <div className="alert alert-warning text-start">
+              <i className="bi bi-exclamation-triangle me-2" />
+              <small>The student will be blocked until they submit a new payment receipt and you approve it.</small>
+            </div>
           </div>
         </Modal>
       )}

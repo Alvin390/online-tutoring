@@ -13,9 +13,13 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
-export default function StudentRow({ student, index, onDelete, onEdit }) {
+export default function StudentRow({ student, index, session, onDelete, onEdit, onBlock, onUnblock, onApprove, onDecline }) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
+
+  const isBlocked = student.blocked || false;
+  const hasPendingReceipt = student.receiptStatus === 'pending' && student.pendingReceipt;
+  const isDeclined = student.receiptStatus === 'declined';
 
   const regDate = student.registeredAt?.toDate?.()
     .toLocaleString('en-GB', {
@@ -63,7 +67,13 @@ export default function StudentRow({ student, index, onDelete, onEdit }) {
               {student.studentName.charAt(0).toUpperCase()}
             </strong>
           </div>
-          <strong>{escapeHtml(student.studentName)}</strong>
+          <div>
+            <div className="d-flex align-items-center gap-2">
+              <strong>{escapeHtml(student.studentName)}</strong>
+              {isBlocked && <span className="badge bg-danger">Blocked</span>}
+              {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
+            </div>
+          </div>
         </div>
       </td>
       <td>
@@ -100,7 +110,7 @@ export default function StudentRow({ student, index, onDelete, onEdit }) {
         <small className="text-muted">{regDate}</small>
       </td>
       <td>
-        <div className="d-flex gap-1">
+        <div className="d-flex gap-1 flex-wrap">
           <button
             className="btn btn-primary btn-sm table-action-btn"
             onClick={() => onEdit(student)}
@@ -108,6 +118,15 @@ export default function StudentRow({ student, index, onDelete, onEdit }) {
           >
             <i className="bi bi-pencil" />
           </button>
+          {!isBlocked && (
+            <button
+              className="btn btn-warning btn-sm table-action-btn"
+              onClick={onBlock}
+              title="Block student"
+            >
+              <i className="bi bi-slash-circle" />
+            </button>
+          )}
           <button
             className="btn btn-danger btn-sm table-action-btn"
             onClick={onDelete}
@@ -142,7 +161,21 @@ export default function StudentRow({ student, index, onDelete, onEdit }) {
               <div className="student-info-avatar">
                 {student.studentName.charAt(0).toUpperCase()}
               </div>
-              <h6 className="student-info-name">{escapeHtml(student.studentName)}</h6>
+              <div className="flex-grow-1">
+                <h6 className="student-info-name mb-1">{escapeHtml(student.studentName)}</h6>
+                {isBlocked && (
+                  <span className="badge bg-danger" style={{ fontSize: '0.7rem' }}>
+                    <i className="bi bi-slash-circle me-1" />
+                    BLOCKED
+                  </span>
+                )}
+                {hasPendingReceipt && (
+                  <span className="badge bg-warning text-dark ms-1" style={{ fontSize: '0.7rem' }}>
+                    <i className="bi bi-clock me-1" />
+                    PENDING APPROVAL
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="student-info-grid">
@@ -173,10 +206,65 @@ export default function StudentRow({ student, index, onDelete, onEdit }) {
               <div className="student-info-item">
                 <i className="bi bi-receipt student-info-icon" />
                 <div className="student-info-content">
-                  <div className="student-info-label">Payment Receipt</div>
+                  <div className="student-info-label">
+                    Payment Receipt
+                    {isBlocked && !hasPendingReceipt && (
+                      <span className="badge bg-danger ms-2" style={{ fontSize: '0.65rem' }}>
+                        EXPIRED
+                      </span>
+                    )}
+                  </div>
                   <div className="student-info-receipt">
                     <small>{escapeHtml(student.receiptMessage)}</small>
                   </div>
+
+                  {hasPendingReceipt && (
+                    <div className="mt-2">
+                      <div className="student-info-label text-success">
+                        <i className="bi bi-clock-history me-1" />
+                        New Payment Receipt (Pending)
+                      </div>
+                      <div className="student-info-receipt" style={{ borderLeft: '3px solid #ffc107' }}>
+                        <small>{escapeHtml(student.pendingReceipt)}</small>
+                      </div>
+                      <div className="mt-2 d-flex gap-2">
+                        <button
+                          className="btn btn-success btn-sm"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await onApprove(session, student.id, student.studentName);
+                            setShowPopup(false);
+                          }}
+                        >
+                          <i className="bi bi-check-circle me-1" />
+                          Approve
+                        </button>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await onDecline(session, student.id, student.studentName);
+                            setShowPopup(false);
+                          }}
+                        >
+                          <i className="bi bi-x-circle me-1" />
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {isBlocked && student.blockReason && (
+                    <div className="mt-2">
+                      <div className="student-info-label text-danger">
+                        <i className="bi bi-info-circle me-1" />
+                        Block Reason
+                      </div>
+                      <div className="alert alert-danger py-2 mb-0" style={{ fontSize: '0.85rem' }}>
+                        {escapeHtml(student.blockReason)}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -187,6 +275,22 @@ export default function StudentRow({ student, index, onDelete, onEdit }) {
                   <div className="student-info-value">{regDate}</div>
                 </div>
               </div>
+
+              {isBlocked && (
+                <div className="mt-3 text-center border-top pt-3">
+                  <button
+                    className="btn btn-outline-success btn-sm"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await onUnblock(session, student.id, student.studentName);
+                      setShowPopup(false);
+                    }}
+                  >
+                    <i className="bi bi-unlock me-1" />
+                    Cancel Block
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         </AnimatePresence>,
