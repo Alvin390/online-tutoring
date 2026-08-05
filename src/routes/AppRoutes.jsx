@@ -10,6 +10,7 @@ const MorningPage = lazy(() => import('@/pages/MorningPage'));
 const EveningPage = lazy(() => import('@/pages/EveningPage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
 export default function AppRoutes() {
@@ -20,14 +21,19 @@ export default function AppRoutes() {
         <Route path={ROUTES.MORNING} element={<MorningPage />} />
         <Route path={ROUTES.EVENING} element={<EveningPage />} />
         <Route path={ROUTES.LOGIN} element={<LoginPage />} />
+        <Route path={ROUTES.FORBIDDEN} element={<ForbiddenPage />} />
+
         <Route
           path={ROUTES.DASHBOARD}
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="teacher" requireActive>
               <DashboardPage />
             </ProtectedRoute>
           }
         />
+
+        {/* ROUTES.BILLING is added in Phase 03 alongside BillingPage. */}
+
         <Route path={ROUTES.NOT_FOUND} element={<NotFoundPage />} />
       </Routes>
     </Suspense>

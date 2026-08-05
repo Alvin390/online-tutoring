@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useAuth } from '@features/auth/context/AuthContext';
+import { useAuthActions } from '@features/auth/context/AuthContext';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -10,8 +10,22 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { signIn } = useAuth();
+  // Only the actions context, so a claim refresh elsewhere does not re-render
+  // this form and drop what the user is typing.
+  const { signIn } = useAuthActions();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  /**
+   * Deep-link preservation — Phase 02 D5. ProtectedRoute stashes the intended
+   * destination in location.state; an internal path only, so a crafted
+   * `?next=https://evil.com` cannot turn the login page into an open redirect.
+   */
+  const rawFrom = location.state?.from;
+  const redirectTo =
+    typeof rawFrom === 'string' && rawFrom.startsWith('/') && !rawFrom.startsWith('//')
+      ? rawFrom
+      : '/dashboard';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -21,8 +35,11 @@ export default function LoginPage() {
     const result = await signIn(email, password);
 
     if (result.success) {
-      navigate('/dashboard');
+      navigate(redirectTo, { replace: true });
     } else {
+      // getAuthErrorMessage already collapses auth/user-not-found and
+      // auth/wrong-password into one message, so a failed sign-in never
+      // reveals whether the address is registered.
       setError(result.error);
       setLoading(false);
     }
@@ -98,12 +115,15 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Error */}
+                {/* Error. role="alert" so a screen reader announces the
+                    failure rather than leaving the user waiting silently. */}
                 {error && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="alert alert-danger"
+                    role="alert"
+                    aria-live="assertive"
                   >
                     {error}
                   </motion.div>

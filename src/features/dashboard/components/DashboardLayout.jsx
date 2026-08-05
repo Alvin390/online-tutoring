@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useAuth } from '@features/auth/context/AuthContext';
+import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
+import IdleWarningModal from '@features/auth/components/IdleWarningModal';
+import useIdleTimeout from '@hooks/useIdleTimeout';
 import StatsCards from './StatsCards';
 import ZoomLinkManager from './ZoomLinkManager';
 import StudentTable from './StudentTable';
@@ -9,7 +11,8 @@ import { useDashboard } from '../hooks/useDashboard';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user } = useAuthState();
+  const { signOut } = useAuthActions();
   const {
     morningStudents,
     eveningStudents,
@@ -30,10 +33,21 @@ export default function DashboardLayout() {
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     await signOut();
     navigate('/');
-  };
+  }, [signOut, navigate]);
+
+  /**
+   * Idle timeout — Phase 02 D3. The dashboard shows every student's name,
+   * parent phone and payment history, so an unattended session is a real
+   * exposure rather than a hygiene nit. 12 hours, warning at 11h58m.
+   */
+  const { warning, msRemaining, reset } = useIdleTimeout({
+    timeoutMs: 12 * 60 * 60 * 1000,
+    warningMs: 2 * 60 * 1000,
+    onTimeout: handleLogout,
+  });
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -49,6 +63,13 @@ export default function DashboardLayout() {
       animate={{ opacity: 1 }}
       className="dashboard-container"
     >
+      <IdleWarningModal
+        open={warning}
+        msRemaining={msRemaining}
+        onStaySignedIn={reset}
+        onSignOut={handleLogout}
+      />
+
       {/* Dashboard Header */}
       <div className="dashboard-header text-white py-3 sticky-top">
         <div className="container-fluid">
