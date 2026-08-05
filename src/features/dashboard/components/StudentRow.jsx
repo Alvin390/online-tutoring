@@ -13,7 +13,7 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
-export default function StudentRow({ student, index, session, onDelete, onEdit, onBlock, onUnblock, onApprove, onDecline }) {
+export default function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline }) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -94,7 +94,7 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
             style={{ width: '40px', height: '40px' }}
           >
             <strong className="text-primary">
-              {student.studentName.charAt(0).toUpperCase()}
+              {student.studentName?.charAt(0)?.toUpperCase() ?? '?'}
             </strong>
           </div>
           <div>
@@ -141,6 +141,21 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
       </td>
       <td>
         <div className="d-flex gap-1 flex-wrap">
+          {/* Opens the detail drawer (Phase 05) — details, and private notes
+              when notes.enabled is on. */}
+          {onView && (
+            <button
+              className="btn btn-outline-secondary btn-sm table-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onView(student);
+              }}
+              title={`Open details and notes for ${student.studentName ?? 'this student'}`}
+              aria-label={`Open details and notes for ${student.studentName ?? 'this student'}`}
+            >
+              <i className="bi bi-journal-text" aria-hidden="true" />
+            </button>
+          )}
           <button
             className="btn btn-primary btn-sm table-action-btn"
             onClick={(e) => {
@@ -211,7 +226,7 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
           >
             <div className="student-info-header">
               <div className="student-info-avatar">
-                {student.studentName.charAt(0).toUpperCase()}
+                {student.studentName?.charAt(0)?.toUpperCase() ?? '?'}
               </div>
               <div className="flex-grow-1">
                 <h6 className="student-info-name mb-1">{escapeHtml(student.studentName)}</h6>

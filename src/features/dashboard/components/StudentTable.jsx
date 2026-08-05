@@ -8,6 +8,7 @@ export default function StudentTable({
   students,
   onDelete,
   onEdit,
+  onView,
   onExport,
   onBlock,
   onUnblock,
@@ -144,6 +145,7 @@ export default function StudentTable({
                   session={session}
                   onDelete={() => handleDeleteClick(student)}
                   onEdit={() => handleEditClick(student)}
+                  onView={onView ? () => onView(student) : undefined}
                   onBlock={() => handleBlockClick(student)}
                   onUnblock={onUnblock}
                   onApprove={onApprove}

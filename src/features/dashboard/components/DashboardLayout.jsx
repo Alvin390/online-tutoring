@@ -7,6 +7,8 @@ import useIdleTimeout from '@hooks/useIdleTimeout';
 import StatsCards from './StatsCards';
 import ClassLinkManager from './ClassLinkManager';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
+import SessionManager from './SessionManager';
+import StudentDrawer from './StudentDrawer';
 import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
@@ -37,6 +39,11 @@ export default function DashboardLayout() {
   } = useDashboard();
 
   const requireApproval = useFlag('registration.requireApproval');
+  const teacherDefinedSessions = useFlag('sessions.teacherDefined');
+  const notesEnabled = useFlag('notes.enabled');
+
+  // Which student the detail drawer is showing, and from which session.
+  const [drawerStudent, setDrawerStudent] = useState(null);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -75,6 +82,13 @@ export default function DashboardLayout() {
         msRemaining={msRemaining}
         onStaySignedIn={reset}
         onSignOut={handleLogout}
+      />
+
+      <StudentDrawer
+        open={Boolean(drawerStudent)}
+        student={drawerStudent}
+        session={drawerStudent?.session ?? activeTab}
+        onClose={() => setDrawerStudent(null)}
       />
 
       {/* Dashboard Header */}
@@ -131,6 +145,10 @@ export default function DashboardLayout() {
           />
         )}
 
+        {/* Sessions (Phase 05). Behind a flag: with it off the two original
+            sessions are managed through ClassLinkManager exactly as before. */}
+        {teacherDefinedSessions && <SessionManager />}
+
         {/* Class Link Management */}
         <ClassLinkManager
           zoomLinks={zoomLinks}
@@ -171,6 +189,7 @@ export default function DashboardLayout() {
                   students={morningStudents}
                   onDelete={deleteStudent}
                   onEdit={updateStudent}
+                  onView={notesEnabled ? setDrawerStudent : undefined}
                   onExport={exportToPDF}
                   onBlock={blockStudent}
                   onUnblock={unblockStudent}
@@ -184,6 +203,7 @@ export default function DashboardLayout() {
                   students={eveningStudents}
                   onDelete={deleteStudent}
                   onEdit={updateStudent}
+                  onView={notesEnabled ? setDrawerStudent : undefined}
                   onExport={exportToPDF}
                   onBlock={blockStudent}
                   onUnblock={unblockStudent}

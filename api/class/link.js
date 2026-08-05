@@ -108,9 +108,29 @@ export default createHandler({
     }
 
     // --- Issue.
-    const linkSnap = await db.doc('config/zoomLinks').get();
-    const links = linkSnap.exists ? linkSnap.data() : {};
-    const url = links[session];
+    //
+    // Phase 05 moved the link to sessions/{slug}/private/classLink, which is
+    // staff-only. It deliberately does NOT live on the session document: that
+    // one is world-readable so an unauthenticated student can render the page,
+    // and putting the link there would recreate the leak Phase 01 closed.
+    //
+    // config/zoomLinks is read as a shim for deployments that have not run
+    // `npm run seed:sessions` yet. Removal criterion: sessions.teacherDefined
+    // has been on for 14 days with no reads recorded against this fallback.
+    let url = null;
+    let provider = null;
+
+    const privateSnap = await db.doc(`sessions/${session}/private/classLink`).get();
+    if (privateSnap.exists) {
+      url = privateSnap.data().url ?? null;
+      provider = privateSnap.data().provider ?? null;
+    }
+
+    if (!url) {
+      const legacySnap = await db.doc('config/zoomLinks').get();
+      url = legacySnap.exists ? (legacySnap.data()[session] ?? null) : null;
+      if (url) log.warn('Class link served from legacy config/zoomLinks shim', { session });
+    }
 
     if (!url) {
       throw notFound('The class link has not been set up yet. Please contact your teacher.');
@@ -132,7 +152,7 @@ export default createHandler({
 
     return {
       url,
-      provider: detectProvider(url),
+      provider: provider ?? detectProvider(url),
       session,
     };
   },

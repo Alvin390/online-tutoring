@@ -21,6 +21,7 @@
     "emulators": "firebase emulators:start --only firestore,auth",
     "dev:api": "vercel dev",
     "seed:superadmin": "node scripts/seedSuperadmin.js",
+    "seed:sessions": "node scripts/seedSessions.js",
     "audit:ci": "npm audit --audit-level=high"
   },
   "repository": {

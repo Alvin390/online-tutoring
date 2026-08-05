@@ -517,7 +517,179 @@ describe('transitional isTeacher() fallback', () => {
 });
 
 // ===========================================================================
-// 10. Default deny
+// 10. Private teacher notes — Phase 05 Part B
+//
+// The headline test of that phase. These notes say things like "weak in
+// algebra" or "parent asked about bullying". A student reading their own notes
+// is a trust breach, not a feature.
+// ===========================================================================
+
+describe('private student notes', () => {
+  const notePath = (phone = PHONE_A, session = 'morning') =>
+    `sessions/${session}/students/${phone}/notes/note1`;
+
+  beforeEach(async () => {
+    await seed(env, studentPath(PHONE_A), validRegistration(PHONE_A));
+    await seed(env, notePath(), {
+      body: 'Struggling with quadratics. Parent asked for extra practice.',
+      tags: ['maths'],
+      createdBy: 'teacher-uid',
+    });
+  });
+
+  it('DENIES a student reading their OWN notes', async () => {
+    // The one that matters most. A verified own-phone token is exactly the
+    // case a naive rule would allow.
+    await assertFails(getDoc(doc(student(env, PHONE_A), notePath())));
+  });
+
+  it('denies a student listing their own notes', async () => {
+    await assertFails(
+      getDocs(collection(student(env, PHONE_A), `sessions/morning/students/${PHONE_A}/notes`))
+    );
+  });
+
+  it('denies another student reading them', async () => {
+    await assertFails(getDoc(doc(student(env, PHONE_B), notePath())));
+  });
+
+  it('denies an anonymous read', async () => {
+    await assertFails(getDoc(doc(anon(env), notePath())));
+  });
+
+  it('denies a student writing a note', async () => {
+    await assertFails(
+      setDoc(doc(student(env, PHONE_A), notePath(PHONE_A)), { body: 'injected' })
+    );
+  });
+
+  it('denies a student a collection-group query over notes', async () => {
+    await assertFails(getDocs(query(collectionGroup(student(env, PHONE_A), 'notes'))));
+  });
+
+  it('allows the teacher to read, write and delete', async () => {
+    await assertSucceeds(getDoc(doc(teacher(env), notePath())));
+    await assertSucceeds(
+      setDoc(doc(teacher(env), `sessions/morning/students/${PHONE_A}/notes/note2`), {
+        body: 'Improving steadily.',
+        tags: [],
+        createdBy: 'teacher-uid',
+      })
+    );
+    await assertSucceeds(deleteDoc(doc(teacher(env), notePath())));
+  });
+
+  it('keeps the parent student document readable by that student', async () => {
+    // Notes are denied without denying the student their own record — which is
+    // exactly why they are a subcollection rather than a field.
+    await assertSucceeds(getDoc(doc(student(env, PHONE_A), studentPath(PHONE_A))));
+  });
+});
+
+// ===========================================================================
+// 11. Sessions — Phase 05 Part A
+// ===========================================================================
+
+describe('session documents', () => {
+  const validSession = (slug = 'saturday') => ({
+    name: 'Saturday Revision',
+    slug,
+    icon: 'bi-book-fill',
+    gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    order: 2,
+    active: true,
+  });
+
+  it('is world-readable — an unauthenticated student must render the page', async () => {
+    await seed(env, 'sessions/morning', validSession('morning'));
+    await assertSucceeds(getDoc(doc(anon(env), 'sessions/morning')));
+  });
+
+  it('allows a teacher to create one', async () => {
+    await assertSucceeds(
+      setDoc(doc(teacher(env), 'sessions/saturday'), validSession('saturday'))
+    );
+  });
+
+  it('denies an anonymous create', async () => {
+    await assertFails(
+      setDoc(doc(anon(env), 'sessions/saturday'), validSession('saturday'))
+    );
+  });
+
+  it('denies a slug that does not match the document ID', async () => {
+    await assertFails(
+      setDoc(doc(teacher(env), 'sessions/saturday'), validSession('sunday'))
+    );
+  });
+
+  it('denies reserved slugs', async () => {
+    for (const slug of ['dashboard', 'login', 'billing', 'api', 'superadmin']) {
+      // eslint-disable-next-line no-await-in-loop
+      await assertFails(setDoc(doc(teacher(env), `sessions/${slug}`), validSession(slug)));
+    }
+  });
+
+  it('denies a malformed slug', async () => {
+    await assertFails(
+      setDoc(doc(teacher(env), 'sessions/Bad_Slug'), validSession('Bad_Slug'))
+    );
+  });
+
+  it('denies an unexpected field (mass assignment)', async () => {
+    await assertFails(
+      setDoc(doc(teacher(env), 'sessions/saturday'), {
+        ...validSession('saturday'),
+        classLink: 'https://zoom.us/j/1',
+      })
+    );
+  });
+
+  it('denies a non-boolean active flag', async () => {
+    await assertFails(
+      setDoc(doc(teacher(env), 'sessions/saturday'), { ...validSession('saturday'), active: 'yes' })
+    );
+  });
+});
+
+describe('session class link stays private', () => {
+  beforeEach(async () => {
+    await seed(env, 'sessions/morning/private/classLink', {
+      url: 'https://us02web.zoom.us/j/123',
+      provider: 'zoom',
+    });
+  });
+
+  it('DENIES an anonymous read — this is the Phase 01 leak, not reintroduced', async () => {
+    await assertFails(getDoc(doc(anon(env), 'sessions/morning/private/classLink')));
+  });
+
+  it('denies a verified student reading it', async () => {
+    await assertFails(getDoc(doc(student(env, PHONE_A), 'sessions/morning/private/classLink')));
+  });
+
+  it('allows the teacher to read it', async () => {
+    await assertSucceeds(getDoc(doc(teacher(env), 'sessions/morning/private/classLink')));
+  });
+
+  it('validates the link on write', async () => {
+    await assertSucceeds(
+      setDoc(doc(teacher(env), 'sessions/morning/private/classLink'), {
+        url: 'https://meet.google.com/abc-defg-hij',
+        provider: 'meet',
+      })
+    );
+    await assertFails(
+      setDoc(doc(teacher(env), 'sessions/morning/private/classLink'), {
+        url: 'https://evil.com/?x=zoom.us',
+        provider: 'zoom',
+      })
+    );
+  });
+});
+
+// ===========================================================================
+// 12. Default deny
 // ===========================================================================
 
 describe('deny by default', () => {

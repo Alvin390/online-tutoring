@@ -193,6 +193,82 @@ service cloud.firestore {
     }
 
     // ==================================================================
+    // sessions/{sessionId} — Phase 05
+    //
+    // The document ID IS the slug, which gives uniqueness for free.
+    //
+    // ⚠ DELIBERATE DEVIATION FROM appendix-a-data-model.md ⚠
+    //
+    // Appendix A puts `classLink` on this document. It cannot go here.
+    // An unauthenticated student must be able to read a session to render
+    // /morning at all (its name, icon, colours), so this document is
+    // world-readable — and putting the class link on it would recreate exactly
+    // the leak Phase 01 closed, where the live class link was public to anyone
+    // with the project ID.
+    //
+    // The link therefore lives at sessions/{sessionId}/private/classLink,
+    // below, which is staff-only. /api/class/link reads it with the Admin SDK
+    // after checking the caller's block, approval and subscription state.
+    //
+    // This document holds PRESENTATION FIELDS ONLY. Nothing secret, nothing
+    // that identifies a person.
+    // ==================================================================
+
+    function isReservedSlug(slug) {
+      return slug in [
+        'login', 'logout', 'dashboard', 'billing', 'superadmin', 'admin',
+        '403', '404', 'api', 'assets', 'static', 'sw', 'workbox', 'manifest',
+        'robots', 'favicon', 'fees', 'calendar', 'whatsapp', 'settings',
+        'account', 'help'
+      ];
+    }
+
+    function isValidSessionDoc(data) {
+      return data.keys().hasAll(['name', 'slug', 'active'])
+             && data.keys().hasOnly([
+               'name', 'slug', 'icon', 'gradient', 'order', 'active',
+               'schedule', 'createdAt', 'updatedAt'
+             ])
+             && data.name is string
+             && data.name.size() >= 1
+             && data.name.size() <= 60
+             && data.slug is string
+             && data.slug.matches('^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$')
+             && data.active is bool;
+    }
+
+    match /sessions/{sessionId} {
+      // Public: a student arriving at /morning has no credential, and needs the
+      // session's name and branding to render the page.
+      allow read: if true;
+
+      allow create: if isTeacher()
+                    && !isReservedSlug(sessionId)
+                    && isValidSessionDoc(request.resource.data)
+                    && request.resource.data.slug == sessionId;
+
+      allow update: if isTeacher()
+                    && isValidSessionDoc(request.resource.data)
+                    && request.resource.data.slug == sessionId;
+
+      allow delete: if isTeacher();
+    }
+
+    // The class link, split off the public session document precisely so it
+    // stays private. Students never read this; they call /api/class/link.
+    //
+    // read/create-update/delete are split rather than using a single `write`,
+    // because `request.resource` does not exist on a delete and the link
+    // validation below would fail to evaluate.
+    match /sessions/{sessionId}/private/{docId} {
+      allow read: if isTeacher();
+      allow create, update: if isTeacher()
+                            && (!('url' in request.resource.data)
+                                || isAllowedClassLink(request.resource.data.url));
+      allow delete: if isTeacher();
+    }
+
+    // ==================================================================
     // sessions/{session}/students/{phone}
     // ==================================================================
 
@@ -223,6 +299,26 @@ service cloud.firestore {
                     );
 
       allow delete: if isTeacher();
+    }
+
+    // ==================================================================
+    // Private teacher notes — Phase 05 Part B
+    //
+    // There is DELIBERATELY no student clause here, under any condition.
+    // These notes say things like "weak in algebra" or "parent asked for a
+    // private meeting". A student reading their own notes is a trust breach,
+    // not a feature, so the rule has no branch that could ever permit it —
+    // not even for a verified own-phone token.
+    //
+    // A subcollection rather than an array on the student document, for three
+    // reasons: notes would otherwise bloat the document the dashboard listener
+    // re-reads on every change; array-union has no per-item permissions; and a
+    // subcollection can be denied to students while the parent document stays
+    // student-readable.
+    // ==================================================================
+
+    match /sessions/{session}/students/{phone}/notes/{noteId} {
+      allow read, write: if isTeacher();
     }
 
     // Collection-group reads (Phase 04 approvals panel, Phase 06 overdue sweep,
@@ -316,7 +412,13 @@ service cloud.firestore {
     match /fees/{document=**}     { allow read, write: if false; }   // Phase 06
     match /calendar/{document=**} { allow read, write: if false; }   // Phase 07
     match /whatsapp/{document=**} { allow read, write: if false; }   // Phase 08
-    match /students/{document=**} { allow read, write: if false; }   // Phase 05 notes
+
+    // A top-level `students` collection is not used. Notes live under
+    // sessions/{s}/students/{p}/notes/{n} (see above), which keeps them beside
+    // the student they belong to and lets a student delete cascade naturally.
+    // Kept closed so a stray write fails loudly rather than creating a shadow
+    // collection nobody is watching.
+    match /students/{document=**} { allow read, write: if false; }
 
     // Legacy admin collection — was `if isAuthenticated()`, i.e. any signed-in
     // user. Superadmin only now.

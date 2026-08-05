@@ -7,8 +7,7 @@ import { ROUTES } from './routeConfig';
 
 // Lazy load pages for code splitting
 const LandingPage = lazy(() => import('@/pages/LandingPage'));
-const MorningPage = lazy(() => import('@/pages/MorningPage'));
-const EveningPage = lazy(() => import('@/pages/EveningPage'));
+const SessionRoutePage = lazy(() => import('@/pages/SessionRoutePage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
@@ -20,10 +19,9 @@ export default function AppRoutes() {
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
         <Route path={ROUTES.HOME} element={<LandingPage />} />
-        <Route path={ROUTES.MORNING} element={<MorningPage />} />
-        <Route path={ROUTES.EVENING} element={<EveningPage />} />
         <Route path={ROUTES.LOGIN} element={<LoginPage />} />
         <Route path={ROUTES.FORBIDDEN} element={<ForbiddenPage />} />
+        <Route path={ROUTES.NOT_FOUND_PAGE} element={<NotFoundPage />} />
 
         <Route
           path={ROUTES.DASHBOARD}
@@ -46,6 +44,16 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
+
+        {/* Phase 05: sessions are documents keyed by their slug, so one dynamic
+            route serves every session the teacher creates.
+
+            This is declared AFTER every static route. React Router ranks static
+            segments above dynamic ones regardless of order, but keeping the
+            declaration order honest means the file reads the way it resolves.
+            Reserved slugs are additionally refused at creation, so a session
+            can never be created at a path it could not be reached from. */}
+        <Route path="/:sessionSlug" element={<SessionRoutePage />} />
 
         <Route path={ROUTES.NOT_FOUND} element={<NotFoundPage />} />
       </Routes>
