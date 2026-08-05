@@ -1,0 +1,47 @@
+rules_version = '2';
+
+// ============================================================================
+// Firebase Storage rules — Phase 08.
+//
+// This is the FIRST use of Storage in the programme, so the posture is set
+// here: DENY BY DEFAULT, and no client writes at all.
+//
+// Every upload goes through /api/whatsapp/upload, which sniffs magic bytes and
+// strips EXIF before the bytes reach the bucket. A direct client upload — even
+// a rules-validated one — cannot do either: rules can check the declared
+// content type and the size, but they cannot look inside the file. A renamed
+// executable and a photo carrying the teacher's home GPS both pass every rule
+// it is possible to write.
+//
+// Reads are equally closed. Files are served through SIGNED URLs minted by the
+// Admin SDK, which expire. A rule granting read to authenticated users would be
+// useless for the actual audience anyway — a parent opening a link from
+// WhatsApp is not signed in to this app.
+// ============================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // WhatsApp attachments — Phase 08.
+    // Written by the Admin SDK, read via signed URL. Lifecycle rule deletes
+    // objects after 90 days (configured on the bucket, not here).
+    match /whatsapp/{campaignId}/{fileName} {
+      allow read, write: if false;
+    }
+
+    // Invoice PDFs — Phase 06 D6/D7, rendered once Storage exists.
+    match /invoices/{invoiceId} {
+      allow read, write: if false;
+    }
+
+    // Dashboard exports.
+    match /exports/{uid}/{fileName} {
+      allow read, write: if false;
+    }
+
+    // Anything not named above is unreachable.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

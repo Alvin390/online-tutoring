@@ -488,7 +488,29 @@ service cloud.firestore {
     }
 
     match /calendar/{document=**} { allow read, write: if false; }
-    match /whatsapp/{document=**} { allow read, write: if false; }   // Phase 08
+    // ==================================================================
+    // WhatsApp campaigns — Phase 08
+    //
+    // Teacher-readable so the queue can render and resume from a live
+    // listener; server-written so the sent/skipped counters cannot be
+    // desynchronised from the per-recipient status they are derived from.
+    //
+    // Students never touch this. A campaign's recipient subcollection is a
+    // roster with names, classes and balances — precisely the data Phase 01
+    // stopped being world-readable.
+    // ==================================================================
+
+    match /whatsapp/campaigns/items/{campaignId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /whatsapp/campaigns/items/{campaignId}/recipients/{phone} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /whatsapp/{document=**} { allow read, write: if false; }
 
     // A top-level `students` collection is not used. Notes live under
     // sessions/{s}/students/{p}/notes/{n} (see above), which keeps them beside

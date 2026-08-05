@@ -834,7 +834,55 @@ describe('calendar', () => {
 });
 
 // ===========================================================================
-// 14. Default deny
+// 14. WhatsApp campaigns — Phase 08
+// ===========================================================================
+
+describe('whatsapp campaigns', () => {
+  const campaignPath = 'whatsapp/campaigns/items/camp1';
+  const recipientPath = `${campaignPath}/recipients/${PHONE_A}`;
+
+  beforeEach(async () => {
+    await seed(env, campaignPath, {
+      title: 'March fee reminder',
+      status: 'in_progress',
+      sentCount: 0,
+      recipientCount: 2,
+    });
+    await seed(env, recipientPath, {
+      studentName: 'Amina',
+      status: 'queued',
+      order: 0,
+    });
+  });
+
+  it('lets a teacher read a campaign and its recipients, so the queue can resume', async () => {
+    await assertSucceeds(getDoc(doc(teacher(env), campaignPath)));
+    await assertSucceeds(getDoc(doc(teacher(env), recipientPath)));
+    await assertSucceeds(getDocs(collection(teacher(env), `${campaignPath}/recipients`)));
+  });
+
+  it('DENIES a teacher writing counters directly', async () => {
+    // sentCount is derived from per-recipient status inside a transaction.
+    // A direct write could desynchronise the two.
+    await assertFails(updateDoc(doc(teacher(env), campaignPath), { sentCount: 99 }));
+    await assertFails(updateDoc(doc(teacher(env), recipientPath), { status: 'sent' }));
+  });
+
+  it('denies a student reading the recipient list', async () => {
+    // The recipient subcollection is a roster with names, classes and
+    // balances — exactly the data Phase 01 stopped being world-readable.
+    await assertFails(getDoc(doc(student(env, PHONE_A), recipientPath)));
+    await assertFails(getDocs(collection(student(env, PHONE_A), `${campaignPath}/recipients`)));
+  });
+
+  it('denies an anonymous read', async () => {
+    await assertFails(getDoc(doc(anon(env), campaignPath)));
+    await assertFails(getDoc(doc(anon(env), recipientPath)));
+  });
+});
+
+// ===========================================================================
+// 15. Default deny
 // ===========================================================================
 
 describe('deny by default', () => {

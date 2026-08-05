@@ -14,6 +14,7 @@ import FeeKpiCards from '@features/fees/components/FeeKpiCards';
 // Lazy: the calendar carries a month grid, an agenda and a recurrence form the
 // dashboard should not pay for on first paint. It never enters the initial chunk.
 const CalendarPanel = lazy(() => import('@features/calendar/components/CalendarPanel'));
+const WhatsAppPanel = lazy(() => import('@features/whatsapp/components/WhatsAppPanel'));
 import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
@@ -48,6 +49,7 @@ export default function DashboardLayout() {
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
   const calendarEnabled = useFlag('calendar.enabled');
+  const whatsappEnabled = useFlag('whatsapp.broadcast');
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
@@ -154,6 +156,21 @@ export default function DashboardLayout() {
 
         {/* Fee KPIs (Phase 06). One aggregate document read, not a scan. */}
         {feesEnabled && <FeeKpiCards />}
+
+        {/* WhatsApp broadcast (Phase 08), lazily loaded. */}
+        {whatsappEnabled && (
+          <Suspense
+            fallback={
+              <div className="card mb-4">
+                <div className="card-body text-center py-4">
+                  <span className="spinner-border spinner-border-sm text-muted" />
+                </div>
+              </div>
+            }
+          >
+            <WhatsAppPanel />
+          </Suspense>
+        )}
 
         {/* Calendar (Phase 07), lazily loaded. */}
         {calendarEnabled && (
