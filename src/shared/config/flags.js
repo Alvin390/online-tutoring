@@ -41,7 +41,17 @@ export const DEFAULT_FLAGS = {
   'calendar.enabled': false,
   'whatsapp.broadcast': false,
   'whatsapp.advanced': false,
-  'mpesa.enabled': false,
+
+  // --- Phase 09 ---
+  /**
+   * In-app M-Pesa payments.
+   *
+   * NOTE: turning this OFF hides the Pay-now button and refuses new
+   * initiations, but the CALLBACK endpoint stays live regardless — an
+   * in-flight payment must still be able to land, and disabling it would
+   * silently lose real money that a parent has already been charged.
+   */
+  'payments.daraja': false,
 };
 
 export const FLAG_KEYS = Object.freeze(Object.keys(DEFAULT_FLAGS));

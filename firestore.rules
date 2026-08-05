@@ -362,7 +362,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // M-Pesa STK Push request/callback records — Phase 09.
+    // M-Pesa STK Push records — Phase 09.
+    //
+    // Server-only, including reads. A student polls their payment through
+    // /api/payments/status, which checks that the CheckoutRequestID actually
+    // belongs to their phone — a rule cannot express that, and without it a
+    // CheckoutRequestID would be a lookup key for anyone else's payment amount
+    // and balance.
+    //
+    // The teacher's reconciliation view reads through the Admin SDK for the
+    // same reason: `mpesa/unmatched` holds raw Safaricom callbacks, which
+    // contain payer phone numbers for people who may not even be students.
     match /mpesa/{document=**} {
       allow read, write: if false;
     }

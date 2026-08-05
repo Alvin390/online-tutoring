@@ -882,7 +882,65 @@ describe('whatsapp campaigns', () => {
 });
 
 // ===========================================================================
-// 15. Default deny
+// 15. M-Pesa / Daraja — Phase 09
+// ===========================================================================
+
+describe('daraja credentials are unreadable by every client', () => {
+  beforeEach(async () => {
+    await seed(env, 'integrations/daraja', {
+      shortCode: '174379',
+      shortCodeType: 'till',
+      consumerKeyEnc: 'v1.aaa.bbb.ccc',
+      consumerSecretEnc: 'v1.ddd.eee.fff',
+      passkeyEnc: 'v1.ggg.hhh.iii',
+      callbackSecret: 'supersecrettoken',
+    });
+  });
+
+  it('DENIES even the superadmin reading them', async () => {
+    // These credentials move real money out of a real till. Only the Admin
+    // SDK reads them — there is no client role that should hold them.
+    await assertFails(getDoc(doc(superadmin(env), 'integrations/daraja')));
+    await assertFails(getDoc(doc(teacher(env), 'integrations/daraja')));
+    await assertFails(getDoc(doc(anon(env), 'integrations/daraja')));
+    await assertFails(getDoc(doc(student(env, PHONE_A), 'integrations/daraja')));
+  });
+
+  it('denies every client writing them', async () => {
+    await assertFails(setDoc(doc(teacher(env), 'integrations/daraja'), { shortCode: '000' }));
+    await assertFails(setDoc(doc(superadmin(env), 'integrations/daraja'), { shortCode: '000' }));
+  });
+});
+
+describe('mpesa transaction records are server-only', () => {
+  beforeEach(async () => {
+    await seed(env, 'mpesa/transactions', { placeholder: true });
+    await seed(env, 'mpesa/unmatched', { placeholder: true });
+  });
+
+  it('denies a student reading a transaction record', async () => {
+    // A CheckoutRequestID would otherwise be a lookup key for anyone else's
+    // payment amount and balance.
+    await assertFails(getDoc(doc(student(env, PHONE_A), 'mpesa/transactions')));
+  });
+
+  it('denies a teacher reading or writing transaction records', async () => {
+    await assertFails(getDoc(doc(teacher(env), 'mpesa/transactions')));
+    await assertFails(setDoc(doc(teacher(env), 'mpesa/transactions'), { forged: true }));
+  });
+
+  it('denies reading unmatched callbacks, which contain non-student phone numbers', async () => {
+    await assertFails(getDoc(doc(teacher(env), 'mpesa/unmatched')));
+    await assertFails(getDoc(doc(anon(env), 'mpesa/unmatched')));
+  });
+
+  it('denies an anonymous write — a forged callback cannot be injected via the SDK', async () => {
+    await assertFails(setDoc(doc(anon(env), 'mpesa/transactions'), { status: 'success' }));
+  });
+});
+
+// ===========================================================================
+// 16. Default deny
 // ===========================================================================
 
 describe('deny by default', () => {

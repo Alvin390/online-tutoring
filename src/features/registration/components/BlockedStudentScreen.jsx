@@ -1,7 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import { resolveBlockReason, formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
+
+// Lazy: only a Gold deployment with an outstanding balance ever renders this,
+// so the payment code should not be in every student's first paint.
+const PayNowPanel = lazy(() => import('@features/payments/components/PayNowPanel'));
 
 export default function BlockedStudentScreen({
   session,
@@ -14,6 +18,7 @@ export default function BlockedStudentScreen({
   const [submitting, setSubmitting] = useState(false);
 
   const feesEnabled = useFlag('fees.enabled');
+  const darajaEnabled = useFlag('payments.daraja');
 
   // Shared with the dashboard's blocked badge, so the teacher sees exactly
   // what the student sees.
@@ -115,6 +120,19 @@ export default function BlockedStudentScreen({
               returns automatically.
             </p>
           </div>
+        )}
+
+        {/* Pay now — Phase 09. Sits ALONGSIDE the receipt form below rather
+            than replacing it: a student without M-Pesa on this handset still
+            needs the manual route. */}
+        {darajaEnabled && blockState.balance > 0 && (
+          <Suspense fallback={null}>
+            <PayNowPanel
+              session={session}
+              phone={studentData.parentPhone ?? studentData.id}
+              balance={blockState.balance}
+            />
+          </Suspense>
         )}
 
         {/* Status Messages */}

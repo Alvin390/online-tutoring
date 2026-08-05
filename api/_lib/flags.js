@@ -26,7 +26,7 @@ const DEFAULT_FLAGS = {
   'calendar.enabled': false,
   'whatsapp.broadcast': false,
   'whatsapp.advanced': false,
-  'mpesa.enabled': false,
+  'payments.daraja': false,
 };
 
 const TTL_MS = 30_000;
