@@ -689,7 +689,102 @@ describe('session class link stays private', () => {
 });
 
 // ===========================================================================
-// 12. Default deny
+// 12. Fees — Phase 06
+//
+// Every write is server-only. The ledger is append-only and the balance is
+// computed inside a transaction alongside it; a client that could write either
+// could produce a balance that disagrees with the entries that created it.
+// ===========================================================================
+
+describe('fee ledger is append-only and server-written', () => {
+  const ledgerPath = `fees/accounts/items/${PHONE_A}/ledger/entry1`;
+
+  beforeEach(async () => {
+    await seed(env, 'fees/config', { billingDayOfMonth: 1, autoBlockOnOverdue: false });
+    await seed(env, `fees/accounts/items/${PHONE_A}`, { phone: PHONE_A, balance: 3000 });
+    await seed(env, ledgerPath, {
+      type: 'invoice',
+      amount: 3000,
+      balanceAfter: 3000,
+      recordedBy: 'system',
+    });
+  });
+
+  it('lets a teacher READ the ledger', async () => {
+    await assertSucceeds(getDoc(doc(teacher(env), ledgerPath)));
+  });
+
+  it('DENIES a teacher creating a ledger entry', async () => {
+    await assertFails(
+      setDoc(doc(teacher(env), `fees/accounts/items/${PHONE_A}/ledger/forged`), {
+        type: 'payment',
+        amount: -3000,
+      })
+    );
+  });
+
+  it('DENIES a teacher updating an existing entry', async () => {
+    await assertFails(updateDoc(doc(teacher(env), ledgerPath), { amount: 1 }));
+  });
+
+  it('DENIES a teacher deleting an entry', async () => {
+    await assertFails(deleteDoc(doc(teacher(env), ledgerPath)));
+  });
+
+  it('DENIES the superadmin editing or deleting an entry', async () => {
+    // "The owner can fix it in the console" is exactly how an audit trail
+    // stops being one.
+    await assertFails(updateDoc(doc(superadmin(env), ledgerPath), { amount: 1 }));
+    await assertFails(deleteDoc(doc(superadmin(env), ledgerPath)));
+  });
+
+  it('DENIES a teacher writing the balance directly', async () => {
+    await assertFails(
+      updateDoc(doc(teacher(env), `fees/accounts/items/${PHONE_A}`), { balance: 0 })
+    );
+  });
+
+  it('denies a student reading the ledger', async () => {
+    // A student who could list their ledger could infer the whole pricing
+    // structure. They get four numbers from /api/fees/summary instead.
+    await assertFails(getDoc(doc(student(env, PHONE_A), ledgerPath)));
+    await assertFails(
+      getDocs(collection(student(env, PHONE_A), `fees/accounts/items/${PHONE_A}/ledger`))
+    );
+  });
+
+  it('denies a student reading their own fee account document', async () => {
+    await assertFails(getDoc(doc(student(env, PHONE_A), `fees/accounts/items/${PHONE_A}`)));
+  });
+
+  it('denies an anonymous read of anything under fees/', async () => {
+    await assertFails(getDoc(doc(anon(env), 'fees/config')));
+    await assertFails(getDoc(doc(anon(env), `fees/accounts/items/${PHONE_A}`)));
+    await assertFails(getDoc(doc(anon(env), ledgerPath)));
+  });
+
+  it('denies a teacher writing fee config directly', async () => {
+    await assertFails(setDoc(doc(teacher(env), 'fees/config'), { autoBlockOnOverdue: true }));
+  });
+
+  it('denies everyone touching the invoice-number counter', async () => {
+    // A client that could write this could mint duplicate invoice numbers.
+    await assertFails(getDoc(doc(teacher(env), 'fees/counters/items/invoice-2026')));
+    await assertFails(setDoc(doc(teacher(env), 'fees/counters/items/invoice-2026'), { value: 1 }));
+    await assertFails(setDoc(doc(superadmin(env), 'fees/counters/items/invoice-2026'), { value: 1 }));
+  });
+
+  it('lets a teacher read invoices but not write them', async () => {
+    await seed(env, 'fees/invoices/items/2026-03_x', { number: 'INV-2026-0001', amount: 3000 });
+    await assertSucceeds(getDoc(doc(teacher(env), 'fees/invoices/items/2026-03_x')));
+    await assertFails(
+      updateDoc(doc(teacher(env), 'fees/invoices/items/2026-03_x'), { amount: 0 })
+    );
+  });
+});
+
+// ===========================================================================
+// 13. Default deny
 // ===========================================================================
 
 describe('deny by default', () => {

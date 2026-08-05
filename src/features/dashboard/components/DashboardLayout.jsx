@@ -9,6 +9,7 @@ import ClassLinkManager from './ClassLinkManager';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
 import SessionManager from './SessionManager';
 import StudentDrawer from './StudentDrawer';
+import FeeKpiCards from '@features/fees/components/FeeKpiCards';
 import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
@@ -41,6 +42,7 @@ export default function DashboardLayout() {
   const requireApproval = useFlag('registration.requireApproval');
   const teacherDefinedSessions = useFlag('sessions.teacherDefined');
   const notesEnabled = useFlag('notes.enabled');
+  const feesEnabled = useFlag('fees.enabled');
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
@@ -144,6 +146,9 @@ export default function DashboardLayout() {
             loading={loading}
           />
         )}
+
+        {/* Fee KPIs (Phase 06). One aggregate document read, not a scan. */}
+        {feesEnabled && <FeeKpiCards />}
 
         {/* Sessions (Phase 05). Behind a flag: with it off the two original
             sessions are managed through ClassLinkManager exactly as before. */}

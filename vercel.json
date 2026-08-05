@@ -84,6 +84,10 @@
     {
       "path": "/api/cron/subscriptionSweep",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/feesSweep",
+      "schedule": "0 2 * * *"
     }
   ]
 }

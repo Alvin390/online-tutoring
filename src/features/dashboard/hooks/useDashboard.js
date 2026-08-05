@@ -11,6 +11,8 @@ import {
   declineReceipt as declineReceiptService,
 } from '@services/firebase/firestore';
 import { setClassLink, decideApproval } from '@services/api/teacher';
+import { approveReceiptWithPayment } from '@services/api/fees';
+import { useFlag } from '@shared/config/FlagsContext';
 import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
 import { trackStudentDelete, trackCSVExport } from '@utils/analytics';
@@ -24,6 +26,7 @@ export const useDashboard = () => {
   const [zoomLinks, setZoomLinks] = useState({ morning: '', evening: '' });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('morning');
+  const feesEnabled = useFlag('fees.enabled');
   const { showSuccess, showError } = useToast();
 
   // Subscribe to morning students
@@ -267,17 +270,48 @@ export const useDashboard = () => {
     }
   }, [showSuccess, showError]);
 
-  const approveReceipt = useCallback(async (session, phoneNumber, studentName) => {
+  /**
+   * Approve a payment receipt — Phase 06 D4.
+   *
+   * With fees enabled this routes through /api/fees/approveReceipt, which can
+   * also post a `payment` ledger entry linked to the receipt. `amount` is
+   * OPTIONAL: approving access without recording money stays possible, because
+   * sometimes a teacher just wants to let someone in, and forcing an amount
+   * would make them invent one.
+   *
+   * With fees disabled it falls back to the original direct write, so nothing
+   * changes for a Bronze deployment.
+   */
+  const approveReceipt = useCallback(async (session, phoneNumber, studentName, options = {}) => {
     try {
+      if (feesEnabled) {
+        const result = await approveReceiptWithPayment({
+          session,
+          phone: phoneNumber,
+          ...(options.amount ? { amount: options.amount, method: options.method ?? 'mpesa' } : {}),
+          ...(options.reference ? { reference: options.reference } : {}),
+        });
+
+        if (result.stillBlocked) {
+          // The partial-payment rule surfacing in the teacher's own words.
+          showSuccess(
+            `Receipt approved for ${studentName}, but KES ${Number(result.balance).toLocaleString('en-KE')} is still outstanding, so they remain blocked.`
+          );
+        } else {
+          showSuccess(`Payment receipt approved for ${studentName}`);
+        }
+        return { success: true, ...result };
+      }
+
       await approveReceiptService(session, phoneNumber);
       showSuccess(`Payment receipt approved for ${studentName}`);
       return { success: true };
     } catch (error) {
       logger.error('Approve receipt failed', error);
-      showError('Failed to approve receipt. Please try again.');
+      showError(error?.message ?? 'Failed to approve receipt. Please try again.');
       return { success: false };
     }
-  }, [showSuccess, showError]);
+  }, [feesEnabled, showSuccess, showError]);
 
   const declineReceipt = useCallback(async (session, phoneNumber, studentName) => {
     try {

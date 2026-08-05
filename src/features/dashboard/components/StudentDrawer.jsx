@@ -5,6 +5,7 @@ import { useFlag } from '@shared/config/FlagsContext';
 // Lazy: the notes tab carries a composer and tag UI the dashboard should not
 // pay for on first paint, and most dashboard sessions never open it.
 const NotesTab = lazy(() => import('@features/notes/components/NotesTab'));
+const FeesTab = lazy(() => import('@features/fees/components/FeesTab'));
 
 /**
  * Student detail drawer — Phase 05 Part B.
@@ -24,6 +25,7 @@ const NotesTab = lazy(() => import('@features/notes/components/NotesTab'));
 const TABS = [
   { id: 'details', label: 'Details', icon: 'bi-person' },
   { id: 'notes', label: 'Notes', icon: 'bi-journal-text', flag: 'notes.enabled' },
+  { id: 'fees', label: 'Fees', icon: 'bi-cash-coin', flag: 'fees.enabled' },
 ];
 
 export default function StudentDrawer({ open, student, session, onClose }) {
@@ -32,7 +34,9 @@ export default function StudentDrawer({ open, student, session, onClose }) {
   const previouslyFocused = useRef(null);
 
   const notesEnabled = useFlag('notes.enabled');
-  const visibleTabs = TABS.filter((t) => !t.flag || (t.flag === 'notes.enabled' && notesEnabled));
+  const feesEnabled = useFlag('fees.enabled');
+  const flagState = { 'notes.enabled': notesEnabled, 'fees.enabled': feesEnabled };
+  const visibleTabs = TABS.filter((t) => !t.flag || flagState[t.flag]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -217,6 +221,24 @@ export default function StudentDrawer({ open, student, session, onClose }) {
                       phone={student.id ?? student.parentPhone}
                       studentName={student.studentName}
                       active={tab === 'notes'}
+                    />
+                  </Suspense>
+                </div>
+              )}
+
+              {tab === 'fees' && feesEnabled && (
+                <div id="panel-fees" role="tabpanel" aria-labelledby="tab-fees">
+                  <Suspense
+                    fallback={
+                      <div className="text-center py-4">
+                        <span className="spinner-border spinner-border-sm text-muted" />
+                      </div>
+                    }
+                  >
+                    <FeesTab
+                      session={session}
+                      phone={student.id ?? student.parentPhone}
+                      active={tab === 'fees'}
                     />
                   </Suspense>
                 </div>

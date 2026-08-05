@@ -409,7 +409,55 @@ service cloud.firestore {
     // loudly here instead of silently succeeding against a default.
     // ==================================================================
 
-    match /fees/{document=**}     { allow read, write: if false; }   // Phase 06
+    // ==================================================================
+    // Fees — Phase 06
+    //
+    // EVERY WRITE IS SERVER-ONLY. Not "teacher-only" — server-only.
+    //
+    // The ledger is append-only and the balance is computed inside a Firestore
+    // transaction alongside it. A client that could write either could produce
+    // a balance that disagrees with the entries that supposedly created it, and
+    // the ledger's whole value is that it cannot. Every posting goes through
+    // /api/fees/*, which uses the Admin SDK.
+    //
+    // Reads are teacher-only. Students get four numbers from
+    // /api/fees/summary — never the ledger, which would expose the teacher's
+    // whole pricing structure and let entries be correlated across students.
+    // ==================================================================
+
+    match /fees/config {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /fees/accounts/items/{phone} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    // Append-only. Denied to every client for update and delete alike — a
+    // rules test asserts this for the teacher AND the superadmin, because
+    // "the owner can fix it in the console" is exactly how an audit trail
+    // stops being one.
+    match /fees/accounts/items/{phone}/ledger/{entryId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /fees/invoices/items/{invoiceId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    // Invoice-number sequences. A client that could write these could mint
+    // duplicate invoice numbers.
+    match /fees/counters/items/{name} {
+      allow read, write: if false;
+    }
+
+    // Anything else under fees/ stays closed.
+    match /fees/{document=**}     { allow read, write: if false; }
+
     match /calendar/{document=**} { allow read, write: if false; }   // Phase 07
     match /whatsapp/{document=**} { allow read, write: if false; }   // Phase 08
 
