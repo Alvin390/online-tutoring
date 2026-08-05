@@ -79,5 +79,11 @@
       "maxDuration": 20,
       "memory": 512
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/subscriptionSweep",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import ProtectedRoute from '@features/auth/components/ProtectedRoute';
+import BillingGuard from '@features/billing/components/BillingGuard';
 import LoadingFallback from '@components/ui/LoadingFallback';
 import { ROUTES } from './routeConfig';
 
@@ -11,6 +12,7 @@ const EveningPage = lazy(() => import('@/pages/EveningPage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
+const BillingPage = lazy(() => import('@/pages/BillingPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
 export default function AppRoutes() {
@@ -27,12 +29,23 @@ export default function AppRoutes() {
           path={ROUTES.DASHBOARD}
           element={
             <ProtectedRoute role="teacher" requireActive>
-              <DashboardPage />
+              <BillingGuard>
+                <DashboardPage />
+              </BillingGuard>
             </ProtectedRoute>
           }
         />
 
-        {/* ROUTES.BILLING is added in Phase 03 alongside BillingPage. */}
+        {/* Billing must stay reachable while locked — it is the only route that
+            can resolve a lockout, so it never sits behind BillingGuard. */}
+        <Route
+          path={ROUTES.BILLING}
+          element={
+            <ProtectedRoute role="teacher">
+              <BillingPage />
+            </ProtectedRoute>
+          }
+        />
 
         <Route path={ROUTES.NOT_FOUND} element={<NotFoundPage />} />
       </Routes>
