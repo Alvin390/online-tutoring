@@ -23,3 +23,13 @@ export const submitReceipt = (session, phone, receiptMessage) =>
  */
 export const getClassLink = (session, phone) =>
   apiPost('/api/class/link', { session, phone });
+
+/**
+ * Resubmits corrected details after a rejection — Phase 04.
+ *
+ * Server-side because firestore.rules deliberately never lets a student write
+ * `approvalStatus`, including back to 'pending', and because the 3-strikes soft
+ * block has to be enforced somewhere the student cannot reach.
+ */
+export const resubmitRegistration = (session, phone, details) =>
+  apiPost('/api/student/resubmit', { session, phone, ...details });

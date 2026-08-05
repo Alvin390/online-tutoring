@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   subscribeToStudents,
+  subscribeToPendingApprovals,
   deleteStudent as deleteStudentService,
   getZoomLinks,
-  updateZoomLink as updateZoomLinkService,
   registerStudent as updateStudentService,
   blockStudent as blockStudentService,
   unblockStudent as unblockStudentService,
   approveReceipt as approveReceiptService,
   declineReceipt as declineReceiptService,
 } from '@services/firebase/firestore';
+import { setClassLink, decideApproval } from '@services/api/teacher';
 import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
 import { trackStudentDelete, trackCSVExport } from '@utils/analytics';
@@ -19,6 +20,7 @@ import autoTable from 'jspdf-autotable';
 export const useDashboard = () => {
   const [morningStudents, setMorningStudents] = useState([]);
   const [eveningStudents, setEveningStudents] = useState([]);
+  const [pendingApprovals, setPendingApprovals] = useState([]);
   const [zoomLinks, setZoomLinks] = useState({ morning: '', evening: '' });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('morning');
@@ -41,32 +43,76 @@ export const useDashboard = () => {
     return () => unsubscribe();
   }, []);
 
-  // Load zoom links
+  // Pending approvals — one collection-group listener across all sessions.
+  useEffect(() => {
+    const unsubscribe = subscribeToPendingApprovals(setPendingApprovals);
+    return () => unsubscribe();
+  }, []);
+
+  // Load class links
   useEffect(() => {
     const loadLinks = async () => {
       try {
         const links = await getZoomLinks();
         setZoomLinks(links);
       } catch (error) {
-        logger.error('Load zoom links failed', error);
+        logger.error('Load class links failed', error);
       }
     };
     loadLinks();
   }, []);
 
+  /**
+   * Saves a class link through the serverless handler, which re-validates it
+   * with the server copy of parseClassLink. The client validates too, for
+   * immediate feedback — but that check is advice, not a control.
+   */
   const updateZoomLink = useCallback(async (session, url) => {
     try {
-      await updateZoomLinkService(session, url);
+      const result = await setClassLink(session, url);
       setZoomLinks(prev => ({
         ...prev,
-        [session]: url,
+        [session]: result.url,
+        [`${session}Provider`]: result.provider,
         [`${session}LastUpdated`]: new Date(),
       }));
       showSuccess(`${session.charAt(0).toUpperCase() + session.slice(1)} link updated!`);
       return { success: true };
     } catch (error) {
-      logger.error('Update zoom link failed', error);
-      showError('Failed to update link. Please try again.');
+      logger.error('Update class link failed', error);
+      showError(error?.message ?? 'Failed to update link. Please try again.');
+      return { success: false };
+    }
+  }, [showSuccess, showError]);
+
+  const approveStudents = useCallback(async (session, phones) => {
+    try {
+      const result = await decideApproval(session, 'approve', phones);
+      showSuccess(
+        result.approvedCount === 1
+          ? 'Student approved — they can join class now.'
+          : `${result.approvedCount} students approved.`
+      );
+      return { success: true };
+    } catch (error) {
+      logger.error('Approve students failed', error);
+      showError(error?.message ?? 'Could not approve. Please try again.');
+      return { success: false };
+    }
+  }, [showSuccess, showError]);
+
+  const rejectStudents = useCallback(async (session, phones, reason) => {
+    try {
+      const result = await decideApproval(session, 'reject', phones, reason);
+      showSuccess(
+        result.rejectedCount === 1
+          ? 'Rejection sent. The student can correct their details and resubmit.'
+          : `${result.rejectedCount} registrations rejected.`
+      );
+      return { success: true };
+    } catch (error) {
+      logger.error('Reject students failed', error);
+      showError(error?.message ?? 'Could not reject. Please try again.');
       return { success: false };
     }
   }, [showSuccess, showError]);
@@ -127,13 +173,17 @@ export const useDashboard = () => {
       const regDate = student.registeredAt?.toDate?.()
         .toLocaleDateString('en-GB') || 'N/A';
 
+      // Guarded: an unguarded .substring() on a missing receiptMessage threw
+      // and broke the entire export, not just that one row.
+      const receipt = student.receiptMessage ?? '';
+
       return [
         index + 1,
-        student.studentName,
-        student.parentPhone,
-        student.class,
-        student.subjects,
-        student.receiptMessage.substring(0, 50) + (student.receiptMessage.length > 50 ? '...' : ''),
+        student.studentName ?? '—',
+        student.parentPhone ?? '—',
+        student.class ?? '—',
+        student.subjects ?? '—',
+        receipt.substring(0, 50) + (receipt.length > 50 ? '...' : ''),
         regDate
       ];
     });
@@ -244,6 +294,7 @@ export const useDashboard = () => {
   return {
     morningStudents,
     eveningStudents,
+    pendingApprovals,
     zoomLinks,
     loading,
     activeTab,
@@ -256,6 +307,8 @@ export const useDashboard = () => {
     unblockStudent,
     approveReceipt,
     declineReceipt,
+    approveStudents,
+    rejectStudents,
     totalStudents: morningStudents.length + eveningStudents.length,
   };
 };

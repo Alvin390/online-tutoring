@@ -4,10 +4,12 @@ import {
   setDoc,
   deleteDoc,
   collection,
+  collectionGroup,
   getDocs,
   onSnapshot,
   serverTimestamp,
   query,
+  where,
   orderBy
 } from 'firebase/firestore';
 import { db } from './config';
@@ -204,6 +206,48 @@ export const getStudents = async (session) => {
     logger.error('getStudents failed', error);
     throw error;
   }
+};
+
+/**
+ * Live pending-approval queue across ALL sessions — Phase 04.
+ *
+ * A collection-group query, so one listener covers every session instead of one
+ * per session. Requires both halves of the Phase 01 setup: the
+ * COLLECTION_GROUP-scoped index in firestore.indexes.json and the
+ * `match /{path=**}/students/{phone}` wildcard in firestore.rules. With only
+ * one of them, this fails with a permission error that does not mention
+ * collection groups.
+ */
+export const subscribeToPendingApprovals = (callback) => {
+  const q = query(
+    collectionGroup(db, 'students'),
+    where('approvalStatus', '==', 'pending'),
+    orderBy('registeredAt', 'desc')
+  );
+
+  return onSnapshot(
+    q,
+    (querySnapshot) => {
+      const pending = [];
+      querySnapshot.forEach((studentDoc) => {
+        pending.push({
+          id: studentDoc.id,
+          // The parent of the students collection is the session document.
+          session: studentDoc.ref.parent.parent?.id ?? 'unknown',
+          ...studentDoc.data(),
+        });
+      });
+      logger.debug('subscribeToPendingApprovals update', { count: pending.length });
+      callback(pending);
+    },
+    (error) => {
+      logger.error('subscribeToPendingApprovals error', error);
+      // Surfaced as an empty queue rather than a crashed dashboard. The most
+      // likely cause is a missing index or wildcard rule, both of which are
+      // deployment problems rather than user problems.
+      callback([]);
+    }
+  );
 };
 
 export const subscribeToStudents = (session, callback) => {

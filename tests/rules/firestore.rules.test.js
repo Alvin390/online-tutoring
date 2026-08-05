@@ -310,6 +310,58 @@ describe('config/zoomLinks', () => {
       setDoc(doc(teacher(env), 'config/zoomLinks'), { morning: 'https://zoom.us/j/9' }, { merge: true })
     );
   });
+
+  // Phase 04: rules are the third validation layer, behind the client's inline
+  // check and /api/class/setLink. A teacher writing directly through the SDK
+  // still cannot store an unsafe link.
+  it('accepts a Google Meet link', async () => {
+    await assertSucceeds(
+      setDoc(
+        doc(teacher(env), 'config/zoomLinks'),
+        { evening: 'https://meet.google.com/abc-defg-hij' },
+        { merge: true }
+      )
+    );
+  });
+
+  it('accepts a Zoom subdomain link', async () => {
+    await assertSucceeds(
+      setDoc(
+        doc(teacher(env), 'config/zoomLinks'),
+        { morning: 'https://us02web.zoom.us/j/123?pwd=x' },
+        { merge: true }
+      )
+    );
+  });
+
+  const badLinks = [
+    ['http rather than https', 'http://zoom.us/j/1'],
+    ['a lookalike host', 'https://zoom.us.evil.com/j/1'],
+    ['zoom.us only in the query string', 'https://evil.com/?x=zoom.us'],
+    ['an arbitrary origin', 'https://evil.com/j/1'],
+    ['a javascript: URL', 'javascript:alert(1)'],
+    ['a non-URL string', 'not-a-link'],
+  ];
+
+  for (const [label, url] of badLinks) {
+    it(`denies writing ${label}`, async () => {
+      await assertFails(
+        setDoc(doc(teacher(env), 'config/zoomLinks'), { morning: url }, { merge: true })
+      );
+    });
+  }
+
+  it('denies a non-string link value', async () => {
+    await assertFails(
+      setDoc(doc(teacher(env), 'config/zoomLinks'), { morning: 12345 }, { merge: true })
+    );
+  });
+
+  it('still allows writing only metadata fields', async () => {
+    await assertSucceeds(
+      setDoc(doc(teacher(env), 'config/zoomLinks'), { morningProvider: 'zoom' }, { merge: true })
+    );
+  });
 });
 
 describe('config/flags', () => {

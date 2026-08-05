@@ -5,9 +5,11 @@ import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext
 import IdleWarningModal from '@features/auth/components/IdleWarningModal';
 import useIdleTimeout from '@hooks/useIdleTimeout';
 import StatsCards from './StatsCards';
-import ZoomLinkManager from './ZoomLinkManager';
+import ClassLinkManager from './ClassLinkManager';
+import PendingApprovalsPanel from './PendingApprovalsPanel';
 import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
+import { useFlag } from '@shared/config/FlagsContext';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -16,6 +18,7 @@ export default function DashboardLayout() {
   const {
     morningStudents,
     eveningStudents,
+    pendingApprovals,
     zoomLinks,
     loading,
     activeTab,
@@ -28,8 +31,12 @@ export default function DashboardLayout() {
     unblockStudent,
     approveReceipt,
     declineReceipt,
+    approveStudents,
+    rejectStudents,
     totalStudents,
   } = useDashboard();
+
+  const requireApproval = useFlag('registration.requireApproval');
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -112,8 +119,20 @@ export default function DashboardLayout() {
           linksConfigured={linksConfigured}
         />
 
-        {/* Zoom Link Management */}
-        <ZoomLinkManager
+        {/* Pending approvals sit above everything else: a student waiting to be
+            let into a class that is already running is the most time-sensitive
+            thing on this screen. */}
+        {requireApproval && (
+          <PendingApprovalsPanel
+            pending={pendingApprovals}
+            onApprove={approveStudents}
+            onReject={rejectStudents}
+            loading={loading}
+          />
+        )}
+
+        {/* Class Link Management */}
+        <ClassLinkManager
           zoomLinks={zoomLinks}
           onUpdate={updateZoomLink}
           loading={loading}

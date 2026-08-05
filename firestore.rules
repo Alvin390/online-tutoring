@@ -92,6 +92,28 @@ service cloud.firestore {
     // Validation
     // ------------------------------------------------------------------
 
+    // Shape check for a class link. Anchored at both ends, https only, exact
+    // host allowlist — no substring matching, which is what made
+    // `url.includes('zoom.us')` accept https://evil.com/?x=zoom.us.
+    function isAllowedClassLink(url) {
+      return url is string
+             && url.size() <= 2048
+             && url.matches('^https://([a-z0-9-]+[.])?zoom[.]us/.*|^https://meet[.]google[.]com/.*');
+    }
+
+    // Every session key written to config/zoomLinks must hold a valid link.
+    // Companion fields (*Provider, *LastUpdated) are unconstrained metadata.
+    //
+    // Phase 05 moves classLink onto the session document and this becomes a
+    // per-session rule; until then the two session names are named literally,
+    // matching the rest of the codebase.
+    function classLinkFieldsValid() {
+      return (!('morning' in request.resource.data)
+              || isAllowedClassLink(request.resource.data.morning))
+             && (!('evening' in request.resource.data)
+                 || isAllowedClassLink(request.resource.data.evening));
+    }
+
     function isValidPhone(phone) {
       return phone is string
              && phone.size() >= 10
@@ -159,9 +181,15 @@ service cloud.firestore {
     // Class links are NO LONGER public. Students receive the link from
     // /api/class/link, which verifies their state server-side before returning
     // it. Previously world-readable.
+    //
+    // Writes are validated here as a third layer, behind the client's inline
+    // check and /api/class/setLink. Deliberately a coarser check than
+    // parseClassLink — rules have no URL parser, so this asserts the shape and
+    // the serverless handler asserts the semantics. A teacher writing directly
+    // through the SDK still cannot store an http:// or off-allowlist link.
     match /config/zoomLinks {
       allow read: if isTeacher();
-      allow write: if isTeacher();
+      allow write: if isTeacher() && classLinkFieldsValid();
     }
 
     // ==================================================================

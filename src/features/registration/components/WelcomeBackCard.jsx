@@ -58,7 +58,9 @@ export default function WelcomeBackCard({
               boxShadow: 'var(--shadow-lg)',
             }}
           >
-            {studentData.studentName.charAt(0).toUpperCase()}
+            {/* Guarded: a legacy record with no studentName threw here and took
+                the whole screen down with it. */}
+            {studentData.studentName?.charAt(0)?.toUpperCase() ?? '?'}
           </div>
         </motion.div>
 
