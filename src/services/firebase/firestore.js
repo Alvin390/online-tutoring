@@ -11,28 +11,55 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { db } from './config';
+import logger from '@utils/logger';
+
+/**
+ * Direct Firestore access.
+ *
+ * Phase 01 scope change: everything in here now runs as an AUTHENTICATED
+ * TEACHER, with one deliberate exception — `registerStudent`, because a student
+ * has no identity until they have registered.
+ *
+ * Student-facing reads and writes moved to `src/services/api/student.js`, which
+ * calls serverless handlers. They had to move: student documents are no longer
+ * world-readable, and an unauthenticated visitor has no credential a rule could
+ * evaluate.
+ *
+ * No `console.*` calls in this file. Every one of the 27 that used to be here
+ * ran in production, and nine of them interpolated the parent's phone number
+ * straight into the browser console.
+ */
 
 // ============================================
 // STUDENT OPERATIONS
 // ============================================
 
+/**
+ * Teacher-side existence check. The student-side equivalent is
+ * `checkinStudent()` in the API service — it cannot read this collection.
+ */
 export const checkStudentExists = async (session, phoneNumber) => {
   try {
     const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
     const docSnap = await getDoc(docRef);
 
-    console.log(`✅ checkStudentExists: session=${session}, phone=${phoneNumber}, exists=${docSnap.exists()}`);
+    logger.debug('checkStudentExists', { session, exists: docSnap.exists() });
 
     return {
       exists: docSnap.exists(),
       data: docSnap.exists() ? docSnap.data() : null
     };
   } catch (error) {
-    console.error('❌ checkStudentExists failed:', error);
+    logger.error('checkStudentExists failed', error);
     throw error;
   }
 };
 
+/**
+ * Open registration create. The four state fields below are not decoration —
+ * `firestore.rules` rejects a create that omits them or that tries to
+ * self-approve. Writing them here keeps the client and the rule in agreement.
+ */
 export const registerStudent = async (session, phoneNumber, data) => {
   try {
     const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
@@ -45,26 +72,22 @@ export const registerStudent = async (session, phoneNumber, data) => {
       receiptMessage: data.receiptMessage,
       registeredAt: serverTimestamp(),
       lastAccessed: serverTimestamp(),
-      session: session
+      session: session,
+
+      // Mandated initial state — see isValidStudentCreate in firestore.rules.
+      blocked: false,
+      approvalStatus: 'pending',
+      receiptStatus: 'pending',
+      feeBalance: 0
     };
 
     await setDoc(docRef, studentData);
-    console.log(`✅ registerStudent success: session=${session}, phone=${phoneNumber}`);
+    logger.info('registerStudent success', { session });
 
     return { success: true };
   } catch (error) {
-    console.error('❌ registerStudent failed:', error);
+    logger.error('registerStudent failed', error);
     throw error;
-  }
-};
-
-export const updateLastAccessed = async (session, phoneNumber) => {
-  try {
-    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
-    await setDoc(docRef, { lastAccessed: serverTimestamp() }, { merge: true });
-    console.log(`✅ updateLastAccessed success: session=${session}, phone=${phoneNumber}`);
-  } catch (error) {
-    console.error('❌ updateLastAccessed failed:', error);
   }
 };
 
@@ -72,10 +95,10 @@ export const deleteStudent = async (session, phoneNumber) => {
   try {
     const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
     await deleteDoc(docRef);
-    console.log(`✅ deleteStudent success: session=${session}, phone=${phoneNumber}`);
+    logger.info('deleteStudent success', { session });
     return { success: true };
   } catch (error) {
-    console.error('❌ deleteStudent failed:', error);
+    logger.error('deleteStudent failed', error);
     throw error;
   }
 };
@@ -89,10 +112,10 @@ export const blockStudent = async (session, phoneNumber, blockReason = '') => {
       blockedAt: serverTimestamp(),
       receiptStatus: 'expired'
     }, { merge: true });
-    console.log(`✅ blockStudent success: session=${session}, phone=${phoneNumber}`);
+    logger.info('blockStudent success', { session });
     return { success: true };
   } catch (error) {
-    console.error('❌ blockStudent failed:', error);
+    logger.error('blockStudent failed', error);
     throw error;
   }
 };
@@ -107,26 +130,10 @@ export const unblockStudent = async (session, phoneNumber) => {
       receiptStatus: 'approved',
       pendingReceipt: null
     }, { merge: true });
-    console.log(`✅ unblockStudent success: session=${session}, phone=${phoneNumber}`);
+    logger.info('unblockStudent success', { session });
     return { success: true };
   } catch (error) {
-    console.error('❌ unblockStudent failed:', error);
-    throw error;
-  }
-};
-
-export const submitNewReceipt = async (session, phoneNumber, receiptMessage) => {
-  try {
-    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
-    await setDoc(docRef, {
-      pendingReceipt: receiptMessage,
-      receiptStatus: 'pending',
-      receiptSubmittedAt: serverTimestamp()
-    }, { merge: true });
-    console.log(`✅ submitNewReceipt success: session=${session}, phone=${phoneNumber}`);
-    return { success: true };
-  } catch (error) {
-    console.error('❌ submitNewReceipt failed:', error);
+    logger.error('unblockStudent failed', error);
     throw error;
   }
 };
@@ -149,10 +156,10 @@ export const approveReceipt = async (session, phoneNumber) => {
       receiptStatus: 'approved',
       receiptApprovedAt: serverTimestamp()
     }, { merge: true });
-    console.log(`✅ approveReceipt success: session=${session}, phone=${phoneNumber}`);
+    logger.info('approveReceipt success', { session });
     return { success: true };
   } catch (error) {
-    console.error('❌ approveReceipt failed:', error);
+    logger.error('approveReceipt failed', error);
     throw error;
   }
 };
@@ -165,10 +172,10 @@ export const declineReceipt = async (session, phoneNumber) => {
       pendingReceipt: null,
       receiptDeclinedAt: serverTimestamp()
     }, { merge: true });
-    console.log(`✅ declineReceipt success: session=${session}, phone=${phoneNumber}`);
+    logger.info('declineReceipt success', { session });
     return { success: true };
   } catch (error) {
-    console.error('❌ declineReceipt failed:', error);
+    logger.error('declineReceipt failed', error);
     throw error;
   }
 };
@@ -184,17 +191,17 @@ export const getStudents = async (session) => {
     const querySnapshot = await getDocs(q);
 
     const students = [];
-    querySnapshot.forEach((doc) => {
+    querySnapshot.forEach((studentDoc) => {
       students.push({
-        id: doc.id,
-        ...doc.data()
+        id: studentDoc.id,
+        ...studentDoc.data()
       });
     });
 
-    console.log(`✅ getStudents success: session=${session}, count=${students.length}`);
+    logger.debug('getStudents success', { session, count: students.length });
     return students;
   } catch (error) {
-    console.error('❌ getStudents failed:', error);
+    logger.error('getStudents failed', error);
     throw error;
   }
 };
@@ -205,36 +212,42 @@ export const subscribeToStudents = (session, callback) => {
 
   return onSnapshot(q, (querySnapshot) => {
     const students = [];
-    querySnapshot.forEach((doc) => {
+    querySnapshot.forEach((studentDoc) => {
       students.push({
-        id: doc.id,
-        ...doc.data()
+        id: studentDoc.id,
+        ...studentDoc.data()
       });
     });
-    console.log(`📡 subscribeToStudents update: session=${session}, count=${students.length}`);
+    logger.debug('subscribeToStudents update', { session, count: students.length });
     callback(students);
   }, (error) => {
-    console.error('❌ subscribeToStudents error:', error);
+    logger.error('subscribeToStudents error', error);
   });
 };
 
 // ============================================
-// ZOOM LINK OPERATIONS
+// CLASS LINK OPERATIONS (teacher side)
 // ============================================
 
+/**
+ * Teacher-side read of the configured class links. Students no longer read this
+ * document — `config/zoomLinks` was world-readable, which made the class link
+ * public to the internet. They now call /api/class/link, which checks their
+ * state before returning a URL.
+ */
 export const getZoomLinks = async () => {
   try {
     const docRef = doc(db, 'config', 'zoomLinks');
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
-      console.log('✅ getZoomLinks success:', docSnap.data());
+      logger.debug('getZoomLinks success');
       return docSnap.data();
     }
-    console.log('⚠️ getZoomLinks: No zoom links configured');
+    logger.warn('getZoomLinks: no class links configured');
     return { morning: '', evening: '' };
   } catch (error) {
-    console.error('❌ getZoomLinks failed:', error);
+    logger.error('getZoomLinks failed', error);
     throw error;
   }
 };
@@ -247,10 +260,10 @@ export const updateZoomLink = async (session, url) => {
       [`${session}LastUpdated`]: serverTimestamp()
     }, { merge: true });
 
-    console.log(`✅ updateZoomLink success: session=${session}`);
+    logger.info('updateZoomLink success', { session });
     return { success: true };
   } catch (error) {
-    console.error('❌ updateZoomLink failed:', error);
+    logger.error('updateZoomLink failed', error);
     throw error;
   }
 };

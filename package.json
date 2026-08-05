@@ -16,7 +16,12 @@
     "test:registration": "vitest run tests/unit/registration.test.js",
     "test:dashboard": "vitest run tests/unit/dashboard.test.js",
     "test:all": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.js\"",
+    "emulators": "firebase emulators:start --only firestore,auth",
+    "dev:api": "vercel dev",
+    "seed:superadmin": "node scripts/seedSuperadmin.js",
+    "audit:ci": "npm audit --audit-level=high"
   },
   "repository": {
     "type": "git",
@@ -37,6 +42,7 @@
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "firebase": "^12.6.0",
+    "firebase-admin": "^13.6.0",
     "framer-motion": "^12.23.24",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.2",
@@ -49,6 +55,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
     "@tailwindcss/postcss": "^4.1.17",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",

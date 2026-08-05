@@ -8,6 +8,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.js'],
     globals: true,
+    // tests/rules/** needs a running Firestore emulator and a node environment.
+    // It has its own config and its own script (npm run test:rules) so that a
+    // plain `vitest run` stays fast and dependency-free.
+    exclude: ['node_modules/**', 'dist/**', 'tests/rules/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
