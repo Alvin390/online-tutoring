@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
@@ -10,6 +10,10 @@ import PendingApprovalsPanel from './PendingApprovalsPanel';
 import SessionManager from './SessionManager';
 import StudentDrawer from './StudentDrawer';
 import FeeKpiCards from '@features/fees/components/FeeKpiCards';
+
+// Lazy: the calendar carries a month grid, an agenda and a recurrence form the
+// dashboard should not pay for on first paint. It never enters the initial chunk.
+const CalendarPanel = lazy(() => import('@features/calendar/components/CalendarPanel'));
 import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
@@ -43,6 +47,7 @@ export default function DashboardLayout() {
   const teacherDefinedSessions = useFlag('sessions.teacherDefined');
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
+  const calendarEnabled = useFlag('calendar.enabled');
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
@@ -149,6 +154,21 @@ export default function DashboardLayout() {
 
         {/* Fee KPIs (Phase 06). One aggregate document read, not a scan. */}
         {feesEnabled && <FeeKpiCards />}
+
+        {/* Calendar (Phase 07), lazily loaded. */}
+        {calendarEnabled && (
+          <Suspense
+            fallback={
+              <div className="card mb-4">
+                <div className="card-body text-center py-4">
+                  <span className="spinner-border spinner-border-sm text-muted" />
+                </div>
+              </div>
+            }
+          >
+            <CalendarPanel />
+          </Suspense>
+        )}
 
         {/* Sessions (Phase 05). Behind a flag: with it off the two original
             sessions are managed through ClassLinkManager exactly as before. */}

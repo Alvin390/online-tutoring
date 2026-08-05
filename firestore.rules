@@ -458,7 +458,36 @@ service cloud.firestore {
     // Anything else under fees/ stays closed.
     match /fees/{document=**}     { allow read, write: if false; }
 
-    match /calendar/{document=**} { allow read, write: if false; }   // Phase 07
+    // ==================================================================
+    // Calendar — Phase 07
+    //
+    // Reads are TEACHER-ONLY at the rules layer. Students never query this
+    // collection directly: they call /api/calendar/events, which scopes results
+    // to their own session server-side.
+    //
+    // That is deliberate. A student reading the collection directly would see
+    // every event, including ones scoped to other classes — "Grade 8 mock exam"
+    // is not information a Grade 7 student should be able to enumerate, and
+    // `sessionIds` filtering cannot be expressed as a rule without the caller's
+    // session, which an unauthenticated student does not have.
+    // ==================================================================
+
+    match /calendar/events/items/{eventId} {
+      allow read: if isTeacher();
+      // Writes go through /api/calendar/manage, which handles series splitting
+      // for "this and future" edits. A direct write could not do that
+      // atomically and would rewrite history.
+      allow write: if false;
+    }
+
+    // Feed tokens — only SHA-256 hashes are stored, and even those are never
+    // exposed to a client. A readable token table would be a list of working
+    // calendar-feed URLs.
+    match /calendar/tokens/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /calendar/{document=**} { allow read, write: if false; }
     match /whatsapp/{document=**} { allow read, write: if false; }   // Phase 08
 
     // A top-level `students` collection is not used. Notes live under

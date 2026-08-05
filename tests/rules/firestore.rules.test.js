@@ -784,7 +784,57 @@ describe('fee ledger is append-only and server-written', () => {
 });
 
 // ===========================================================================
-// 13. Default deny
+// 13. Calendar — Phase 07
+// ===========================================================================
+
+describe('calendar', () => {
+  const eventPath = 'calendar/events/items/evt1';
+
+  beforeEach(async () => {
+    await seed(env, eventPath, {
+      title: 'Grade 8 mock exam',
+      sessionIds: ['morning'],
+      isRecurring: false,
+    });
+  });
+
+  it('lets a teacher read events', async () => {
+    await assertSucceeds(getDoc(doc(teacher(env), eventPath)));
+  });
+
+  it('denies a student reading the collection directly', async () => {
+    // Students go through /api/calendar/events, which scopes to their own
+    // session. Direct access would let a Grade 7 student enumerate Grade 8's
+    // schedule, and sessionIds filtering cannot be expressed as a rule without
+    // knowing the caller's session.
+    await assertFails(getDoc(doc(student(env, PHONE_A), eventPath)));
+    await assertFails(getDocs(collection(student(env, PHONE_A), 'calendar/events/items')));
+  });
+
+  it('denies an anonymous read', async () => {
+    await assertFails(getDoc(doc(anon(env), eventPath)));
+  });
+
+  it('DENIES a teacher writing events directly', async () => {
+    // Writes go through /api/calendar/manage, which splits a series for a
+    // "this and future" edit. A direct write could not do that atomically and
+    // would rewrite history.
+    await assertFails(setDoc(doc(teacher(env), 'calendar/events/items/forged'), { title: 'x' }));
+    await assertFails(updateDoc(doc(teacher(env), eventPath), { title: 'changed' }));
+    await assertFails(deleteDoc(doc(teacher(env), eventPath)));
+  });
+
+  it('denies everyone reading or writing feed tokens', async () => {
+    // A readable token table is a list of working calendar-feed URLs.
+    await seed(env, 'calendar/tokens/items/abc123', { role: 'student', session: 'morning' });
+    await assertFails(getDoc(doc(teacher(env), 'calendar/tokens/items/abc123')));
+    await assertFails(getDoc(doc(superadmin(env), 'calendar/tokens/items/abc123')));
+    await assertFails(setDoc(doc(teacher(env), 'calendar/tokens/items/new'), { role: 'teacher' }));
+  });
+});
+
+// ===========================================================================
+// 14. Default deny
 // ===========================================================================
 
 describe('deny by default', () => {
