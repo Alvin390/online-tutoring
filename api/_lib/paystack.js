@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { safeCompare } from './crypto.js';
 import { ApiError } from './errors.js';
+import { paystackMode, paystackVar } from './mode.js';
 
 /**
  * Paystack client — Phase 03 D1/D3/D4.
@@ -28,6 +29,15 @@ export const TIER_PLAN_ENV = {
 };
 
 /**
+ * Test-mode and live-mode plans are DIFFERENT objects in Paystack with
+ * different plan codes, so the mode has to select the code as well as the key.
+ * Using a test plan code with a live key fails with an unhelpful error.
+ */
+export function currentMode() {
+  return paystackMode();
+}
+
+/**
  * Server-side price table. The client NEVER supplies an amount — that is the
  * classic mass-assignment hole in a checkout flow, and the reason
  * /api/billing/initialize takes a tier name and nothing else.
@@ -46,24 +56,37 @@ export function planCodeForTier(tier) {
   const envName = TIER_PLAN_ENV[tier];
   if (!envName) throw new ApiError(400, 'unknown_tier', `Unknown tier: ${tier}`);
 
-  const code = process.env[envName];
+  const code = paystackVar(envName);
   if (!code) {
     throw new ApiError(500, 'plan_not_configured', 'Billing is not fully configured yet.', {
       expose: true,
-      cause: new Error(`${envName} is not set`),
+      cause: new Error(`${envName}_${paystackMode() === 'live' ? 'LIVE' : 'TEST'} is not set`),
     });
   }
   return code;
 }
 
 function secretKey() {
-  const key = process.env.PAYSTACK_SECRET_KEY;
+  const key = paystackVar('PAYSTACK_SECRET_KEY');
   if (!key) {
     throw new ApiError(500, 'paystack_not_configured', 'Billing is not available right now.', {
       expose: true,
-      cause: new Error('PAYSTACK_SECRET_KEY is not set'),
+      cause: new Error(
+        `PAYSTACK_SECRET_KEY_${paystackMode() === 'live' ? 'LIVE' : 'TEST'} is not set`
+      ),
     });
   }
+
+  // A live key while PAYSTACK_MODE=dev means real cards would be charged from
+  // what the operator believes is a sandbox. Refuse rather than proceed —
+  // this is the one mismatch that costs somebody money.
+  if (paystackMode() === 'dev' && key.startsWith('sk_live_')) {
+    throw new ApiError(500, 'paystack_mode_mismatch', 'Billing is misconfigured.', {
+      expose: true,
+      cause: new Error('PAYSTACK_MODE=dev but a live secret key is configured'),
+    });
+  }
+
   return key;
 }
 

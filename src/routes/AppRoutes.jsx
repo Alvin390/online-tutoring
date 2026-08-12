@@ -46,16 +46,16 @@ export default function AppRoutes() {
           }
         />
 
-        {/* Superadmin console — Phase 11. Claim-gated here, rules-gated in
-            Firestore, and never bundled into the teacher's chunk. */}
-        <Route
-          path={ROUTES.SUPERADMIN}
-          element={
-            <ProtectedRoute role="superadmin">
-              <SuperadminPage />
-            </ProtectedRoute>
-          }
-        />
+        {/* Superadmin console.
+            Deliberately NOT wrapped in ProtectedRoute: that would redirect an
+            unauthenticated visitor to /login, and the requirement is an inline
+            password gate on this URL. The page renders its own sign-in form and
+            checks the superadmin claim itself.
+
+            That is presentation only. The real controls are unchanged: `audit/`
+            is superadmin-only in firestore.rules, and every /api/admin/* handler
+            verifies the claim server-side. Nothing links here. */}
+        <Route path={ROUTES.SUPERADMIN} element={<SuperadminPage />} />
 
         {/* Phase 05: sessions are documents keyed by their slug, so one dynamic
             route serves every session the teacher creates.

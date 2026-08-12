@@ -1,6 +1,7 @@
 import { getDb } from './firebaseAdmin.js';
 import { decrypt } from './crypto.js';
 import { ApiError } from './errors.js';
+import { darajaMode, darajaEnvironment, darajaVar } from './mode.js';
 
 /**
  * M-Pesa Daraja client — Phase 09.
@@ -124,11 +125,55 @@ export function toDarajaPhone(phone) {
  * at rest (Phase 01 D5) and `integrations/daraja` is `allow read, write: if
  * false` for every client including the superadmin. Only the Admin SDK reads it.
  */
+/**
+ * Credentials from the environment, when the current mode has a full set.
+ *
+ * A local-testing convenience so STK pushes can be exercised without going
+ * through the credentials form first. Returns null unless EVERY field for the
+ * active mode is present — a partial set would fail against Safaricom with a
+ * confusing error rather than falling through to the stored record.
+ */
+function credentialsFromEnv() {
+  const consumerKey = darajaVar('DARAJA_CONSUMER_KEY');
+  const consumerSecret = darajaVar('DARAJA_CONSUMER_SECRET');
+  const passkey = darajaVar('DARAJA_PASSKEY');
+  const shortCode = darajaVar('DARAJA_SHORTCODE');
+
+  if (!consumerKey || !consumerSecret || !passkey || !shortCode) return null;
+
+  return {
+    shortCode: String(shortCode),
+    shortCodeType: darajaVar('DARAJA_SHORTCODE_TYPE') === 'paybill' ? 'paybill' : 'till',
+    environment: darajaEnvironment(),
+    consumerKey,
+    consumerSecret,
+    passkey,
+    // Env-supplied credentials are taken as operator-verified: whoever set them
+    // has the .env file, and there is no form step that could have tested them.
+    verifiedAt: new Date(),
+    source: 'env',
+  };
+}
+
 export async function loadCredentials() {
+  // Environment first, so DARAJA_MODE genuinely controls which till is hit.
+  const fromEnv = credentialsFromEnv();
+  if (fromEnv) return fromEnv;
+
   const snap = await getDb().doc('integrations/daraja').get();
 
   if (!snap.exists) {
-    throw new ApiError(503, 'daraja_not_configured', 'M-Pesa payments are not set up yet.');
+    throw new ApiError(
+      503,
+      'daraja_not_configured',
+      'M-Pesa payments are not set up yet.',
+      {
+        expose: true,
+        cause: new Error(
+          `No DARAJA_${darajaMode() === 'live' ? 'LIVE' : 'SANDBOX'}_* env credentials and no integrations/daraja record`
+        ),
+      }
+    );
   }
 
   const data = snap.data();
@@ -137,11 +182,17 @@ export async function loadCredentials() {
     return {
       shortCode: String(data.shortCode ?? ''),
       shortCodeType: data.shortCodeType === 'paybill' ? 'paybill' : 'till',
-      environment: data.environment === 'production' ? 'production' : 'sandbox',
+      // DARAJA_MODE wins over the stored value when it is explicitly set, so
+      // flipping the env var moves the whole app between sandbox and
+      // production without editing the Firestore record.
+      environment: process.env.DARAJA_MODE
+        ? darajaEnvironment()
+        : (data.environment === 'production' ? 'production' : 'sandbox'),
       consumerKey: decrypt(data.consumerKeyEnc),
       consumerSecret: decrypt(data.consumerSecretEnc),
       passkey: decrypt(data.passkeyEnc),
       verifiedAt: data.verifiedAt ?? null,
+      source: 'firestore',
     };
   } catch (err) {
     // A decryption failure means the encryption key changed or the record is

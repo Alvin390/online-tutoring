@@ -5,7 +5,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/healthCheck.js && vite",
+    "dev:quiet": "vite",
+    "health": "node scripts/healthCheck.js",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
