@@ -40,6 +40,12 @@ jobs:
       - name: Run Firestore security rules tests
         run: npx firebase-tools emulators:exec --only firestore "npx vitest run --config vitest.rules.config.js"
 
+      # Handler integration tests — the only place a real Firestore transaction
+      # is exercised under contention, which is where a ledger silently goes
+      # wrong. Gates the money path.
+      - name: Run handler integration tests
+        run: npx firebase-tools emulators:exec --only firestore "npx vitest run --config vitest.handlers.config.js"
+
       - name: Audit dependencies
         run: npm audit --audit-level=high
 

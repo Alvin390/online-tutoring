@@ -12,6 +12,7 @@ const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
 const BillingPage = lazy(() => import('@/pages/BillingPage'));
+const SuperadminPage = lazy(() => import('@/pages/SuperadminPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
 export default function AppRoutes() {
@@ -41,6 +42,17 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute role="teacher">
               <BillingPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Superadmin console — Phase 11. Claim-gated here, rules-gated in
+            Firestore, and never bundled into the teacher's chunk. */}
+        <Route
+          path={ROUTES.SUPERADMIN}
+          element={
+            <ProtectedRoute role="superadmin">
+              <SuperadminPage />
             </ProtectedRoute>
           }
         />

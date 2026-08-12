@@ -54,6 +54,33 @@ export function getAdminApp() {
     return cachedApp;
   }
 
+  /**
+   * Emulator path — Phase 11 D1.
+   *
+   * When `FIRESTORE_EMULATOR_HOST` is set, the Admin SDK talks to a local
+   * emulator and no real credential is involved, so handler integration tests
+   * can run without a service account.
+   *
+   * This CANNOT weaken production: the variable is set only by
+   * `firebase emulators:exec`, and if it were somehow present in a deployed
+   * environment the SDK would be pointed at a non-existent local host and fail
+   * immediately and loudly — never silently against real data.
+   */
+  if (process.env.FIRESTORE_EMULATOR_HOST) {
+    // Without this the SDK probes the GCE metadata server at 169.254.169.254
+    // looking for Application Default Credentials, and waits out a network
+    // timeout (~15s off-GCP) before falling through. It works, but it is slow
+    // enough to blow a test hook timeout and it happens on every cold start.
+    // The emulator needs no credentials at all, so the probe is pure waste.
+    process.env.METADATA_SERVER_DETECTION ??= 'none';
+    process.env.GCE_METADATA_HOST ??= '0.0.0.0';
+
+    cachedApp = initializeApp({
+      projectId: process.env.GCLOUD_PROJECT ?? 'demo-online-tutoring',
+    });
+    return cachedApp;
+  }
+
   const serviceAccount = loadCredential();
   cachedApp = initializeApp({
     credential: cert(serviceAccount),

@@ -10,22 +10,12 @@ import './styles/index.css';
 import './styles/animations.css';
 import './styles/dashboard.css';
 
-// Initialize Sentry in production
+// Monitoring — Phase 01 D3 redaction plus Phase 11 D2 release/tag context.
+// Dynamically imported so neither Sentry nor web-vitals enters the dev bundle.
 if (import.meta.env.PROD && import.meta.env.VITE_SENTRY_DSN) {
-  Promise.all([
-    import('@sentry/react'),
-    import('./shared/utils/redact'),
-  ]).then(([Sentry, { redactSentryEvent }]) => {
-    Sentry.init({
-      dsn: import.meta.env.VITE_SENTRY_DSN,
-      environment: import.meta.env.MODE,
-      tracesSampleRate: 0.1,
-      // Phase 01 D3. Error reports are the easiest PII leak to overlook,
-      // because nobody reads them during development. Same redaction the
-      // logger applies, on the way out.
-      beforeSend: redactSentryEvent,
-      sendDefaultPii: false,
-    });
+  import('./shared/utils/monitoring').then(async ({ initMonitoring, reportWebVitals }) => {
+    await initMonitoring();
+    reportWebVitals();
   });
 }
 
