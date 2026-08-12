@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   subscribeToStudents,
   subscribeToPendingApprovals,
@@ -12,16 +12,29 @@ import {
 } from '@services/firebase/firestore';
 import { setClassLink, decideApproval } from '@services/api/teacher';
 import { approveReceiptWithPayment } from '@services/api/fees';
+import { useSessions } from '@features/sessions/hooks/useSessions';
 import { useFlag } from '@shared/config/FlagsContext';
 import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
 import { trackStudentDelete, trackCSVExport } from '@utils/analytics';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+
+// jsPDF is NOT imported statically — see exportToPDF. Phase 10 item 8.
 
 export const useDashboard = () => {
-  const [morningStudents, setMorningStudents] = useState([]);
-  const [eveningStudents, setEveningStudents] = useState([]);
+  /**
+   * Students, keyed by session id — Phase 10.
+   *
+   * Replaces the two hardcoded `morningStudents` / `eveningStudents` arrays and
+   * their two fixed listeners. This is the Phase 05 gap: a teacher could create
+   * a third session and register students into it, but those students never
+   * appeared on the dashboard, because nothing was listening to their
+   * collection.
+   *
+   * One listener per ACTIVE session, created and torn down as the session list
+   * changes. Deactivating a session now removes its listener rather than
+   * leaking it — the plan's "Unsubscribe Properly" item.
+   */
+  const [studentsBySession, setStudentsBySession] = useState({});
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [zoomLinks, setZoomLinks] = useState({ morning: '', evening: '' });
   const [loading, setLoading] = useState(true);
@@ -29,22 +42,76 @@ export const useDashboard = () => {
   const feesEnabled = useFlag('fees.enabled');
   const { showSuccess, showError } = useToast();
 
-  // Subscribe to morning students
+  const { activeSessions, loading: sessionsLoading } = useSessions();
+
+  /**
+   * Session ids to watch.
+   *
+   * Falls back to the two original sessions when the sessions collection is
+   * empty — a deployment that has not run `npm run seed:sessions` must still
+   * show its students, exactly as SessionRoutePage falls back for the student
+   * side.
+   */
+  const sessionIds = useMemo(() => {
+    if (activeSessions.length > 0) return activeSessions.map((s) => s.id);
+    return sessionsLoading ? [] : ['morning', 'evening'];
+  }, [activeSessions, sessionsLoading]);
+
+  // Joined into a primitive so the effect below depends on the CONTENT of the
+  // list rather than the array identity, which changes on every snapshot.
+  const sessionKey = sessionIds.join(',');
+
+  const unsubscribers = useRef(new Map());
+
   useEffect(() => {
-    const unsubscribe = subscribeToStudents('morning', (students) => {
-      setMorningStudents(students);
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    const ids = sessionKey ? sessionKey.split(',') : [];
+    const live = unsubscribers.current;
+
+    // Tear down listeners for sessions that are gone or newly inactive.
+    for (const [id, unsubscribe] of live.entries()) {
+      if (!ids.includes(id)) {
+        unsubscribe();
+        live.delete(id);
+        setStudentsBySession((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    }
+
+    // Open listeners for sessions we are not yet watching.
+    for (const id of ids) {
+      if (live.has(id)) continue;
+      live.set(
+        id,
+        subscribeToStudents(id, (students) => {
+          setStudentsBySession((prev) => ({ ...prev, [id]: students }));
+          setLoading(false);
+        })
+      );
+    }
+
+    if (ids.length === 0 && !sessionsLoading) setLoading(false);
+  }, [sessionKey, sessionsLoading]);
+
+  // Unmount: close every listener. Held in a ref rather than state so this
+  // cleanup cannot run against a stale copy.
+  useEffect(() => {
+    const live = unsubscribers.current;
+    return () => {
+      for (const unsubscribe of live.values()) unsubscribe();
+      live.clear();
+    };
   }, []);
 
-  // Subscribe to evening students
-  useEffect(() => {
-    const unsubscribe = subscribeToStudents('evening', (students) => {
-      setEveningStudents(students);
-    });
-    return () => unsubscribe();
-  }, []);
+  /**
+   * Back-compat accessors. The dashboard's tab UI is still session-keyed, and
+   * these keep every existing consumer working while the underlying shape is
+   * now dynamic.
+   */
+  const morningStudents = studentsBySession.morning ?? [];
+  const eveningStudents = studentsBySession.evening ?? [];
 
   // Pending approvals — one collection-group listener across all sessions.
   useEffect(() => {
@@ -150,13 +217,27 @@ export const useDashboard = () => {
     }
   }, [showSuccess, showError]);
 
-  const exportToPDF = useCallback((session) => {
-    const students = session === 'morning' ? morningStudents : eveningStudents;
+  /**
+   * PDF export — Phase 10 item 8.
+   *
+   * jsPDF and jspdf-autotable are loaded ON DEMAND rather than imported at
+   * module scope. Statically, jsPDF drags in html2canvas (197 KB) and its
+   * canvas/DOM helpers (155 KB) — roughly 350 KB that every teacher downloaded
+   * on every dashboard load to support a button most of them press rarely, if
+   * ever.
+   */
+  const exportToPDF = useCallback(async (session) => {
+    const students = studentsBySession[session] ?? [];
 
     if (students.length === 0) {
       showError('No students to export');
       return;
     }
+
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
 
     // Create new PDF document
     const doc = new jsPDF();
@@ -244,7 +325,7 @@ export const useDashboard = () => {
 
     trackCSVExport(session, students.length);
     showSuccess('PDF exported successfully');
-  }, [morningStudents, eveningStudents, showSuccess, showError]);
+  }, [studentsBySession, showSuccess, showError]);
 
   const blockStudent = useCallback(async (session, phoneNumber, studentName, blockReason) => {
     try {
@@ -326,6 +407,10 @@ export const useDashboard = () => {
   }, [showSuccess, showError]);
 
   return {
+    // Dynamic, session-keyed — the shape new code should use.
+    studentsBySession,
+    sessions: activeSessions,
+    // Retained so existing consumers keep working.
     morningStudents,
     eveningStudents,
     pendingApprovals,
@@ -343,6 +428,7 @@ export const useDashboard = () => {
     declineReceipt,
     approveStudents,
     rejectStudents,
-    totalStudents: morningStudents.length + eveningStudents.length,
+    // Summed across every watched session, not just the two original ones.
+    totalStudents: Object.values(studentsBySession).reduce((sum, list) => sum + list.length, 0),
   };
 };

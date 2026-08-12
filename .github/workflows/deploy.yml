@@ -48,6 +48,11 @@ jobs:
         env:
           NODE_ENV: production
 
+      # Phase 10 D9. Fails the build on breach, so a bundle regression is caught
+      # before merge rather than by a teacher on a 3G connection.
+      - name: Check bundle size budget
+        run: npm run check:bundle
+
       # sourcemap:'hidden' emits maps without a sourceMappingURL comment. They
       # are useful to Sentry and to nobody else, so they are removed before the
       # deploy step ever sees them.

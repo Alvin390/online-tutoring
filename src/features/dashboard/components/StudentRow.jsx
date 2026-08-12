@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 
 const escapeHtml = (text) => {
@@ -13,7 +13,7 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
-export default function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline }) {
+function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline }) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -366,3 +366,57 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
     </>
   );
 }
+
+/**
+ * Memoisation comparator — Phase 10 item 3.
+ *
+ * `StudentRow` is the largest dashboard component and was re-rendering for
+ * EVERY student on any change to either session's array. One student checking
+ * in re-rendered the teacher's entire table.
+ *
+ * Compared field by field rather than by object identity, because the Firestore
+ * listener hands back a fresh object on every snapshot even when nothing this
+ * row displays has changed — so a shallow `prev.student === next.student` check
+ * would never hit.
+ *
+ * Only the fields this component actually renders are compared. Adding a field
+ * to the JSX without adding it here produces a row that will not update, so the
+ * list is kept adjacent to the render deliberately.
+ */
+const WATCHED_FIELDS = [
+  'studentName',
+  'parentPhone',
+  'class',
+  'subjects',
+  'receiptMessage',
+  'blocked',
+  'blockReason',
+  'receiptStatus',
+  'pendingReceipt',
+  'approvalStatus',
+  'feeBalance',
+  'overdue',
+];
+
+function areEqual(prev, next) {
+  if (prev.session !== next.session) return false;
+  if (prev.index !== next.index) return false;
+  if (prev.student?.id !== next.student?.id) return false;
+
+  // Callback identity: the parent passes inline arrows for onDelete/onEdit/
+  // onView, so these change every render and are deliberately NOT compared —
+  // comparing them would defeat the memo entirely. They only ever close over
+  // `student`, which is compared below.
+  for (const field of WATCHED_FIELDS) {
+    if (prev.student?.[field] !== next.student?.[field]) return false;
+  }
+
+  // registeredAt is a Firestore Timestamp; compare its value, not its identity.
+  const prevReg = prev.student?.registeredAt?.toMillis?.() ?? prev.student?.registeredAt ?? null;
+  const nextReg = next.student?.registeredAt?.toMillis?.() ?? next.student?.registeredAt ?? null;
+  if (prevReg !== nextReg) return false;
+
+  return true;
+}
+
+export default memo(StudentRow, areEqual);

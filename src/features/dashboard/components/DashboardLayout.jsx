@@ -24,6 +24,8 @@ export default function DashboardLayout() {
   const { user } = useAuthState();
   const { signOut } = useAuthActions();
   const {
+    studentsBySession,
+    sessions,
     morningStudents,
     eveningStudents,
     pendingApprovals,
@@ -136,8 +138,8 @@ export default function DashboardLayout() {
       <div className="container-fluid py-4">
         {/* Stats Cards */}
         <StatsCards
-          morningCount={morningStudents.length}
-          eveningCount={eveningStudents.length}
+          studentsBySession={studentsBySession}
+          sessions={sessions}
           totalCount={totalStudents}
           linksConfigured={linksConfigured}
         />

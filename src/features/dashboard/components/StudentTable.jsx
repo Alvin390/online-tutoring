@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
 import Modal from '@components/ui/Modal';
+import { SkeletonTable } from '@components/ui/Skeleton';
 
 export default function StudentTable({
   session,
@@ -80,15 +81,10 @@ export default function StudentTable({
     setBlockReason('');
   };
 
+  // Skeleton rather than a spinner — Phase 10 D4. The placeholder occupies the
+  // real table's height, so nothing shifts when the data arrives.
   if (loading) {
-    return (
-      <div className="text-center py-5">
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-        <p className="text-muted mt-3">Loading {session} students...</p>
-      </div>
-    );
+    return <SkeletonTable rows={6} columns={7} />;
   }
 
   if (students.length === 0) {
