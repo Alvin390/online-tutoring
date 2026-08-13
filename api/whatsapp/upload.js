@@ -1,6 +1,5 @@
 import { createHandler } from '../_lib/handler.js';
-import { getAdminApp } from '../_lib/firebaseAdmin.js';
-import { getStorage } from 'firebase-admin/storage';
+import { getAdminApp, getStorage } from '../_lib/firebaseAdmin.js';
 import { z } from '../_lib/validate.js';
 import { badRequest, forbidden } from '../_lib/errors.js';
 import { sniffFileType, stripJpegMetadata, sanitiseFilename, MAX_UPLOAD_BYTES } from '../_lib/fileType.js';

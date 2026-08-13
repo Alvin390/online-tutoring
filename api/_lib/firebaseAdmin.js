@@ -1,99 +1,65 @@
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getFirestoreRest, FieldValue, Timestamp } from './firestoreRest.js';
+import { getAuthRest } from './authRest.js';
+import { getStorageRest } from './storageRest.js';
+import { firestoreEmulatorHost, getProjectId, loadServiceAccount } from './googleAuth.js';
 
 /**
- * Admin SDK singleton — Phase 01 D4.
+ * Firebase server-side clients — Phase 01 D4, re-implemented in Phase 12 D4.
  *
- * Initialised once at module scope and memoised, so a warm Vercel invocation
- * reuses the connection instead of paying the handshake again. Cold-start
- * mitigation, and the reason every handler imports from here rather than
- * calling initializeApp itself.
+ * This used to wrap `firebase-admin`. It no longer does, because that package
+ * cannot run on Cloudflare Workers: it needs gRPC, http2, net, tls, dns and fs,
+ * and `nodejs_compat` provides none of them. The three clients below are backed
+ * by ./firestoreRest.js, ./authRest.js and ./storageRest.js, which speak the
+ * same Google REST APIs using only `fetch` and `node:crypto`.
  *
- * Initialisation is lazy rather than eager: importing this module must not
- * throw when credentials are absent, or unit tests of sibling modules would be
- * unable to import anything in this directory.
+ * THE EXPORTED SURFACE IS UNCHANGED. Every one of the 42 modules that imports
+ * from here — and all three scripts in scripts/ — is untouched by the
+ * migration, which is the entire point of doing it this way: a billing system
+ * with 600-odd tests does not want a 42-file rewrite on top of a hosting move.
  *
- * The Admin SDK BYPASSES firestore.rules entirely. Every handler that touches
- * it is therefore responsible for its own authorization — see requireAuth /
+ * The shims also run in plain Node, so `npm run seed:superadmin`,
+ * `npm run health` and the emulator test suites all work exactly as before.
+ *
+ * Initialisation stays LAZY. Importing this module must not throw when
+ * credentials are absent, or unit tests of sibling modules could not import
+ * anything in this directory.
+ *
+ * NOTE, unchanged from Phase 01 and still the most important line in this file:
+ * these clients BYPASS firestore.rules entirely. Every handler that touches
+ * them is responsible for its own authorization — see requireAuth /
  * requireRole in ./auth.js.
  */
 
 let cachedApp = null;
 
-function loadCredential() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) {
-    throw new Error(
-      'FIREBASE_SERVICE_ACCOUNT is not set. Add the service account JSON ' +
-      '(raw or base64-encoded) as an encrypted environment variable.'
-    );
-  }
-
-  const trimmed = raw.trim();
-  const json = trimmed.startsWith('{')
-    ? trimmed
-    : Buffer.from(trimmed, 'base64').toString('utf8');
-
-  const parsed = JSON.parse(json);
-
-  // Env vars flatten real newlines in the PEM body; restore them.
-  if (typeof parsed.private_key === 'string') {
-    parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
-  }
-
-  return parsed;
-}
-
+/**
+ * Kept for the two callers that ask for the "app" before reaching a service
+ * (`getStorage(getAdminApp())`). There is no SDK app object any more, so this
+ * is the small descriptor the shims actually need, and resolving it eagerly
+ * here means a missing credential still fails loudly and early rather than at
+ * the first write.
+ */
 export function getAdminApp() {
   if (cachedApp) return cachedApp;
 
-  const existing = getApps();
-  if (existing.length > 0) {
-    cachedApp = existing[0];
+  if (firestoreEmulatorHost()) {
+    cachedApp = { projectId: getProjectId(), emulated: true };
     return cachedApp;
   }
 
-  /**
-   * Emulator path — Phase 11 D1.
-   *
-   * When `FIRESTORE_EMULATOR_HOST` is set, the Admin SDK talks to a local
-   * emulator and no real credential is involved, so handler integration tests
-   * can run without a service account.
-   *
-   * This CANNOT weaken production: the variable is set only by
-   * `firebase emulators:exec`, and if it were somehow present in a deployed
-   * environment the SDK would be pointed at a non-existent local host and fail
-   * immediately and loudly — never silently against real data.
-   */
-  if (process.env.FIRESTORE_EMULATOR_HOST) {
-    // Without this the SDK probes the GCE metadata server at 169.254.169.254
-    // looking for Application Default Credentials, and waits out a network
-    // timeout (~15s off-GCP) before falling through. It works, but it is slow
-    // enough to blow a test hook timeout and it happens on every cold start.
-    // The emulator needs no credentials at all, so the probe is pure waste.
-    process.env.METADATA_SERVER_DETECTION ??= 'none';
-    process.env.GCE_METADATA_HOST ??= '0.0.0.0';
-
-    cachedApp = initializeApp({
-      projectId: process.env.GCLOUD_PROJECT ?? 'demo-online-tutoring',
-    });
-    return cachedApp;
-  }
-
-  const serviceAccount = loadCredential();
-  cachedApp = initializeApp({
-    credential: cert(serviceAccount),
+  const serviceAccount = loadServiceAccount();
+  cachedApp = {
     projectId: serviceAccount.project_id,
-  });
-
+    clientEmail: serviceAccount.client_email,
+    emulated: false,
+  };
   return cachedApp;
 }
 
 let cachedDb = null;
 export function getDb() {
   if (!cachedDb) {
-    cachedDb = getFirestore(getAdminApp());
+    cachedDb = getFirestoreRest();
     cachedDb.settings({ ignoreUndefinedProperties: true });
   }
   return cachedDb;
@@ -101,8 +67,16 @@ export function getDb() {
 
 let cachedAuth = null;
 export function getAdminAuth() {
-  if (!cachedAuth) cachedAuth = getAuth(getAdminApp());
+  if (!cachedAuth) cachedAuth = getAuthRest();
   return cachedAuth;
+}
+
+/**
+ * Mirrors `getStorage(app)` from firebase-admin/storage, including accepting
+ * and ignoring the app argument, so api/whatsapp/upload.js reads unchanged.
+ */
+export function getStorage() {
+  return getStorageRest();
 }
 
 export { FieldValue, Timestamp };

@@ -46,7 +46,6 @@
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "firebase": "^12.6.0",
-    "firebase-admin": "^13.6.0",
     "framer-motion": "^12.23.24",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.2",
@@ -60,6 +59,7 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
+    "firebase-admin": "^13.6.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
