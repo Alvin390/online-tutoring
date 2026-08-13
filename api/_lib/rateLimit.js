@@ -34,17 +34,25 @@ function hashKey(key) {
  * @returns {Promise<{allowed: boolean, remaining: number, retryAfter: number}>}
  */
 export async function checkRateLimit({ key, bucket, limit, windowSeconds }) {
-  const db = getDb();
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
   const windowStart = Math.floor(now / windowMs) * windowMs;
 
-  // The window start is part of the document ID, so a new window is a new
-  // document and there is nothing to reset. Old windows are swept by TTL.
-  const docId = `${bucket}_${hashKey(key)}_${windowStart}`;
-  const ref = db.collection(COLLECTION).doc(docId);
-
   try {
+    // INSIDE the try, deliberately. `getDb()` is not just a getter: it resolves
+    // the project id, which reads and parses FIREBASE_SERVICE_ACCOUNT and
+    // throws if that variable is absent or malformed. Constructed outside, a
+    // credential misconfiguration escaped this function entirely and surfaced
+    // as an opaque 500 on every rate-limited endpoint — defeating the
+    // fail-open contract below in exactly the case it is most needed, and
+    // making a missing secret look like a code fault. Phase 12.
+    const db = getDb();
+
+    // The window start is part of the document ID, so a new window is a new
+    // document and there is nothing to reset. Old windows are swept by TTL.
+    const docId = `${bucket}_${hashKey(key)}_${windowStart}`;
+    const ref = db.collection(COLLECTION).doc(docId);
+
     const count = await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       const current = snap.exists ? (snap.data().count ?? 0) : 0;

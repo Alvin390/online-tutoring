@@ -73,8 +73,36 @@ with the runtime half of `.env.local`.
 Non-secret tuning knobs live in `wrangler.jsonc` under `vars`:
 `SUBREQUEST_BUDGET` and `SWEEP_BATCH_SIZE` (see §8).
 
-Verify with `GET /api/health` — it returns `{ status: 'ok', firestore: 'ok' }`
-when credentials resolve.
+Verify with `GET /api/health` — it returns
+`{ status: 'ok', firestore: 'ok', credentials: 'ok' }` when credentials resolve.
+
+**`credentials` is the field to read first after any deploy.** It is reported
+without a network call and separates three things that `firestore: 'unreachable'`
+alone runs together:
+
+| Value | Meaning | Fix |
+|---|---|---|
+| `ok` | A service account was found and parsed | — |
+| `missing` | `FIREBASE_SERVICE_ACCOUNT` is not set on this Worker | `npm run cf:secrets`, then upload a new version |
+| `invalid` | It is set but does not parse, or lacks `client_email` / `private_key` / `project_id` | Re-upload it; truncation on paste is the usual cause |
+| `emulator` | `FIRESTORE_EMULATOR_HOST` is set — local/test only | Should never appear in production |
+
+**Secrets attach to the Worker, not to a version that was already uploaded.**
+A preview URL minted before `wrangler secret put` ran keeps the bindings it was
+built with, so it will keep reporting `credentials: 'missing'` no matter how many
+times the secrets are set. Upload a new version afterwards
+(`npx wrangler versions upload`, or `npx wrangler deploy`) and test *that* URL.
+
+This is worth stating plainly because the failure does not look like a
+configuration failure from the browser. With no credential:
+
+- `/api/health` → `firestore: 'unreachable'`
+- any **rate-limited** endpoint (e.g. `/api/admin/users`) → **500 internal_error**
+- any authenticated endpoint **without** a rate limit (e.g. `/api/billing/status`)
+  → **401 unauthorized**
+
+Three different symptoms, one cause, and none of them says "secret". That
+combination is pinned in `tests/unit/missingCredentials.test.js`.
 
 `npm run health` runs a deeper check locally: real network calls to Firebase,
 Paystack and Daraja using the real values in `.env.local`, so a green line means

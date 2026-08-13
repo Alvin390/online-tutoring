@@ -5,9 +5,20 @@
 # against Worker-generated responses, so /api/* gets its headers from
 # API_SECURITY_HEADERS in worker/index.js instead. Both lists must be kept in
 # step.
+#
+# THE CSP BELOW IS INERT. Report-Only with no `report-uri` and no `report-to`
+# blocks nothing and reports nothing — Firefox says so in the console on every
+# page load. It is kept as the written-down intent, and as the thing to promote
+# to an enforcing `Content-Security-Policy:` header once someone has watched a
+# real session for violations. Promoting it is a one-word edit to this line;
+# doing it blind is how a paying customer's checkout stops loading.
+#
+# `www.googletagmanager.com` is in script-src because Firebase Analytics loads
+# gtag.js from there (src/services/firebase/config.js). It was missing, which
+# the Report-Only policy duly reported and did not block.
 
 /*
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://js.paystack.co https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://www.google-analytics.com https://firebasestorage.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firebaseinstallations.googleapis.com https://firebasestorage.googleapis.com https://www.google-analytics.com https://api.paystack.co https://*.ingest.sentry.io https://*.ingest.de.sentry.io; frame-src 'self' https://checkout.paystack.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://js.paystack.co https://apis.google.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://www.google-analytics.com https://*.google-analytics.com https://firebasestorage.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firebaseinstallations.googleapis.com https://firebasestorage.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://api.paystack.co https://*.ingest.sentry.io https://*.ingest.de.sentry.io; frame-src 'self' https://checkout.paystack.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY

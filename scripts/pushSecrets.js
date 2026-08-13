@@ -43,6 +43,19 @@ const only = onlyIndex !== -1 ? args[onlyIndex + 1] : null;
  */
 const PLAIN_VARS = new Set(['SUBREQUEST_BUDGET', 'SWEEP_BATCH_SIZE', 'EXPOSE_DEV_OTP']);
 
+/**
+ * A local-development URL that must not be uploaded to production.
+ *
+ * `.dev.vars` is the LOCAL file, so `PUBLIC_BASE_URL=http://localhost:3000` is
+ * correct there and catastrophic in Cloudflare: it is the base for the Paystack
+ * return URL and the Daraja callback URL, and Safaricom cannot call localhost.
+ * The failure is silent — payments simply never come back — so this refuses
+ * rather than warns.
+ */
+function isLocalhostUrl(value) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(value);
+}
+
 function parseEnvFile(path) {
   const out = new Map();
   const text = readFileSync(path, 'utf8');
@@ -89,9 +102,24 @@ function main() {
   const candidates = [...entries.entries()].filter(([key, value]) => {
     if (key.startsWith('VITE_')) return false;   // build-time, public
     if (PLAIN_VARS.has(key)) return false;        // wrangler.jsonc vars
+    if (isLocalhostUrl(value)) return false;      // local-only, see below
     if (only) return key === only;
     return value.length > 0;                      // never upload a blank
   });
+
+  const localOnly = [...entries.entries()].filter(
+    ([key, value]) => !key.startsWith('VITE_') && !PLAIN_VARS.has(key) && isLocalhostUrl(value)
+  );
+
+  if (localOnly.length > 0) {
+    console.log('REFUSED (points at localhost — would break in production):');
+    for (const [key, value] of localOnly) console.log(`  - ${key} = ${value}`);
+    console.log(
+      '  Set these by hand to the deployed origin, e.g.\n'
+      + '    npx wrangler secret put PUBLIC_BASE_URL\n'
+      + '  then update the Paystack callback URL and the Daraja callback URL to match.\n'
+    );
+  }
 
   const empty = [...entries.keys()].filter(
     (key) => !key.startsWith('VITE_') && !PLAIN_VARS.has(key) && !entries.get(key)
@@ -136,6 +164,21 @@ function main() {
   }
 
   console.log(failed === 0 ? '\nDone.' : `\nDone, with ${failed} failure(s).`);
+
+  if (failed === 0) {
+    // Secrets attach to the WORKER, not to a version that was already
+    // uploaded. A preview URL minted before this point keeps the bindings it
+    // was built with — which is exactly how a deployment ends up reporting
+    // `credentials: "missing"` on /api/health after the secrets "were set".
+    console.log(
+      '\nUpload a new version so it picks these up:\n'
+      + '  npx wrangler versions upload      (preview URL)\n'
+      + '  npx wrangler deploy               (production)\n'
+      + '\nThen confirm:  curl https://<url>/api/health\n'
+      + '  expected: {"status":"ok","firestore":"ok","credentials":"ok",...}\n'
+    );
+  }
+
   if (failed > 0) process.exit(1);
 }
 
