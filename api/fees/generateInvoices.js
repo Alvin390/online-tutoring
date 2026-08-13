@@ -91,6 +91,18 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
   }
 
   // ---- One batched read for every account, rather than one per student.
+  //
+  // COST NOTE. This re-fetches and decodes the WHOLE roster on every tick, to
+  // process at most SWEEP_BATCH_SIZE of it. In subrequests that is cheap and
+  // flat — two queries plus one batchGet regardless of size — but the JSON
+  // decode is CPU, and CPU is the free plan's 10ms-per-invocation ceiling. So
+  // this is the line that will bite first as the roster grows, and the first
+  // thing to look at if the Workers dashboard reports an exceededCpu outcome.
+  //
+  // Fixing it means paginating the roster query by cursor rather than slicing
+  // in memory; deliberately not done now, because it trades a simple resume
+  // (find the key in a stable list) for one that has to survive a query cursor
+  // AND a roster that changes between ticks.
   const accountSnaps = await db.getAll(candidates.map((c) => accountRef(db, c.phone)));
   const accountsByPhone = new Map(
     candidates.map((c, i) => [c.phone, accountSnaps[i].exists ? accountSnaps[i].data() : null])

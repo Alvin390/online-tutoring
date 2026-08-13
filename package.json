@@ -20,7 +20,7 @@
     "test:all": "vitest run",
     "test:money": "vitest run tests/unit/money.test.js tests/unit/blockReason.test.js tests/unit/feeState.test.js tests/unit/subscription.test.js tests/unit/paystack.test.js tests/unit/daraja.test.js",
     "test:access": "vitest run tests/unit/studentGate.test.js tests/unit/classLink.test.js tests/unit/sessions.test.js tests/unit/flags.test.js",
-    "test:handlers": "firebase emulators:exec --only firestore \"vitest run --config vitest.handlers.config.js\"",
+    "test:handlers": "firebase emulators:exec --project demo-online-tutoring --only firestore,auth \"vitest run --config vitest.handlers.config.js\"",
     "test:coverage": "vitest run --coverage",
     "check:bundle": "node scripts/checkBundleSize.js",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.js\"",

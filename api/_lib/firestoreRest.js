@@ -1096,6 +1096,21 @@ export class Firestore {
     return refs.map((ref) => new DocumentSnapshot(ref, byName.get(ref._name) ?? null));
   }
 
+  /**
+   * Runs a structured query.
+   *
+   * DOES NOT PAGINATE, unlike `_listDocuments` and `_listCollectionIds` below.
+   * `runQuery` streams its results in a single response, and this takes what
+   * arrives. Past one response page the result is silently PARTIAL — no error,
+   * just fewer documents than exist.
+   *
+   * That is acceptable at this project's scale (a single teacher, hundreds of
+   * students at most) and it matches what the callers assume today, but it is a
+   * real ceiling. The queries that would hit it first are the roster scans in
+   * fees/generateInvoices.js and the account scan in cron/feesSweep.js. If the
+   * roster ever approaches four figures, add cursor pagination via
+   * `startAfter` on `__name__` rather than raising a limit.
+   */
   async _runQuery(query) {
     const path = query._collectionPath;
     const at = path.lastIndexOf('/');

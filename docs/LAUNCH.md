@@ -109,7 +109,7 @@ check-in entirely.
 ### Security
 
 - [ ] Rules deployed; `npm run test:rules` green (124 tests)
-- [ ] Handler tests green; `npm run test:handlers` (76 tests)
+- [ ] Handler tests green; `npm run test:handlers` (98 tests)
 - [ ] No PII in any log, Sentry event or error response
 - [ ] All runtime secrets uploaded with `npm run cf:secrets`, none in git;
       `.dev.vars` and `.env.local` both gitignored
@@ -138,7 +138,7 @@ check-in entirely.
 ### Functional
 
 - [ ] All test files green: `npm run test:all` (643), `npm run test:rules`
-      (124), `npm run test:handlers` (76)
+      (124), `npm run test:handlers` (98)
 - [ ] Paystack test-mode transaction end to end
 - [ ] **Daraja sandbox end to end — this has not been run yet** (see §6)
 - [ ] Every flag exercised in both positions
@@ -234,6 +234,8 @@ Stated plainly so nobody discovers them under pressure.
 | Initial JS 248.9 KB vs 180 KB target | Firebase SDK is ~131 KB of it | Phase 10 |
 | **Free-plan CPU ceiling untested under real load** | 10ms/invocation; sweeps are batched to fit but this is unproven in production | Phase 12 |
 | Cloudflare deploy not yet run against a live account | Verified end to end in local workerd via `wrangler dev` | Phase 12 |
+| `storageRest.js` has no automated tests | WhatsApp attachment upload and its signed URL are unverified against real GCS. Behind `whatsapp.advanced` (Gold), so not launch-blocking | Phase 12 |
+| Firestore queries do not paginate | `runQuery` takes one response page; results go silently partial past it. Fine at hundreds of students, a real ceiling at thousands | Phase 12 |
 
 ---
 
@@ -298,6 +300,12 @@ could exceed it. Mitigations are in place — the service-account key and its
 tokens are cached at module scope so a warm isolate never re-signs, and the
 Firestore assertion is self-signed with no network call — but this is **not yet
 proven under production load**.
+
+**Where it would bite first:** `runInvoiceGeneration` re-fetches and decodes the
+whole student roster on every tick in order to process eight of them. The
+subrequest cost is flat (two queries plus one `getAll`), but the JSON decode is
+CPU and scales with roster size. If an `exceededCpu` outcome appears, that is
+the line to look at — see the cost note in `api/fees/generateInvoices.js`.
 
 Detection: `observability` is on, so a CPU-limit breach appears in the Workers
 dashboard as an `exceededCpu` outcome. Watch it in week 1.
