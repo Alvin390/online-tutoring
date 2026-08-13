@@ -35,25 +35,22 @@ export const db = initializeFirestore(app, {
   })
 });
 
-console.log('✅ Firestore initialized with offline persistence enabled');
-
 // Initialize analytics conditionally
 let analytics = null;
 if (import.meta.env.VITE_ENABLE_ANALYTICS === 'true') {
   isSupported().then(supported => {
     if (supported) {
       analytics = getAnalytics(app);
-      console.log('✅ Firebase Analytics initialized');
     }
-  }).catch(err => {
-    console.warn('Firebase Analytics not supported:', err);
+  }).catch(() => {
+    // Analytics is unsupported in this browser (or blocked). Non-fatal, and
+    // deliberately silent — this fires on every privacy-extension user.
   });
 }
 
 export { analytics };
 export default app;
 
-console.log('✅ Firebase initialized successfully', {
-  projectId: app.options.projectId,
-  authDomain: app.options.authDomain
-});
+// No startup logging. The previous three console.log calls here printed the
+// Firebase project ID and auth domain into every visitor's console on every
+// page load — Phase 01 D3.

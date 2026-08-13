@@ -1,5 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
+import { resolveBlockReason, formatKes } from '@utils/blockReason';
+import { useFlag } from '@shared/config/FlagsContext';
+
+// Lazy: only a Gold deployment with an outstanding balance ever renders this,
+// so the payment code should not be in every student's first paint.
+const PayNowPanel = lazy(() => import('@features/payments/components/PayNowPanel'));
 
 export default function BlockedStudentScreen({
   session,
@@ -10,6 +16,16 @@ export default function BlockedStudentScreen({
 }) {
   const [newReceipt, setNewReceipt] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const feesEnabled = useFlag('fees.enabled');
+  const darajaEnabled = useFlag('payments.daraja');
+
+  // Shared with the dashboard's blocked badge, so the teacher sees exactly
+  // what the student sees.
+  const blockState = useMemo(
+    () => resolveBlockReason(studentData, { feesEnabled }),
+    [studentData, feesEnabled]
+  );
 
   const isDeclined = studentData.receiptStatus === 'declined';
   const isPending = studentData.receiptStatus === 'pending';
@@ -69,15 +85,54 @@ export default function BlockedStudentScreen({
           </p>
         </motion.div>
 
-        {/* Block Reason */}
-        {studentData.blockReason && (
+        {/* Reason — DERIVED, not stored (Phase 06 D5).
+            When a balance is outstanding the first line reads
+            "Balance of KES 1,500 not paid", computed from the live balance at
+            render. It updates itself as the student pays, and regenerates
+            correctly after an unblock/re-block cycle because it was never a
+            stored string that could go stale. */}
+        {blockState.lines.length > 0 && (
           <div className="alert alert-danger text-start mb-4">
             <strong>
-              <i className="bi bi-info-circle me-2" />
+              <i className="bi bi-info-circle me-2" aria-hidden="true" />
               Reason:
             </strong>
-            <p className="mb-0 mt-2">{studentData.blockReason}</p>
+            {blockState.lines.map((line, index) => (
+              <p
+                key={line}
+                className={`mb-0 mt-2 ${index === 0 && blockState.balanceLine ? 'fw-bold fs-6' : ''}`}
+              >
+                {line}
+              </p>
+            ))}
           </div>
+        )}
+
+        {/* Payment summary, when there is a balance to settle. */}
+        {blockState.balanceLine && (
+          <div className="bg-light rounded p-3 text-start mb-4">
+            <div className="d-flex justify-content-between">
+              <span className="text-muted small">Amount outstanding</span>
+              <strong>{formatKes(blockState.balance)}</strong>
+            </div>
+            <p className="small text-muted mb-0 mt-2">
+              Once the full amount is paid and your teacher confirms it, your access
+              returns automatically.
+            </p>
+          </div>
+        )}
+
+        {/* Pay now — Phase 09. Sits ALONGSIDE the receipt form below rather
+            than replacing it: a student without M-Pesa on this handset still
+            needs the manual route. */}
+        {darajaEnabled && blockState.balance > 0 && (
+          <Suspense fallback={null}>
+            <PayNowPanel
+              session={session}
+              phone={studentData.parentPhone ?? studentData.id}
+              balance={blockState.balance}
+            />
+          </Suspense>
         )}
 
         {/* Status Messages */}

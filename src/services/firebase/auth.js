@@ -4,17 +4,21 @@ import {
   onAuthStateChanged
 } from 'firebase/auth';
 import { auth } from './config';
+import logger from '@utils/logger';
 
 export const signIn = async (email, password) => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    console.log('✅ Auth sign in successful:', userCredential.user.email);
+    logger.info('Auth sign in successful');
     return { success: true, user: userCredential.user };
   } catch (error) {
-    console.error('❌ Auth sign in failed:', error.code, error.message);
+    // Log the code, never the email — and never the raw error, which echoes
+    // the attempted address back into the console.
+    logger.warn('Auth sign in failed', { code: error.code });
     return {
       success: false,
-      error: getAuthErrorMessage(error.code)
+      error: getAuthErrorMessage(error.code),
+      code: error.code
     };
   }
 };
@@ -22,11 +26,11 @@ export const signIn = async (email, password) => {
 export const signOut = async () => {
   try {
     await firebaseSignOut(auth);
-    console.log('✅ Auth sign out successful');
+    logger.info('Auth sign out successful');
     return { success: true };
   } catch (error) {
-    console.error('❌ Auth sign out failed:', error);
-    return { success: false, error: error.message };
+    logger.error('Auth sign out failed', error);
+    return { success: false, error: 'Sign out failed. Please try again.' };
   }
 };
 

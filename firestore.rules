@@ -1,79 +1,538 @@
 rules_version = '2';
+
+// ============================================================================
+// Firestore security rules — Phase 01 (Foundations & Security Baseline)
+//
+// Posture: DENY BY DEFAULT. There is no catch-all match; every collection opts
+// in explicitly below. Anything not named here is unreachable from any client.
+//
+// What this replaces: the previous file granted `allow read: if true` on
+// student documents and on config/zoomLinks, making every student's name,
+// parent phone, class, subjects and payment receipt text readable by anyone
+// holding the (necessarily public) Firebase project ID.
+//
+// Enforcement layers, in order of authority:
+//   1. These rules            — the only control a client cannot bypass
+//   2. Serverless handlers    — Admin SDK, bypasses rules, applies its own checks
+//   3. UI gating              — UX only, never security
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to check if user is authenticated (teacher)
-    function isAuthenticated() {
+
+    // ------------------------------------------------------------------
+    // Identity helpers
+    // ------------------------------------------------------------------
+
+    function isSignedIn() {
       return request.auth != null;
     }
-    
-    // Helper function to validate phone number format (international)
+
+    // Reads a custom claim with a default, so a token minted before the claim
+    // existed does not blow up the expression.
+    function claim(key, fallback) {
+      return isSignedIn() ? request.auth.token.get(key, fallback) : fallback;
+    }
+
+    // TRANSITIONAL DEFAULT — see phase-01 completion notes.
+    // Accounts are provisioned by the owner; there is no self-signup. Any
+    // signed-in account that has no `role` claim yet is therefore the teacher.
+    // Defaulting to 'teacher' keeps the existing dashboard working through the
+    // cutover window without widening access beyond the previous posture
+    // (which granted every signed-in user blanket write).
+    //
+    // REMOVAL CRITERION: delete the 'teacher' fallback below — making an absent
+    // role deny — once `npm run seed:superadmin` and /api/admin/setRole have
+    // stamped role claims on every staff account in this deployment.
+    function isTeacher() {
+      return isSignedIn() && claim('role', 'teacher') in ['teacher', 'superadmin'];
+    }
+
+    // Superadmin is never inferred. It must be an explicit claim.
+    function isSuperadmin() {
+      return claim('role', '') == 'superadmin';
+    }
+
+    function isStudent() {
+      return claim('role', '') == 'student';
+    }
+
+    // Object-level permission: this token is bound to exactly this phone number.
+    function ownsPhone(phone) {
+      return isStudent() && claim('phone', '') == phone;
+    }
+
+    // ------------------------------------------------------------------
+    // Write-shape helpers
+    // ------------------------------------------------------------------
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function onlyFields(allowed) {
+      return changedKeys().hasOnly(allowed);
+    }
+
+    function touchesNone(forbidden) {
+      return !changedKeys().hasAny(forbidden);
+    }
+
+    // Fields whose truth lives on the server (money, identity, provenance).
+    // No client role may write these, teacher and superadmin included — they
+    // are maintained by serverless handlers through the Admin SDK.
+    function serverOwnedStudentFields() {
+      return [
+        'feeBalance', 'lastPaymentAt', 'nextDueDate', 'overdue',
+        'studentUid', 'parentPhone', 'registeredAt'
+      ];
+    }
+
+    // ------------------------------------------------------------------
+    // Validation
+    // ------------------------------------------------------------------
+
+    // Shape check for a class link. Anchored at both ends, https only, exact
+    // host allowlist — no substring matching, which is what made
+    // `url.includes('zoom.us')` accept https://evil.com/?x=zoom.us.
+    function isAllowedClassLink(url) {
+      return url is string
+             && url.size() <= 2048
+             && url.matches('^https://([a-z0-9-]+[.])?zoom[.]us/.*|^https://meet[.]google[.]com/.*');
+    }
+
+    // Every session key written to config/zoomLinks must hold a valid link.
+    // Companion fields (*Provider, *LastUpdated) are unconstrained metadata.
+    //
+    // Phase 05 moves classLink onto the session document and this becomes a
+    // per-session rule; until then the two session names are named literally,
+    // matching the rest of the codebase.
+    function classLinkFieldsValid() {
+      return (!('morning' in request.resource.data)
+              || isAllowedClassLink(request.resource.data.morning))
+             && (!('evening' in request.resource.data)
+                 || isAllowedClassLink(request.resource.data.evening));
+    }
+
     function isValidPhone(phone) {
-      return phone is string && 
-             phone.size() >= 10 && 
-             phone.size() <= 20 &&
-             phone.matches('^\\+[0-9]+$');
+      return phone is string
+             && phone.size() >= 10
+             && phone.size() <= 20
+             && phone.matches('^\\+[0-9]+$');
     }
-    
-    // Helper function to validate student data
-    function isValidStudentData(data) {
-      return data.keys().hasAll(['studentName', 'parentPhone', 'class', 'subjects', 'receiptMessage', 'registeredAt', 'session']) &&
-             data.studentName is string && 
-             data.studentName.size() >= 2 && 
-             data.studentName.size() <= 100 &&
-             data.parentPhone is string && 
-             isValidPhone(data.parentPhone) &&
-             data.class is string && 
-             data.class.size() > 0 &&
-             data.subjects is string && 
-             data.subjects.size() >= 3 && 
-             data.subjects.size() <= 200 &&
-             data.receiptMessage is string && 
-             data.receiptMessage.size() >= 10 && 
-             data.receiptMessage.size() <= 500 &&
-             data.session is string && 
-             (data.session == 'morning' || data.session == 'evening');
+
+    // A registration create is open to unauthenticated callers — a student has
+    // no identity until they have registered. It is therefore the most tightly
+    // shaped write in the system: an exact key allowlist plus a mandated
+    // initial state.
+    function isValidStudentCreate(data, session, phone) {
+      return data.keys().hasAll([
+               'studentName', 'parentPhone', 'class', 'subjects',
+               'receiptMessage', 'registeredAt', 'session',
+               'blocked', 'approvalStatus', 'receiptStatus', 'feeBalance'
+             ])
+             && data.keys().hasOnly([
+               'studentName', 'parentPhone', 'class', 'subjects',
+               'receiptMessage', 'registeredAt', 'session', 'lastAccessed',
+               'blocked', 'blockReason', 'approvalStatus', 'receiptStatus',
+               'pendingReceipt', 'feeBalance'
+             ])
+             && data.studentName is string
+             && data.studentName.size() >= 2
+             && data.studentName.size() <= 100
+             && data.parentPhone is string
+             && isValidPhone(data.parentPhone)
+             && data.parentPhone == phone
+             && data.class is string
+             && data.class.size() > 0
+             && data.class.size() <= 60
+             && data.subjects is string
+             && data.subjects.size() >= 3
+             && data.subjects.size() <= 200
+             && data.receiptMessage is string
+             && data.receiptMessage.size() >= 10
+             && data.receiptMessage.size() <= 500
+             && data.session is string
+             && data.session == session
+             && (data.session == 'morning' || data.session == 'evening')
+
+             // Mandated initial state. This is the database-layer fix for the
+             // gap where `blocked` was absent, read back as `undefined`, and
+             // evaluated falsy at the client gate — letting a brand-new
+             // registration walk straight into class. A create that omits or
+             // pre-approves any of these four is rejected outright.
+             && data.blocked == false
+             && data.approvalStatus == 'pending'
+             && data.receiptStatus == 'pending'
+             && data.feeBalance == 0;
     }
-    
-    // Config collection - Zoom links
+
+    // ==================================================================
+    // config/*
+    // ==================================================================
+
+    // Feature flags are read by every client, including unauthenticated
+    // students at boot. They contain no PII and no secrets — only booleans.
+    match /config/flags {
+      allow read: if true;
+      allow write: if isSuperadmin();
+    }
+
+    // Class links are NO LONGER public. Students receive the link from
+    // /api/class/link, which verifies their state server-side before returning
+    // it. Previously world-readable.
+    //
+    // Writes are validated here as a third layer, behind the client's inline
+    // check and /api/class/setLink. Deliberately a coarser check than
+    // parseClassLink — rules have no URL parser, so this asserts the shape and
+    // the serverless handler asserts the semantics. A teacher writing directly
+    // through the SDK still cannot store an http:// or off-allowlist link.
     match /config/zoomLinks {
-      // Anyone can read (students need to get Zoom links)
-      allow read: if true;
-      
-      // Only authenticated teachers can write
-      allow write: if isAuthenticated();
+      allow read: if isTeacher();
+      allow write: if isTeacher() && classLinkFieldsValid();
     }
-    
-    // Sessions collection - Student registrations
-    // Actual structure: /sessions/{session}/students/{phone}
+
+    // ==================================================================
+    // sessions/{sessionId} — Phase 05
+    //
+    // The document ID IS the slug, which gives uniqueness for free.
+    //
+    // ⚠ DELIBERATE DEVIATION FROM appendix-a-data-model.md ⚠
+    //
+    // Appendix A puts `classLink` on this document. It cannot go here.
+    // An unauthenticated student must be able to read a session to render
+    // /morning at all (its name, icon, colours), so this document is
+    // world-readable — and putting the class link on it would recreate exactly
+    // the leak Phase 01 closed, where the live class link was public to anyone
+    // with the project ID.
+    //
+    // The link therefore lives at sessions/{sessionId}/private/classLink,
+    // below, which is staff-only. /api/class/link reads it with the Admin SDK
+    // after checking the caller's block, approval and subscription state.
+    //
+    // This document holds PRESENTATION FIELDS ONLY. Nothing secret, nothing
+    // that identifies a person.
+    // ==================================================================
+
+    function isReservedSlug(slug) {
+      return slug in [
+        'login', 'logout', 'dashboard', 'billing', 'superadmin', 'admin',
+        '403', '404', 'api', 'assets', 'static', 'sw', 'workbox', 'manifest',
+        'robots', 'favicon', 'fees', 'calendar', 'whatsapp', 'settings',
+        'account', 'help'
+      ];
+    }
+
+    function isValidSessionDoc(data) {
+      return data.keys().hasAll(['name', 'slug', 'active'])
+             && data.keys().hasOnly([
+               'name', 'slug', 'icon', 'gradient', 'order', 'active',
+               'schedule', 'createdAt', 'updatedAt'
+             ])
+             && data.name is string
+             && data.name.size() >= 1
+             && data.name.size() <= 60
+             && data.slug is string
+             && data.slug.matches('^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$')
+             && data.active is bool;
+    }
+
+    match /sessions/{sessionId} {
+      // Public: a student arriving at /morning has no credential, and needs the
+      // session's name and branding to render the page.
+      allow read: if true;
+
+      allow create: if isTeacher()
+                    && !isReservedSlug(sessionId)
+                    && isValidSessionDoc(request.resource.data)
+                    && request.resource.data.slug == sessionId;
+
+      allow update: if isTeacher()
+                    && isValidSessionDoc(request.resource.data)
+                    && request.resource.data.slug == sessionId;
+
+      allow delete: if isTeacher();
+    }
+
+    // The class link, split off the public session document precisely so it
+    // stays private. Students never read this; they call /api/class/link.
+    //
+    // read/create-update/delete are split rather than using a single `write`,
+    // because `request.resource` does not exist on a delete and the link
+    // validation below would fail to evaluate.
+    match /sessions/{sessionId}/private/{docId} {
+      allow read: if isTeacher();
+      allow create, update: if isTeacher()
+                            && (!('url' in request.resource.data)
+                                || isAllowedClassLink(request.resource.data.url));
+      allow delete: if isTeacher();
+    }
+
+    // ==================================================================
+    // sessions/{session}/students/{phone}
+    // ==================================================================
+
     match /sessions/{session}/students/{phone} {
-      // Students can create their own registration
-      // Phone number in path must match parentPhone in data
-      allow create: if isValidPhone(phone) &&
-                       phone == request.resource.data.parentPhone &&
-                       isValidStudentData(request.resource.data) &&
-                       request.resource.data.session == session;
 
-      // Anyone can read (for student check-in verification)
-      allow read: if true;
+      // Open create — registration precedes identity. Shape-constrained above.
+      allow create: if isValidPhone(phone)
+                    && isValidStudentCreate(request.resource.data, session, phone);
 
-      // Only authenticated teachers can delete
-      allow delete: if isAuthenticated();
+      // `get` and `list` are split deliberately. A student token is bound to a
+      // single phone number and can only ever fetch that one document; a list
+      // query cannot satisfy ownsPhone() and so is teacher-only. This is what
+      // stops enumeration of the whole roster.
+      allow get: if isTeacher() || ownsPhone(phone);
+      allow list: if isTeacher();
 
-      // Students can update their lastAccessed timestamp
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAccessed']);
+      // Teacher: everything except server-owned truth.
+      allow update: if isTeacher() && touchesNone(serverOwnedStudentFields());
 
-      // Students can submit new payment receipts when blocked
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingReceipt', 'receiptStatus', 'receiptSubmittedAt']) &&
-                       request.resource.data.receiptStatus == 'pending';
+      // Student, authenticated and bound to this phone: heartbeat, or a receipt
+      // resubmission that can only ever land in the 'pending' state.
+      allow update: if ownsPhone(phone) && (
+                      onlyFields(['lastAccessed'])
+                      || (
+                        onlyFields(['pendingReceipt', 'receiptStatus', 'receiptSubmittedAt'])
+                        && request.resource.data.receiptStatus == 'pending'
+                      )
+                    );
 
-      // Authenticated teachers can update block status and receipt approvals
-      allow update: if isAuthenticated();
+      allow delete: if isTeacher();
     }
-    
-    // Admin collection (optional - for future use)
+
+    // ==================================================================
+    // Private teacher notes — Phase 05 Part B
+    //
+    // There is DELIBERATELY no student clause here, under any condition.
+    // These notes say things like "weak in algebra" or "parent asked for a
+    // private meeting". A student reading their own notes is a trust breach,
+    // not a feature, so the rule has no branch that could ever permit it —
+    // not even for a verified own-phone token.
+    //
+    // A subcollection rather than an array on the student document, for three
+    // reasons: notes would otherwise bloat the document the dashboard listener
+    // re-reads on every change; array-union has no per-item permissions; and a
+    // subcollection can be denied to students while the parent document stays
+    // student-readable.
+    // ==================================================================
+
+    match /sessions/{session}/students/{phone}/notes/{noteId} {
+      allow read, write: if isTeacher();
+    }
+
+    // Collection-group reads (Phase 04 approvals panel, Phase 06 overdue sweep,
+    // Phase 08 class filter) are evaluated against a wildcard path and are NOT
+    // covered by the nested match above. Both halves are required: this block
+    // AND "queryScope": "COLLECTION_GROUP" on the index in firestore.indexes.json.
+    // Missing either produces a permission error that never mentions collection
+    // groups, so it is easy to misdiagnose.
+    match /{path=**}/students/{phone} {
+      allow read: if isTeacher();
+    }
+
+    // ==================================================================
+    // Subscription & billing — Phase 03
+    // ==================================================================
+
+    // Authoritative subscription record. Server-written only; holds the
+    // Paystack authorization code, which must never reach a client.
+    match /subscription/current {
+      allow read, write: if false;
+    }
+
+    // Redacted projection the client is allowed to see.
+    match /subscription/public {
+      allow get: if isTeacher();
+      allow write: if false;
+    }
+
+    // Paystack webhook event log — append-only, server-written, idempotent on
+    // Paystack's own event ID.
+    match /billing/{document=**} {
+      allow read, write: if false;
+    }
+
+    // ==================================================================
+    // Server-only collections
+    // ==================================================================
+
+    // Third-party credentials, encrypted at rest. No client, no exception.
+    match /integrations/{document=**} {
+      allow read, write: if false;
+    }
+
+    // M-Pesa STK Push records — Phase 09.
+    //
+    // Server-only, including reads. A student polls their payment through
+    // /api/payments/status, which checks that the CheckoutRequestID actually
+    // belongs to their phone — a rule cannot express that, and without it a
+    // CheckoutRequestID would be a lookup key for anyone else's payment amount
+    // and balance.
+    //
+    // The teacher's reconciliation view reads through the Admin SDK for the
+    // same reason: `mpesa/unmatched` holds raw Safaricom callbacks, which
+    // contain payer phone numbers for people who may not even be students.
+    match /mpesa/{document=**} {
+      allow read, write: if false;
+    }
+
+    // Rate-limit counters. Written by the Admin SDK only; a client that could
+    // write these could erase its own limit.
+    match /rateLimits/{document=**} {
+      allow read, write: if false;
+    }
+
+    // One-time-code hashes for student phone verification — Phase 02.
+    match /otp/{document=**} {
+      allow read, write: if false;
+    }
+
+    // Login-failure counters for brute-force lockout — Phase 02.
+    match /loginAttempts/{document=**} {
+      allow read, write: if false;
+    }
+
+    // Append-only audit trail. Readable by the superadmin for support and
+    // dispute resolution; writable by nobody but the server.
+    match /audit/{entryId} {
+      allow read: if isSuperadmin();
+      allow write: if false;
+    }
+
+    // Aggregate counters — Phase 10. Server-maintained via increment().
+    match /aggregates/{document=**} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    // Claim-propagation bump. The client subscribes to its own document and
+    // forces an ID token refresh when claimsUpdatedAt moves — Phase 02 D1.
+    match /users/{uid} {
+      allow get: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // ==================================================================
+    // Not yet built — closed until their phase opens them explicitly.
+    // Listed rather than omitted so that a premature client write fails
+    // loudly here instead of silently succeeding against a default.
+    // ==================================================================
+
+    // ==================================================================
+    // Fees — Phase 06
+    //
+    // EVERY WRITE IS SERVER-ONLY. Not "teacher-only" — server-only.
+    //
+    // The ledger is append-only and the balance is computed inside a Firestore
+    // transaction alongside it. A client that could write either could produce
+    // a balance that disagrees with the entries that supposedly created it, and
+    // the ledger's whole value is that it cannot. Every posting goes through
+    // /api/fees/*, which uses the Admin SDK.
+    //
+    // Reads are teacher-only. Students get four numbers from
+    // /api/fees/summary — never the ledger, which would expose the teacher's
+    // whole pricing structure and let entries be correlated across students.
+    // ==================================================================
+
+    match /fees/config {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /fees/accounts/items/{phone} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    // Append-only. Denied to every client for update and delete alike — a
+    // rules test asserts this for the teacher AND the superadmin, because
+    // "the owner can fix it in the console" is exactly how an audit trail
+    // stops being one.
+    match /fees/accounts/items/{phone}/ledger/{entryId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /fees/invoices/items/{invoiceId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    // Invoice-number sequences. A client that could write these could mint
+    // duplicate invoice numbers.
+    match /fees/counters/items/{name} {
+      allow read, write: if false;
+    }
+
+    // Anything else under fees/ stays closed.
+    match /fees/{document=**}     { allow read, write: if false; }
+
+    // ==================================================================
+    // Calendar — Phase 07
+    //
+    // Reads are TEACHER-ONLY at the rules layer. Students never query this
+    // collection directly: they call /api/calendar/events, which scopes results
+    // to their own session server-side.
+    //
+    // That is deliberate. A student reading the collection directly would see
+    // every event, including ones scoped to other classes — "Grade 8 mock exam"
+    // is not information a Grade 7 student should be able to enumerate, and
+    // `sessionIds` filtering cannot be expressed as a rule without the caller's
+    // session, which an unauthenticated student does not have.
+    // ==================================================================
+
+    match /calendar/events/items/{eventId} {
+      allow read: if isTeacher();
+      // Writes go through /api/calendar/manage, which handles series splitting
+      // for "this and future" edits. A direct write could not do that
+      // atomically and would rewrite history.
+      allow write: if false;
+    }
+
+    // Feed tokens — only SHA-256 hashes are stored, and even those are never
+    // exposed to a client. A readable token table would be a list of working
+    // calendar-feed URLs.
+    match /calendar/tokens/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /calendar/{document=**} { allow read, write: if false; }
+    // ==================================================================
+    // WhatsApp campaigns — Phase 08
+    //
+    // Teacher-readable so the queue can render and resume from a live
+    // listener; server-written so the sent/skipped counters cannot be
+    // desynchronised from the per-recipient status they are derived from.
+    //
+    // Students never touch this. A campaign's recipient subcollection is a
+    // roster with names, classes and balances — precisely the data Phase 01
+    // stopped being world-readable.
+    // ==================================================================
+
+    match /whatsapp/campaigns/items/{campaignId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /whatsapp/campaigns/items/{campaignId}/recipients/{phone} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
+    match /whatsapp/{document=**} { allow read, write: if false; }
+
+    // A top-level `students` collection is not used. Notes live under
+    // sessions/{s}/students/{p}/notes/{n} (see above), which keeps them beside
+    // the student they belong to and lets a student delete cascade naturally.
+    // Kept closed so a stray write fails loudly rather than creating a shadow
+    // collection nobody is watching.
+    match /students/{document=**} { allow read, write: if false; }
+
+    // Legacy admin collection — was `if isAuthenticated()`, i.e. any signed-in
+    // user. Superadmin only now.
     match /admin/{document=**} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isSuperadmin();
     }
   }
 }

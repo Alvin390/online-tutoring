@@ -62,6 +62,11 @@ export default defineConfig({
     }
   },
   build: {
+    // 'hidden' emits source maps but omits the //# sourceMappingURL comment, so
+    // they are never served to a browser or discoverable from the bundle. CI
+    // uploads them to Sentry and then deletes them from dist/ before deploy —
+    // readable stack traces in Sentry, nothing public. Phase 01 D8.
+    sourcemap: 'hidden',
     rollupOptions: {
       output: {
         manualChunks: {

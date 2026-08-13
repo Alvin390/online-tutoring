@@ -1,3 +1,18 @@
+import { redact, redactString } from './redact';
+
+/**
+ * Application logger — Phase 01 D3.
+ *
+ * Every message and every metadata object is redacted before it reaches any
+ * sink (console, in-memory buffer, downloaded log file). Nothing in the app
+ * should call `console.*` directly; this module is the only sanctioned path.
+ *
+ * Two behavioural rules:
+ *   - debug/info never reach the console in a production build. They are still
+ *     recorded in the buffer, so `downloadLogs()` remains useful for support.
+ *   - warn/error always reach the console, redacted.
+ */
+
 const LOG_LEVELS = {
   debug: 0,
   info: 1,
@@ -5,79 +20,82 @@ const LOG_LEVELS = {
   error: 3,
 };
 
-const currentLevel = LOG_LEVELS[import.meta.env.VITE_LOG_LEVEL || 'info'];
+const currentLevel = LOG_LEVELS[import.meta.env.VITE_LOG_LEVEL] ?? LOG_LEVELS.info;
+
+/**
+ * True in dev, in test, and in preview builds; false only in a production
+ * build. Gating on PROD rather than DEV keeps the test environment honest —
+ * tests exercise the same console paths a developer sees.
+ */
+const consoleAllowedForVerbose = !import.meta.env.PROD;
 
 const formatMessage = (level, message, meta) => {
   const timestamp = new Date().toISOString();
-  const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
+  let metaStr = '';
+  if (meta !== undefined && meta !== null) {
+    try {
+      metaStr = ` ${JSON.stringify(meta)}`;
+    } catch {
+      metaStr = ' [unserializable meta]';
+    }
+  }
   return `[${timestamp}] [${level.toUpperCase()}] ${message}${metaStr}`;
 };
 
-const shouldLog = (level) => {
-  return LOG_LEVELS[level] >= currentLevel;
-};
+const shouldLog = (level) => LOG_LEVELS[level] >= currentLevel;
 
 export const logDebug = (message, meta) => {
-  if (shouldLog('debug')) {
-    console.debug(formatMessage('debug', message, meta));
+  if (shouldLog('debug') && consoleAllowedForVerbose) {
+    console.debug(formatMessage('debug', redactString(message), redact(meta)));
   }
 };
 
 export const logInfo = (message, meta) => {
-  if (shouldLog('info')) {
-    console.info(formatMessage('info', message, meta));
+  if (shouldLog('info') && consoleAllowedForVerbose) {
+    console.info(formatMessage('info', redactString(message), redact(meta)));
   }
 };
 
 export const logWarn = (message, meta) => {
   if (shouldLog('warn')) {
-    console.warn(formatMessage('warn', message, meta));
+    console.warn(formatMessage('warn', redactString(message), redact(meta)));
   }
 };
 
 export const logError = (message, error, meta) => {
   if (shouldLog('error')) {
-    const errorMeta = {
-      ...meta,
-      error: error?.message || error,
-      stack: error?.stack
-    };
-    console.error(formatMessage('error', message, errorMeta));
-  }
-
-  // Send to Sentry in production if configured
-  if (import.meta.env.PROD && import.meta.env.VITE_SENTRY_DSN) {
-    try {
-      // Sentry will be initialized in Phase 6 when we set up error boundaries
-      // For now, just log to console
-      console.log('Sentry would capture this error in production');
-    } catch (err) {
-      console.warn('Failed to send error to Sentry:', err);
-    }
+    const errorMeta = redact({
+      ...(typeof meta === 'object' && meta !== null && !(meta instanceof Error) ? meta : {}),
+      error: error?.message ?? error,
+      code: error?.code,
+      stack: error?.stack,
+    });
+    console.error(formatMessage('error', redactString(message), errorMeta));
   }
 };
 
-// Download logs functionality (from original logger.js)
+// ---------------------------------------------------------------------------
+// In-memory buffer, for support downloads. Redacted on the way in, so a
+// downloaded log file is safe to email.
+// ---------------------------------------------------------------------------
+
 const logBuffer = [];
 const MAX_BUFFER = 2000;
 
 export const addToBuffer = (level, message, meta) => {
-  const entry = {
+  logBuffer.push({
     timestamp: new Date().toISOString(),
     level,
-    message,
-    meta
-  };
+    message: redactString(message),
+    meta: redact(meta),
+  });
 
-  logBuffer.push(entry);
   if (logBuffer.length > MAX_BUFFER) {
     logBuffer.shift();
   }
 };
 
-export const getLogBuffer = () => {
-  return [...logBuffer];
-};
+export const getLogBuffer = () => [...logBuffer];
 
 export const clearLogBuffer = () => {
   logBuffer.length = 0;
@@ -97,12 +115,11 @@ export const downloadLogs = (filename = `client-logs-${new Date().toISOString()}
     URL.revokeObjectURL(url);
     return true;
   } catch (err) {
-    console.error('Failed to download logs', err);
+    logError('Failed to download logs', err);
     return false;
   }
 };
 
-// Enhanced logger that also adds to buffer
 const createLogger = (level) => (message, meta) => {
   addToBuffer(level, message, meta);
 
@@ -116,9 +133,14 @@ const createLogger = (level) => (message, meta) => {
     case 'warn':
       logWarn(message, meta);
       break;
-    case 'error':
-      logError(message, meta?.error, meta);
+    case 'error': {
+      // Accept both shapes that exist in the codebase:
+      //   logger.error('msg', errorInstance)
+      //   logger.error('msg', { error, ...context })
+      const error = meta instanceof Error ? meta : meta?.error;
+      logError(message, error, meta);
       break;
+    }
   }
 };
 

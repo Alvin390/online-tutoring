@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 
 const escapeHtml = (text) => {
@@ -13,7 +13,7 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
-export default function StudentRow({ student, index, session, onDelete, onEdit, onBlock, onUnblock, onApprove, onDecline }) {
+function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline }) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -94,7 +94,7 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
             style={{ width: '40px', height: '40px' }}
           >
             <strong className="text-primary">
-              {student.studentName.charAt(0).toUpperCase()}
+              {student.studentName?.charAt(0)?.toUpperCase() ?? '?'}
             </strong>
           </div>
           <div>
@@ -141,6 +141,21 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
       </td>
       <td>
         <div className="d-flex gap-1 flex-wrap">
+          {/* Opens the detail drawer (Phase 05) — details, and private notes
+              when notes.enabled is on. */}
+          {onView && (
+            <button
+              className="btn btn-outline-secondary btn-sm table-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onView(student);
+              }}
+              title={`Open details and notes for ${student.studentName ?? 'this student'}`}
+              aria-label={`Open details and notes for ${student.studentName ?? 'this student'}`}
+            >
+              <i className="bi bi-journal-text" aria-hidden="true" />
+            </button>
+          )}
           <button
             className="btn btn-primary btn-sm table-action-btn"
             onClick={(e) => {
@@ -211,7 +226,7 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
           >
             <div className="student-info-header">
               <div className="student-info-avatar">
-                {student.studentName.charAt(0).toUpperCase()}
+                {student.studentName?.charAt(0)?.toUpperCase() ?? '?'}
               </div>
               <div className="flex-grow-1">
                 <h6 className="student-info-name mb-1">{escapeHtml(student.studentName)}</h6>
@@ -351,3 +366,57 @@ export default function StudentRow({ student, index, session, onDelete, onEdit, 
     </>
   );
 }
+
+/**
+ * Memoisation comparator — Phase 10 item 3.
+ *
+ * `StudentRow` is the largest dashboard component and was re-rendering for
+ * EVERY student on any change to either session's array. One student checking
+ * in re-rendered the teacher's entire table.
+ *
+ * Compared field by field rather than by object identity, because the Firestore
+ * listener hands back a fresh object on every snapshot even when nothing this
+ * row displays has changed — so a shallow `prev.student === next.student` check
+ * would never hit.
+ *
+ * Only the fields this component actually renders are compared. Adding a field
+ * to the JSX without adding it here produces a row that will not update, so the
+ * list is kept adjacent to the render deliberately.
+ */
+const WATCHED_FIELDS = [
+  'studentName',
+  'parentPhone',
+  'class',
+  'subjects',
+  'receiptMessage',
+  'blocked',
+  'blockReason',
+  'receiptStatus',
+  'pendingReceipt',
+  'approvalStatus',
+  'feeBalance',
+  'overdue',
+];
+
+function areEqual(prev, next) {
+  if (prev.session !== next.session) return false;
+  if (prev.index !== next.index) return false;
+  if (prev.student?.id !== next.student?.id) return false;
+
+  // Callback identity: the parent passes inline arrows for onDelete/onEdit/
+  // onView, so these change every render and are deliberately NOT compared —
+  // comparing them would defeat the memo entirely. They only ever close over
+  // `student`, which is compared below.
+  for (const field of WATCHED_FIELDS) {
+    if (prev.student?.[field] !== next.student?.[field]) return false;
+  }
+
+  // registeredAt is a Firestore Timestamp; compare its value, not its identity.
+  const prevReg = prev.student?.registeredAt?.toMillis?.() ?? prev.student?.registeredAt ?? null;
+  const nextReg = next.student?.registeredAt?.toMillis?.() ?? next.student?.registeredAt ?? null;
+  if (prevReg !== nextReg) return false;
+
+  return true;
+}
+
+export default memo(StudentRow, areEqual);

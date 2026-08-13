@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
+import { formatKes } from '@utils/blockReason';
+import { useFlag } from '@shared/config/FlagsContext';
 
 export default function WelcomeBackCard({
   session,
@@ -9,6 +11,23 @@ export default function WelcomeBackCard({
   loading
 }) {
   const [countdown, setCountdown] = useState(3);
+  const feesEnabled = useFlag('fees.enabled');
+
+  const balance = Number(studentData?.feeBalance) || 0;
+
+  const feeState = useMemo(() => {
+    if (balance > 0) {
+      return {
+        alertClass: 'alert-warning',
+        icon: 'bi-exclamation-circle-fill',
+        label: 'Fees outstanding',
+      };
+    }
+    if (balance < 0) {
+      return { alertClass: 'alert-info', icon: 'bi-wallet2', label: 'Account in credit' };
+    }
+    return { alertClass: 'alert-success', icon: 'bi-check-circle-fill', label: 'Fees fully paid' };
+  }, [balance]);
 
   useEffect(() => {
     if (countdown <= 0) {
@@ -58,7 +77,9 @@ export default function WelcomeBackCard({
               boxShadow: 'var(--shadow-lg)',
             }}
           >
-            {studentData.studentName.charAt(0).toUpperCase()}
+            {/* Guarded: a legacy record with no studentName threw here and took
+                the whole screen down with it. */}
+            {studentData.studentName?.charAt(0)?.toUpperCase() ?? '?'}
           </div>
         </motion.div>
 
@@ -91,6 +112,22 @@ export default function WelcomeBackCard({
             <div className="col-7"><strong>{regDate}</strong></div>
           </div>
         </div>
+
+        {/* Fee summary — Phase 06 D9.
+            Colour is never the only carrier of meaning: each state has an icon
+            and a text label as well, so it reads correctly for colourblind
+            users and in a screenshot printed in greyscale. */}
+        {feesEnabled && feeState && (
+          <div className={`alert ${feeState.alertClass} text-start mb-4`} role="status">
+            <div className="d-flex justify-content-between align-items-center">
+              <span className="fw-semibold">
+                <i className={`bi ${feeState.icon} me-2`} aria-hidden="true" />
+                {feeState.label}
+              </span>
+              <strong>{formatKes(Math.abs(balance))}</strong>
+            </div>
+          </div>
+        )}
 
         {/* Countdown */}
         <motion.div

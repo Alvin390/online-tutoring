@@ -1,18 +1,34 @@
-import { useState } from 'react';
+import { useState, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useAuth } from '@features/auth/context/AuthContext';
+import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
+import IdleWarningModal from '@features/auth/components/IdleWarningModal';
+import useIdleTimeout from '@hooks/useIdleTimeout';
 import StatsCards from './StatsCards';
-import ZoomLinkManager from './ZoomLinkManager';
+import ClassLinkManager from './ClassLinkManager';
+import PendingApprovalsPanel from './PendingApprovalsPanel';
+import SessionManager from './SessionManager';
+import StudentDrawer from './StudentDrawer';
+import FeeKpiCards from '@features/fees/components/FeeKpiCards';
+
+// Lazy: the calendar carries a month grid, an agenda and a recurrence form the
+// dashboard should not pay for on first paint. It never enters the initial chunk.
+const CalendarPanel = lazy(() => import('@features/calendar/components/CalendarPanel'));
+const WhatsAppPanel = lazy(() => import('@features/whatsapp/components/WhatsAppPanel'));
 import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
+import { useFlag } from '@shared/config/FlagsContext';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user } = useAuthState();
+  const { signOut } = useAuthActions();
   const {
+    studentsBySession,
+    sessions,
     morningStudents,
     eveningStudents,
+    pendingApprovals,
     zoomLinks,
     loading,
     activeTab,
@@ -25,15 +41,38 @@ export default function DashboardLayout() {
     unblockStudent,
     approveReceipt,
     declineReceipt,
+    approveStudents,
+    rejectStudents,
     totalStudents,
   } = useDashboard();
 
+  const requireApproval = useFlag('registration.requireApproval');
+  const teacherDefinedSessions = useFlag('sessions.teacherDefined');
+  const notesEnabled = useFlag('notes.enabled');
+  const feesEnabled = useFlag('fees.enabled');
+  const calendarEnabled = useFlag('calendar.enabled');
+  const whatsappEnabled = useFlag('whatsapp.broadcast');
+
+  // Which student the detail drawer is showing, and from which session.
+  const [drawerStudent, setDrawerStudent] = useState(null);
+
   const [refreshing, setRefreshing] = useState(false);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     await signOut();
     navigate('/');
-  };
+  }, [signOut, navigate]);
+
+  /**
+   * Idle timeout — Phase 02 D3. The dashboard shows every student's name,
+   * parent phone and payment history, so an unattended session is a real
+   * exposure rather than a hygiene nit. 12 hours, warning at 11h58m.
+   */
+  const { warning, msRemaining, reset } = useIdleTimeout({
+    timeoutMs: 12 * 60 * 60 * 1000,
+    warningMs: 2 * 60 * 1000,
+    onTimeout: handleLogout,
+  });
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -49,6 +88,20 @@ export default function DashboardLayout() {
       animate={{ opacity: 1 }}
       className="dashboard-container"
     >
+      <IdleWarningModal
+        open={warning}
+        msRemaining={msRemaining}
+        onStaySignedIn={reset}
+        onSignOut={handleLogout}
+      />
+
+      <StudentDrawer
+        open={Boolean(drawerStudent)}
+        student={drawerStudent}
+        session={drawerStudent?.session ?? activeTab}
+        onClose={() => setDrawerStudent(null)}
+      />
+
       {/* Dashboard Header */}
       <div className="dashboard-header text-white py-3 sticky-top">
         <div className="container-fluid">
@@ -85,14 +138,63 @@ export default function DashboardLayout() {
       <div className="container-fluid py-4">
         {/* Stats Cards */}
         <StatsCards
-          morningCount={morningStudents.length}
-          eveningCount={eveningStudents.length}
+          studentsBySession={studentsBySession}
+          sessions={sessions}
           totalCount={totalStudents}
           linksConfigured={linksConfigured}
         />
 
-        {/* Zoom Link Management */}
-        <ZoomLinkManager
+        {/* Pending approvals sit above everything else: a student waiting to be
+            let into a class that is already running is the most time-sensitive
+            thing on this screen. */}
+        {requireApproval && (
+          <PendingApprovalsPanel
+            pending={pendingApprovals}
+            onApprove={approveStudents}
+            onReject={rejectStudents}
+            loading={loading}
+          />
+        )}
+
+        {/* Fee KPIs (Phase 06). One aggregate document read, not a scan. */}
+        {feesEnabled && <FeeKpiCards />}
+
+        {/* WhatsApp broadcast (Phase 08), lazily loaded. */}
+        {whatsappEnabled && (
+          <Suspense
+            fallback={
+              <div className="card mb-4">
+                <div className="card-body text-center py-4">
+                  <span className="spinner-border spinner-border-sm text-muted" />
+                </div>
+              </div>
+            }
+          >
+            <WhatsAppPanel />
+          </Suspense>
+        )}
+
+        {/* Calendar (Phase 07), lazily loaded. */}
+        {calendarEnabled && (
+          <Suspense
+            fallback={
+              <div className="card mb-4">
+                <div className="card-body text-center py-4">
+                  <span className="spinner-border spinner-border-sm text-muted" />
+                </div>
+              </div>
+            }
+          >
+            <CalendarPanel />
+          </Suspense>
+        )}
+
+        {/* Sessions (Phase 05). Behind a flag: with it off the two original
+            sessions are managed through ClassLinkManager exactly as before. */}
+        {teacherDefinedSessions && <SessionManager />}
+
+        {/* Class Link Management */}
+        <ClassLinkManager
           zoomLinks={zoomLinks}
           onUpdate={updateZoomLink}
           loading={loading}
@@ -131,6 +233,7 @@ export default function DashboardLayout() {
                   students={morningStudents}
                   onDelete={deleteStudent}
                   onEdit={updateStudent}
+                  onView={notesEnabled ? setDrawerStudent : undefined}
                   onExport={exportToPDF}
                   onBlock={blockStudent}
                   onUnblock={unblockStudent}
@@ -144,6 +247,7 @@ export default function DashboardLayout() {
                   students={eveningStudents}
                   onDelete={deleteStudent}
                   onEdit={updateStudent}
+                  onView={notesEnabled ? setDrawerStudent : undefined}
                   onExport={exportToPDF}
                   onBlock={blockStudent}
                   onUnblock={unblockStudent}

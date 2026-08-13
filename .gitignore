@@ -29,13 +29,31 @@ dist-ssr
 .env.local
 .env.*.local
 
+# Cloudflare Workers local runtime secrets (Phase 12). Same contents as the
+# non-VITE_ half of .env.local; `wrangler dev` reads this file automatically.
+# Production values live in Cloudflare's encrypted secret store, uploaded with
+# `npm run cf:secrets`.
+.dev.vars
+.dev.vars.*
+.wrangler/
+
 # Service account keys and other sensitive files (production)
 *.key
 *.pem
+*serviceAccount*.json
+*service-account*.json
+*-firebase-adminsdk-*.json
+
+# Source maps are built with sourcemap:'hidden' and uploaded to Sentry by CI,
+# then deleted before deploy. They must never be committed.
+*.map
 
 archive-pre-react-version/firebase-config/online-tutoring-6d71a-firebase-adminsdk-fbsvc-aad574be11.json
 archive-pre-react-version/
 refactoring/
+
+# SaaS upgrade working folder (prompts, vendor API docs, phased plan)
+upgrade/
 
 # Archive folder (DO NOT IGNORE - contains historical reference files)
 # The archive-pre-react-version/ folder contains the original vanilla JS version

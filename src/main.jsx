@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import logger from './shared/utils/logger';
 
 // Import styles
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -9,14 +10,12 @@ import './styles/index.css';
 import './styles/animations.css';
 import './styles/dashboard.css';
 
-// Initialize Sentry in production
+// Monitoring — Phase 01 D3 redaction plus Phase 11 D2 release/tag context.
+// Dynamically imported so neither Sentry nor web-vitals enters the dev bundle.
 if (import.meta.env.PROD && import.meta.env.VITE_SENTRY_DSN) {
-  import('@sentry/react').then((Sentry) => {
-    Sentry.init({
-      dsn: import.meta.env.VITE_SENTRY_DSN,
-      environment: import.meta.env.MODE,
-      tracesSampleRate: 0.1,
-    });
+  import('./shared/utils/monitoring').then(async ({ initMonitoring, reportWebVitals }) => {
+    await initMonitoring();
+    reportWebVitals();
   });
 }
 
@@ -25,11 +24,11 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')
-      .then((registration) => {
-        console.log('✅ PWA Service Worker registered:', registration);
+      .then(() => {
+        logger.info('PWA service worker registered');
       })
       .catch((error) => {
-        console.warn('⚠️ PWA Service Worker registration failed:', error);
+        logger.warn('PWA service worker registration failed', { error: error?.message });
       });
   });
 }

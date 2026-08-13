@@ -17,24 +17,58 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          # Node 18 is end-of-life and firebase-admin v13 expects 20+.
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm run test
-        continue-on-error: false
+      # Was `npm run test`, which is bare `vitest` — watch mode. It only
+      # terminated because Vitest happens to detect CI. Now explicit.
+      - name: Run unit and integration tests
+        run: npm run test:all
+
+      - name: Setup Java (Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Security rules are the only control a client cannot bypass. A rules
+      # change without a passing rules test does not merge.
+      - name: Run Firestore security rules tests
+        run: npx firebase-tools emulators:exec --only firestore "npx vitest run --config vitest.rules.config.js"
+
+      # Handler integration tests — the only place a real Firestore transaction
+      # is exercised under contention, which is where a ledger silently goes
+      # wrong. Gates the money path.
+      - name: Run handler integration tests
+        run: npx firebase-tools emulators:exec --only firestore "npx vitest run --config vitest.handlers.config.js"
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
 
       - name: Build project
         run: npm run build
         env:
           NODE_ENV: production
 
+      # Phase 10 D9. Fails the build on breach, so a bundle regression is caught
+      # before merge rather than by a teacher on a 3G connection.
+      - name: Check bundle size budget
+        run: npm run check:bundle
+
+      # sourcemap:'hidden' emits maps without a sourceMappingURL comment. They
+      # are useful to Sentry and to nobody else, so they are removed before the
+      # deploy step ever sees them.
+      - name: Strip source maps from deploy artefact
+        run: |
+          find dist -name '*.map' -type f -print -delete
+          echo "Remaining .map files: $(find dist -name '*.map' | wc -l)"
+
       - name: Check build output
         run: |
-          echo "Build completed successfully"
           ls -la dist/
           du -sh dist/
 

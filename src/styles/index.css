@@ -1,11 +1,15 @@
-/* Tailwind CSS */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Bootstrap CSS */
-@import 'bootstrap/dist/css/bootstrap.min.css';
-@import 'bootstrap-icons/font/bootstrap-icons.css';
+/*
+ * Phase 10 D5 — styling system consolidated to Bootstrap alone.
+ *
+ * Tailwind was configured and processed but had ZERO utility classes anywhere
+ * in src/. It was still emitting Preflight, which aggressively resets element
+ * styles and fights Bootstrap's own base layer — so it was costing bytes AND
+ * causing conflicts to support nothing. Removed rather than adopted, because
+ * the codebase is already Bootstrap throughout.
+ *
+ * Bootstrap itself was ALSO being imported twice: once from main.jsx and again
+ * from here. main.jsx keeps the import; these @import lines are gone.
+ */
 
 /* Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');

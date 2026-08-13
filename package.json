@@ -5,18 +5,32 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node scripts/healthCheck.js && vite",
+    "dev:quiet": "vite",
+    "health": "node scripts/healthCheck.js",
+    "build": "node scripts/healthCheck.js && vite build",
+    "build:quiet": "vite build",
+    "postinstall": "node scripts/healthCheck.js && vite build",
     "preview": "vite preview",
+    "deploy": "npm run build && npx wrangler versions upload",
+    "cf:tail": "wrangler tail",
+    "cf:secrets": "node scripts/pushSecrets.js",
     "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{js,jsx,css,scss}\"",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:auth": "vitest run tests/unit/auth.test.js",
-    "test:registration": "vitest run tests/unit/registration.test.js",
-    "test:dashboard": "vitest run tests/unit/dashboard.test.js",
     "test:all": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:money": "vitest run tests/unit/money.test.js tests/unit/blockReason.test.js tests/unit/feeState.test.js tests/unit/subscription.test.js tests/unit/paystack.test.js tests/unit/daraja.test.js",
+    "test:access": "vitest run tests/unit/studentGate.test.js tests/unit/classLink.test.js tests/unit/sessions.test.js tests/unit/flags.test.js",
+    "test:handlers": "firebase emulators:exec --project demo-online-tutoring --only firestore,auth \"vitest run --config vitest.handlers.config.js\"",
+    "test:coverage": "vitest run --coverage",
+    "check:bundle": "node scripts/checkBundleSize.js",
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.js\"",
+    "emulators": "firebase emulators:start --only firestore,auth",
+    "dev:api": "wrangler dev",
+    "seed:superadmin": "node scripts/seedSuperadmin.js",
+    "seed:sessions": "node scripts/seedSessions.js",
+    "audit:ci": "npm audit --audit-level=high"
   },
   "repository": {
     "type": "git",
@@ -32,7 +46,6 @@
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@sentry/react": "^10.26.0",
-    "@vercel/analytics": "^1.5.0",
     "@vitejs/plugin-react": "^5.1.1",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
@@ -49,17 +62,18 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.17",
+    "@firebase/rules-unit-testing": "^5.0.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "autoprefixer": "^10.4.22",
     "eslint": "^9.39.1",
+    "firebase-admin": "^13.6.0",
     "jsdom": "^27.2.0",
     "postcss": "^8.5.6",
     "prettier": "^3.6.2",
-    "tailwindcss": "^4.1.17",
     "vite-plugin-pwa": "^1.1.0",
-    "vitest": "^4.0.10"
+    "vitest": "^4.0.10",
+    "wrangler": "^4.122.0"
   }
 }
