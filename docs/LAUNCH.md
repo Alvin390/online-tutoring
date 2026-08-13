@@ -16,7 +16,7 @@ of their own dashboard. Follow it exactly.
 ```
  1. Deploy rules + indexes    firebase deploy --only firestore,storage
  2. Upload server secrets     npm run cf:secrets            (see §2)
- 3. Deploy the app            npm run deploy                (vite build && wrangler deploy)
+ 3. Deploy the app            npm run deploy                (health -> build -> wrangler deploy)
  4. npm run seed:superadmin   creates the superadmin, prints its uid
  5. Sign in as superadmin, enable MFA
  6. POST /api/admin/setRole   { email: <teacher>, role: 'teacher', tier: 'bronze' }
@@ -74,8 +74,18 @@ Non-secret tuning knobs live in `wrangler.jsonc` under `vars`:
 `SUBREQUEST_BUDGET` and `SWEEP_BATCH_SIZE` (see §8).
 
 Verify with `GET /api/health` — it returns `{ status: 'ok', firestore: 'ok' }`
-when credentials resolve. `npm run health` runs the same checks locally, plus
-Paystack and Daraja connectivity.
+when credentials resolve.
+
+`npm run health` runs a deeper check locally: real network calls to Firebase,
+Paystack and Daraja using the real values in `.env.local`, so a green line means
+the credential actually works rather than merely being non-empty.
+
+**It also runs automatically on `npm run dev` and `npm run build`** — and
+therefore immediately before every `npm run deploy`, so the summary is the last
+thing printed before code goes live, including the **LIVE MODE** warning when
+`PAYSTACK_MODE` or `DARAJA_MODE` is `live`. It never exits non-zero, so it
+cannot break a build in CI where these keys are legitimately absent. Use
+`npm run build:quiet` to skip it.
 
 ---
 

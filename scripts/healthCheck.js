@@ -2,17 +2,30 @@
 /**
  * External API health check.
  *
- *   npm run health      standalone
- *   npm run dev         runs this first, then starts Vite
+ *   npm run health       standalone
+ *   npm run dev          runs this first, then starts Vite
+ *   npm run build        runs this first, then builds
+ *   npm run deploy       via build, so it runs before every Cloudflare deploy
+ *   npm run build:quiet  escape hatch — build with no health check
  *
  * Uses the REAL values from .env.local and makes REAL network calls, so a
  * green line here means the credential actually works — not merely that a
  * variable is non-empty. A key that is present but revoked looks identical to
  * a good one until something tries to use it.
  *
- * NEVER EXITS NON-ZERO. A failing external API must not stop you working on
- * the UI, and most keys are empty on a fresh checkout. Failures are printed
- * loudly with the provider's own error text and the run continues.
+ * ON BUILD, the point is different from dev. `npm run deploy` runs this
+ * immediately before `wrangler deploy`, so the summary line is the last thing
+ * printed before the code goes live — including the LIVE MODE warning when
+ * PAYSTACK_MODE or DARAJA_MODE is set to live. Shipping a build whose Paystack
+ * key was revoked, or whose Daraja credentials point at the wrong environment,
+ * is exactly the class of mistake this makes visible while it is still cheap.
+ *
+ * NEVER EXITS NON-ZERO — including from the top-level catch below. A failing
+ * external API must not stop you working on the UI, and it must not break a
+ * build: most keys are empty on a fresh checkout or in CI, and a build that
+ * cannot run without live third-party credentials is a worse problem than the
+ * one this solves. Failures are printed loudly with the provider's own error
+ * text and the run continues.
  *
  * Nothing secret is ever printed — only which variable was missing, or the
  * provider's error message.
@@ -346,7 +359,8 @@ async function main() {
 
   console.log('');
 
-  // Always 0. A failing external API must never stop the dev server.
+  // Always 0. A failing external API must never stop the dev server, and must
+  // never break a build — in CI most of these keys are legitimately absent.
   process.exit(0);
 }
 
