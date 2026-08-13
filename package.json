@@ -46,7 +46,7 @@
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@sentry/react": "^10.70.0",
-    "@vitejs/plugin-react": "^5.1.1",
+    "@vitejs/plugin-react": "^6.0.5",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "firebase": "^12.6.0",
