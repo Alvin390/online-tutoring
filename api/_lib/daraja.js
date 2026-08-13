@@ -59,29 +59,42 @@ export const MAX_TRANSACTION_DESC = 13;
  *
  * Safaricom publishes these but has changed them historically, so the list is
  * overridable by env var without a redeploy.
+ *
+ * READ LAZILY — Phase 12. This was previously a module-scope constant, which
+ * was correct on Vercel but is a live hazard on Cloudflare Workers: there,
+ * `process.env` is populated on first access rather than being present when
+ * the isolate's top-level code runs. A top-level read could therefore resolve
+ * to the built-in defaults, silently discarding an operator's override of the
+ * PRIMARY control on an unsigned webhook. Resolving inside the function means
+ * it is read during a request, when the bindings are certainly there.
  */
-export const SAFARICOM_IPS = (process.env.DARAJA_CALLBACK_IPS
-  ?? [
-    '196.201.214.200',
-    '196.201.214.206',
-    '196.201.213.114',
-    '196.201.214.207',
-    '196.201.214.208',
-    '196.201.213.44',
-    '196.201.212.127',
-    '196.201.212.138',
-    '196.201.212.129',
-    '196.201.212.136',
-    '196.201.212.74',
-    '196.201.212.69',
-  ].join(',')
-)
-  .split(',')
-  .map((ip) => ip.trim())
-  .filter(Boolean);
+const DEFAULT_SAFARICOM_IPS = [
+  '196.201.214.200',
+  '196.201.214.206',
+  '196.201.213.114',
+  '196.201.214.207',
+  '196.201.214.208',
+  '196.201.213.44',
+  '196.201.212.127',
+  '196.201.212.138',
+  '196.201.212.129',
+  '196.201.212.136',
+  '196.201.212.74',
+  '196.201.212.69',
+];
+
+export function safaricomIps() {
+  const configured = process.env.DARAJA_CALLBACK_IPS;
+  if (!configured) return DEFAULT_SAFARICOM_IPS;
+
+  const parsed = configured.split(',').map((ip) => ip.trim()).filter(Boolean);
+  // An override that parses to nothing — an empty string, or a stray comma —
+  // must not open the allowlist to everyone. Fall back to the defaults.
+  return parsed.length > 0 ? parsed : DEFAULT_SAFARICOM_IPS;
+}
 
 export function isSafaricomIp(ip) {
-  return SAFARICOM_IPS.includes(String(ip ?? '').trim());
+  return safaricomIps().includes(String(ip ?? '').trim());
 }
 
 /** `YYYYMMDDHHmmss` in East Africa Time — daraja_docs.txt:213. */

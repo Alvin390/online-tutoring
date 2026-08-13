@@ -190,6 +190,30 @@ function spendSubrequest() {
   }
 }
 
+/**
+ * Runs `fn` with `extra` subrequests available beyond the current budget.
+ *
+ * For bookkeeping that MUST happen even when the budget is spent — above all
+ * a sweep writing down where it stopped. `shouldYield` reserves headroom for
+ * exactly that, but the reserve is best-effort: a single item that costs more
+ * than the reserve blows straight through it, and a sweep that cannot record
+ * its cursor repeats the same chunk on every firing, forever.
+ *
+ * Safe because the armed budget is deliberately set BELOW Cloudflare's real
+ * ceiling (45 against 50 on the free plan), so a few privileged writes stay
+ * within what the platform allows. The budget is restored afterwards, so
+ * ordinary work still stops.
+ */
+export async function withSubrequestAllowance(extra, fn) {
+  const previous = subrequestBudget;
+  if (previous !== Infinity) subrequestBudget = subrequestsUsed + extra;
+  try {
+    return await fn();
+  } finally {
+    subrequestBudget = previous;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Timestamp
 // ---------------------------------------------------------------------------
@@ -967,6 +991,20 @@ export class Firestore {
 
   batch() {
     return new WriteBatch(this);
+  }
+
+  /**
+   * Reads many documents in ONE round trip, in the order requested.
+   *
+   * The Admin SDK's `getAll`. It matters more here than it did there: on
+   * Cloudflare's free plan an invocation gets 50 external subrequests, so an
+   * invoice run that read each student's account individually would exhaust
+   * the budget at about a dozen students. This turns that into one call.
+   */
+  async getAll(...refs) {
+    const flat = refs.flat();
+    if (flat.length === 0) return [];
+    return this._batchGet(flat);
   }
 
   // ---- HTTP ---------------------------------------------------------------

@@ -27,8 +27,6 @@ import { isEnabled } from '../_lib/flags.js';
  * which is the point — three callers, one definition of the truth.
  */
 
-export const config = { maxDuration: 60 };
-
 function authorized(req) {
   const secret = process.env.CRON_SECRET;
   // No secret configured means the endpoint is closed, not open. An

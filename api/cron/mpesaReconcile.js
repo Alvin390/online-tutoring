@@ -7,6 +7,8 @@ import { loadCredentials, queryStkStatus, interpretResultCode } from '../_lib/da
 import { postEntry } from '../_lib/ledger.js';
 import { shouldAutoUnblock } from '../_lib/feeState.js';
 import { tryWriteAudit } from '../_lib/audit.js';
+import { shouldYield } from '../_lib/sweepCursor.js';
+import { SubrequestBudgetExceeded } from '../_lib/firestoreRest.js';
 
 /**
  * M-Pesa reconciliation sweep — Phase 09 D5.
@@ -30,11 +32,29 @@ import { tryWriteAudit } from '../_lib/audit.js';
  * handler. Disabling the feature must not strand real money.
  */
 
-export const config = { maxDuration: 60 };
-
 const QUERY_AFTER_MS = 2 * 60 * 1000;
 const ABANDON_AFTER_MS = 24 * 60 * 60 * 1000;
-const MAX_PER_RUN = 25;
+
+/**
+ * How many pending transactions to LOOK AT. One query regardless of the number,
+ * so this is nearly free and a generous pool means the oldest are always
+ * visible for the client-side sort below.
+ */
+const SCAN_LIMIT = 50;
+
+/**
+ * How many to actually RESOLVE per tick — Phase 12.
+ *
+ * Each one costs several subrequests: a Daraja status query (an external call
+ * of its own), a status write, sometimes a ledger transaction and an unblock
+ * read/write. Cloudflare's free plan allows 50 external subrequests per
+ * invocation, so processing 25 in a tick would be killed part-way through.
+ *
+ * NO CURSOR IS NEEDED HERE, unlike the invoice sweep. A transaction that is not
+ * resolved keeps `status: 'pending'` and is simply picked up by the next
+ * firing. Running every ten minutes, a backlog drains within the hour.
+ */
+const RESOLVE_BUDGET = 6;
 
 function authorized(req) {
   const secret = process.env.CRON_SECRET;
@@ -76,12 +96,21 @@ export default async function handler(req, res) {
       // which is the mirror of the document rule above.
       .collection('mpesa/transactions/items')
       .where('status', '==', 'pending')
-      .limit(MAX_PER_RUN)
+      .limit(SCAN_LIMIT)
       .get();
 
     if (pending.empty) {
       return res.status(200).json({ ok: true, ...result, note: 'nothing pending' });
     }
+
+    // Oldest first. With a per-tick resolve budget, arbitrary ordering could
+    // let a steady trickle of new transactions starve an older one
+    // indefinitely — and an unresolved M-Pesa payment is money a parent has
+    // already sent. Sorted client-side rather than with orderBy() so this needs
+    // no additional composite index.
+    const queue = [...pending.docs].sort(
+      (a, b) => (a.data().initiatedAt?.toMillis?.() ?? 0) - (b.data().initiatedAt?.toMillis?.() ?? 0)
+    );
 
     let credentials = null;
     try {
@@ -91,12 +120,25 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, ...result, skipped: 'no_credentials' });
     }
 
-    for (const docSnap of pending.docs) {
+    let handled = 0;
+
+    for (const docSnap of queue) {
+      // Stop cleanly between transactions rather than being killed mid-write.
+      // Anything left keeps status 'pending' and the next tick resumes it.
+      if (shouldYield(handled, RESOLVE_BUDGET)) {
+        result.deferred = queue.length - handled;
+        break;
+      }
+
       const tx = docSnap.data();
       const initiatedAt = tx.initiatedAt?.toMillis?.() ?? now;
       const age = now - initiatedAt;
 
+      // Too young to have a verdict yet. Not counted against the budget — it
+      // cost nothing.
       if (age < QUERY_AFTER_MS) continue;
+
+      handled += 1;
 
       // Net 2: give up on anything ancient, so the list does not grow forever.
       if (age > ABANDON_AFTER_MS) {
@@ -203,6 +245,14 @@ export default async function handler(req, res) {
           log
         );
       } catch (err) {
+        // A budget stop is not a bad transaction — it is the platform telling
+        // us to come back. Let it end the loop rather than being swallowed and
+        // repeated for every remaining item.
+        if (err instanceof SubrequestBudgetExceeded) {
+          result.deferred = queue.length - handled;
+          break;
+        }
+
         // One bad transaction must not stop the sweep.
         log.warn('Reconciliation query failed for one transaction', {
           checkoutRequestId: tx.checkoutRequestId,

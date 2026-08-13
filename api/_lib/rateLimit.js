@@ -97,14 +97,40 @@ export async function enforceRateLimit(opts) {
 }
 
 /**
- * Best-effort caller IP. Vercel sets x-forwarded-for; the leftmost entry is the
- * client. It is spoofable in principle, so IP limits are always paired with a
- * second limit on a stable identifier (phone, email, uid).
+ * The caller's IP address.
+ *
+ * `CF-Connecting-IP` comes FIRST, and that ordering is the security-relevant
+ * part — Phase 12.
+ *
+ * Cloudflare sets this header at the edge and strips any client-supplied copy,
+ * so it cannot be spoofed. `X-Forwarded-For` can be: a client may send one, and
+ * on Cloudflare the value is *appended to*, so trusting its leftmost entry
+ * hands the caller control of what we record. Preferring the platform header
+ * turns a best-effort signal into a trustworthy one.
+ *
+ * This is not merely about rate limiting. Two allowlists depend on it:
+ *
+ *   - api/daraja/callback/[secret].js — M-Pesa callbacks are UNSIGNED, so the
+ *     IP allowlist is the primary control on an endpoint that credits real
+ *     money to a student's account.
+ *   - api/billing/webhook.js — the Paystack IP check behind the HMAC.
+ *
+ * Reading `x-forwarded-for` alone would return 'unknown' in a Worker (there is
+ * no `req.socket`), which both allowlists would then reject — failing closed,
+ * but breaking every real payment callback.
+ *
+ * The `x-forwarded-for` and socket fallbacks are kept so the function still
+ * behaves under `wrangler dev`, in the emulator suites, and if this ever runs
+ * behind a different proxy.
  */
 export function clientIp(req) {
+  const cf = req.headers['cf-connecting-ip'] ?? req.headers['CF-Connecting-IP'];
+  if (typeof cf === 'string' && cf.length > 0) return cf.trim();
+
   const fwd = req.headers['x-forwarded-for'];
   if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
   if (Array.isArray(fwd) && fwd.length > 0) return String(fwd[0]).trim();
+
   return req.socket?.remoteAddress ?? 'unknown';
 }
 

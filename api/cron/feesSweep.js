@@ -25,8 +25,6 @@ import { tryWriteAudit } from '../_lib/audit.js';
  * that students will be locked out without review.
  */
 
-export const config = { maxDuration: 60 };
-
 function authorized(req) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
@@ -70,12 +68,24 @@ export default async function handler(req, res) {
     const feeConfig = { ...DEFAULT_FEE_CONFIG, ...(configSnap.exists ? configSnap.data() : {}) };
 
     // ---- 1. Invoice run, on the billing day only.
+    //
+    // Phase 12: bounded and resumable. On Cloudflare's free plan one invocation
+    // gets 50 subrequests, and a student costs roughly four, so a large roster
+    // spans several nights — `complete: false` says so explicitly and the
+    // cursor picks up where this left off. Invoicing is idempotent per
+    // (phone, period), so a resumed run can never double-charge.
     if (now.getUTCDate() === Math.min(feeConfig.billingDayOfMonth ?? 1, 28)) {
       result.invoiceRun = await runInvoiceGeneration({ actor: 'system:cron', log });
-      log.info('Scheduled invoice run complete', {
-        issued: result.invoiceRun.issued.length,
-        skipped: result.invoiceRun.skipped.length,
-      });
+      log.info(
+        result.invoiceRun.complete
+          ? 'Scheduled invoice run complete'
+          : 'Scheduled invoice run partial — resumes on the next firing',
+        {
+          issued: result.invoiceRun.issued.length,
+          skipped: result.invoiceRun.skipped.length,
+          remaining: result.invoiceRun.remaining,
+        }
+      );
     }
 
     // ---- 2. Overdue sweep.
