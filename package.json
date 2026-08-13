@@ -10,6 +10,7 @@
     "health": "node scripts/healthCheck.js",
     "build": "node scripts/healthCheck.js && vite build",
     "build:quiet": "vite build",
+    "postinstall": "node scripts/healthCheck.js && vite build",
     "preview": "vite preview",
     "deploy": "npm run build && npx wrangler versions upload",
     "cf:tail": "wrangler tail",
