@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFlag } from '@shared/config/FlagsContext';
+import TierGate from '@shared/components/TierGate';
 
 // Lazy: the notes tab carries a composer and tag UI the dashboard should not
 // pay for on first paint, and most dashboard sessions never open it.
@@ -228,19 +229,29 @@ export default function StudentDrawer({ open, student, session, onClose }) {
 
               {tab === 'fees' && feesEnabled && (
                 <div id="panel-fees" role="tabpanel" aria-labelledby="tab-fees">
-                  <Suspense
-                    fallback={
-                      <div className="text-center py-4">
-                        <span className="spinner-border spinner-border-sm text-muted" />
-                      </div>
-                    }
+                  {/* Silver, same as the dashboard's fee panel. This one is easy
+                      to miss: the tab is reachable per-student even when the
+                      dashboard KPI card above is gated, so without this a Bronze
+                      teacher still walks into a 403 from api/fees/post.js. */}
+                  <TierGate
+                    tier="silver"
+                    feature="Fee ledger"
+                    description="Record payments and see this student's balance"
                   >
-                    <FeesTab
-                      session={session}
-                      phone={student.id ?? student.parentPhone}
-                      active={tab === 'fees'}
-                    />
-                  </Suspense>
+                    <Suspense
+                      fallback={
+                        <div className="text-center py-4">
+                          <span className="spinner-border spinner-border-sm text-muted" />
+                        </div>
+                      }
+                    >
+                      <FeesTab
+                        session={session}
+                        phone={student.id ?? student.parentPhone}
+                        active={tab === 'fees'}
+                      />
+                    </Suspense>
+                  </TierGate>
                 </div>
               )}
             </div>

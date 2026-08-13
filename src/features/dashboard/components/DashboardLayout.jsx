@@ -18,6 +18,7 @@ const WhatsAppPanel = lazy(() => import('@features/whatsapp/components/WhatsAppP
 import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
+import TierGate from '@shared/components/TierGate';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -156,42 +157,77 @@ export default function DashboardLayout() {
           />
         )}
 
-        {/* Fee KPIs (Phase 06). One aggregate document read, not a scan. */}
-        {feesEnabled && <FeeKpiCards />}
-
-        {/* WhatsApp broadcast (Phase 08), lazily loaded. */}
-        {whatsappEnabled && (
-          <Suspense
-            fallback={
-              <div className="card mb-4">
-                <div className="card-body text-center py-4">
-                  <span className="spinner-border spinner-border-sm text-muted" />
-                </div>
-              </div>
-            }
+        {/* Fee KPIs (Phase 06). One aggregate document read, not a scan.
+            Silver, matching api/fees/*.js. */}
+        {feesEnabled && (
+          <TierGate
+            tier="silver"
+            feature="Fee ledger and invoicing"
+            description="Record payments, issue invoices and see who is behind"
           >
-            <WhatsAppPanel />
-          </Suspense>
+            <FeeKpiCards />
+          </TierGate>
         )}
 
-        {/* Calendar (Phase 07), lazily loaded. */}
-        {calendarEnabled && (
-          <Suspense
-            fallback={
-              <div className="card mb-4">
-                <div className="card-body text-center py-4">
-                  <span className="spinner-border spinner-border-sm text-muted" />
-                </div>
-              </div>
-            }
+        {/* WhatsApp broadcast (Phase 08), lazily loaded.
+            Silver, matching api/whatsapp/campaign.js. The gate sits OUTSIDE the
+            Suspense so a Bronze teacher never downloads the chunk. */}
+        {whatsappEnabled && (
+          <TierGate
+            tier="silver"
+            feature="WhatsApp broadcast"
+            description="Message every student at once, with no per-message cost"
           >
-            <CalendarPanel />
-          </Suspense>
+            <Suspense
+              fallback={
+                <div className="card mb-4">
+                  <div className="card-body text-center py-4">
+                    <span className="spinner-border spinner-border-sm text-muted" />
+                  </div>
+                </div>
+              }
+            >
+              <WhatsAppPanel />
+            </Suspense>
+          </TierGate>
+        )}
+
+        {/* Calendar (Phase 07), lazily loaded.
+            Silver, matching api/calendar/manage.js and feedToken.js. */}
+        {calendarEnabled && (
+          <TierGate
+            tier="silver"
+            feature="Class calendar"
+            description="Plan the term with weekly recurrence and an .ics feed"
+          >
+            <Suspense
+              fallback={
+                <div className="card mb-4">
+                  <div className="card-body text-center py-4">
+                    <span className="spinner-border spinner-border-sm text-muted" />
+                  </div>
+                </div>
+              }
+            >
+              <CalendarPanel />
+            </Suspense>
+          </TierGate>
         )}
 
         {/* Sessions (Phase 05). Behind a flag: with it off the two original
-            sessions are managed through ClassLinkManager exactly as before. */}
-        {teacherDefinedSessions && <SessionManager />}
+            sessions are managed through ClassLinkManager exactly as before.
+            Bronze, matching api/sessions/manage.js — so in practice every
+            paying teacher passes. The gate is here so the rule stays written
+            down next to the panel it governs. */}
+        {teacherDefinedSessions && (
+          <TierGate
+            tier="bronze"
+            feature="Custom sessions"
+            description="Run more than the two built-in class times"
+          >
+            <SessionManager />
+          </TierGate>
+        )}
 
         {/* Class Link Management */}
         <ClassLinkManager
