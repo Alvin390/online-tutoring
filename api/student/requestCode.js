@@ -88,16 +88,24 @@ export default createHandler({
 
     log.info('OTP issued', { session, ttlSeconds: CODE_TTL_SECONDS });
 
-    // The code is returned to the caller ONLY outside production, so the flow
-    // is testable end to end without an SMS provider. In production it reaches
+    // The code is returned to the caller ONLY when explicitly opted in, so the
+    // flow is testable end to end without an SMS provider. Normally it reaches
     // the student through the teacher's dashboard.
-    const isProduction = process.env.VERCEL_ENV === 'production';
+    //
+    // FAIL CLOSED — Phase 12. This used to read `VERCEL_ENV === 'production'`,
+    // which was safe on Vercel but would have been a live vulnerability on
+    // Cloudflare: VERCEL_ENV does not exist there, so the check would evaluate
+    // false in production and hand the one-time code straight back to whoever
+    // requested it — defeating phone verification entirely. Requiring an
+    // explicit opt-in means an unset or misspelt variable withholds the code
+    // rather than exposing it.
+    const exposeCode = process.env.EXPOSE_DEV_OTP === 'true';
 
     return {
       ok: true,
       expiresInSeconds: CODE_TTL_SECONDS,
       deliveryChannel: 'teacher_dashboard',
-      ...(isProduction ? {} : { devCode: code }),
+      ...(exposeCode ? { devCode: code } : {}),
     };
   },
 });

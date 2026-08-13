@@ -83,9 +83,26 @@ function main() {
   }));
 
   // Everything a visitor downloads before choosing a route.
-  const initial = measured.filter(
-    (f) => /^index-/.test(f.name) || (/^vendor-/.test(f.name) && !f.exempt)
+  //
+  // Read from dist/index.html rather than guessed from filenames — Phase 12.
+  //
+  // This used to match `/^index-/` or `/^vendor-/`. That heuristic broke as
+  // soon as Rollup emitted a LAZY chunk that also began with "index-": it was
+  // counted as boot cost and the reported figure jumped by 140 KB with no
+  // actual change to what the browser fetches. The entry script and its
+  // modulepreload links ARE the boot set, by definition, so measuring them is
+  // both correct and immune to naming coincidence.
+  const html = readFileSync(join(projectRoot, 'dist', 'index.html'), 'utf8');
+  const booted = new Set(
+    [...html.matchAll(/(?:src|href)="\/assets\/([^"]+\.js)"/g)].map((m) => m[1])
   );
+
+  if (booted.size === 0) {
+    console.error('\n  ✗ Could not read the boot set from dist/index.html.\n');
+    process.exit(1);
+  }
+
+  const initial = measured.filter((f) => booted.has(f.name));
   const initialKb = initial.reduce((sum, f) => sum + f.kb, 0);
 
   const routeChunks = measured

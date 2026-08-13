@@ -1,5 +1,4 @@
 import { BrowserRouter } from 'react-router-dom';
-import { Analytics } from '@vercel/analytics/react';
 import { AuthProvider } from '@features/auth/context/AuthContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { FlagsProvider } from '@shared/config/FlagsContext';
@@ -19,8 +18,11 @@ export default function App() {
                 routes (the grace countdown renders above every teacher page). */}
             <BillingProvider>
               <ToastProvider>
+                {/* Vercel Analytics removed in Phase 12 with the move to
+                    Cloudflare. Cloudflare Web Analytics is enabled from the
+                    dashboard and injects its own script, so nothing is needed
+                    here. */}
                 <AppRoutes />
-                <Analytics />
               </ToastProvider>
             </BillingProvider>
           </AuthProvider>

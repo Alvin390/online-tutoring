@@ -29,6 +29,14 @@ dist-ssr
 .env.local
 .env.*.local
 
+# Cloudflare Workers local runtime secrets (Phase 12). Same contents as the
+# non-VITE_ half of .env.local; `wrangler dev` reads this file automatically.
+# Production values live in Cloudflare's encrypted secret store, uploaded with
+# `npm run cf:secrets`.
+.dev.vars
+.dev.vars.*
+.wrangler/
+
 # Service account keys and other sensitive files (production)
 *.key
 *.pem

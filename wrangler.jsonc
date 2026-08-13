@@ -1,0 +1,83 @@
+{
+  // Cloudflare Workers configuration — Phase 12 D7. Replaces vercel.json.
+  //
+  // Deploy:  npm run deploy      (vite build && wrangler deploy)
+  // Local:   npm run dev:api     (wrangler dev, real workerd runtime)
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "online-tutoring",
+  "main": "worker/index.js",
+
+  // After 2025-04-01, so `nodejs_compat_populate_process_env` is on by default
+  // and `process.env.X` resolves from vars and secrets. That is what lets all
+  // 58 handlers and every _lib module keep reading process.env unchanged.
+  "compatibility_date": "2026-08-13",
+
+  // api/ imports only node:crypto — createCipheriv/aes-256-gcm, timingSafeEqual,
+  // createHmac, randomBytes, randomUUID — all of which Workers support in full.
+  // (firebase-admin does NOT work here at any compatibility level, which is why
+  // Phase 12 replaced it with REST shims. See api/_lib/firestoreRest.js.)
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "./dist/",
+    "binding": "ASSETS",
+
+    // The SPA fallback: any path that is not a real file serves index.html so
+    // React Router can handle it. Equivalent to vercel.json's rewrite.
+    "not_found_handling": "single-page-application",
+
+    // CRITICAL. Without this, the SPA fallback swallows /api/* requests and
+    // every endpoint returns index.html with a 200 — which fails as a silently
+    // malformed JSON response rather than as an obvious 404. This is the direct
+    // parallel of vercel.json's "/((?!api/).*)" negative lookahead.
+    //
+    // "/__scheduled" is `wrangler dev --test-scheduled`'s hook for firing a
+    // cron by hand. Wrangler's interceptor wraps the WORKER, so the path has to
+    // reach the Worker to be caught — without this line the SPA fallback
+    // answers it with index.html and the sweep never runs, which makes the
+    // three cron triggers untestable locally. In production nothing requests
+    // this path, and if anything did it falls through to the asset server
+    // exactly as it does today.
+    "run_worker_first": ["/api/*", "/__scheduled*"]
+  },
+
+  // Replaces vercel.json "crons". The Hobby plan capped cron at once per day,
+  // which is the reason for this migration: subscriptionSweep needs hourly and
+  // mpesaReconcile every ten minutes. Cloudflare allows any interval, including
+  // on the free plan.
+  //
+  // MUST stay in step with CRON_SCHEDULE_TO_SWEEP in worker/index.js —
+  // Cloudflare passes these strings back verbatim to identify which fired.
+  "triggers": {
+    "crons": [
+      "0 * * * *",
+      "0 2 * * *",
+      "*/10 * * * *"
+    ]
+  },
+
+  // Workers Logs. Needed to see a sweep that exceeded the free plan's 10ms CPU
+  // ceiling; without it that failure is invisible.
+  "observability": {
+    "enabled": true
+  },
+
+  "vars": {
+    // Non-secret only. Everything sensitive is a secret — see
+    // scripts/pushSecrets.js and upgrade/ENV-SETUP-GUIDE.md.
+    //
+    // Raise SUBREQUEST_BUDGET to ~900 and SWEEP_BATCH_SIZE to ~100 on Workers
+    // Paid, where the per-invocation ceilings rise from 50 subrequests and 10ms
+    // CPU to 1,000 and 30s. No code change is needed for that move.
+    "SUBREQUEST_BUDGET": "45",
+    "SWEEP_BATCH_SIZE": "8"
+  }
+
+  // To move off *.workers.dev onto a custom domain later, add:
+  //
+  //   "routes": [{ "pattern": "app.example.com", "custom_domain": true }]
+  //
+  // then update PUBLIC_BASE_URL, the Paystack callback URL and the Daraja
+  // callback URL to match.
+}
