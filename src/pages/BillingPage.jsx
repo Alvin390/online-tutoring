@@ -85,6 +85,16 @@ export default function BillingPage() {
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   const currentRank = TIER_RANK[tier] ?? 0;
+
+  /**
+   * Has the subscription actually ended?
+   *
+   * Only these two statuses cut access (subscription.js ACCESS_GRANTED lists
+   * the rest as still granted), and they are the only ones where re-buying the
+   * SAME plan is the natural action. In grace or past_due the teacher still has
+   * what they paid for, so offering "Renew" there would be noise.
+   */
+  const hasLapsed = status === 'expired' || status === 'locked';
   const statusCopy = STATUS_COPY[status] ?? null;
   const chosenChannel = CHANNELS.find((c) => c.id === channel);
 
@@ -311,6 +321,10 @@ export default function BillingPage() {
           const plan = TIERS[id];
           const isCurrent = tier === id;
           const isDowngrade = TIER_RANK[id] < currentRank;
+          // The renew button appears ONLY on the plan they were already on,
+          // and only once it has lapsed. Every other card keeps its normal
+          // upgrade/switch action so they can move plan instead of renewing.
+          const isRenewal = isCurrent && hasLapsed;
 
           return (
             <div className="col-md-4" key={id}>
@@ -337,8 +351,14 @@ export default function BillingPage() {
                   </ul>
 
                   <button
-                    className={`btn w-100 ${isCurrent ? 'btn-outline-secondary' : 'btn-primary'}`}
-                    disabled={busy || isCurrent}
+                    className={`btn w-100 ${
+                      isRenewal ? 'btn-success' : isCurrent ? 'btn-outline-secondary' : 'btn-primary'
+                    }`}
+                    // A lapsed plan is buyable again, so "your current plan"
+                    // must stop disabling the button once the subscription has
+                    // ended — otherwise the one plan the teacher most wants to
+                    // pay for is the only one they cannot click.
+                    disabled={busy || (isCurrent && !hasLapsed)}
                     onClick={() => {
                       setSelectedTier(id);
                       handleCheckout(id);
@@ -348,6 +368,11 @@ export default function BillingPage() {
                       <>
                         <span className="spinner-border spinner-border-sm me-2" />
                         Starting checkout…
+                      </>
+                    ) : isRenewal ? (
+                      <>
+                        <i className="bi bi-arrow-clockwise me-1" aria-hidden="true" />
+                        {`Renew ${plan.name}`}
                       </>
                     ) : isCurrent ? (
                       'Your current plan'

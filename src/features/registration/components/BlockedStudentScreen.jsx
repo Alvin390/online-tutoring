@@ -10,6 +10,7 @@ const PayNowPanel = lazy(() => import('@features/payments/components/PayNowPanel
 export default function BlockedStudentScreen({
   session,
   studentData,
+  phoneNumber,
   onSubmitReceipt,
   onBack,
   loading
@@ -129,7 +130,7 @@ export default function BlockedStudentScreen({
           <Suspense fallback={null}>
             <PayNowPanel
               session={session}
-              phone={studentData.parentPhone ?? studentData.id}
+              phone={phoneNumber ?? studentData.parentPhone ?? studentData.id}
               balance={blockState.balance}
             />
           </Suspense>

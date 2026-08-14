@@ -190,6 +190,13 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
                   key="blocked"
                   session={session}
                   studentData={studentData}
+                  // The phone comes from here, not from studentData.
+                  // api/student/checkin.js:45 projects a deliberately minimal
+                  // record over the wire and does not include it, so reading
+                  // it off studentData yielded undefined and every STK push
+                  // failed validation before it reached Daraja. This is the
+                  // number the student just typed to check in.
+                  phoneNumber={phoneNumber}
                   onSubmitReceipt={handleSubmitReceipt}
                   onBack={handleBack}
                   loading={loading}

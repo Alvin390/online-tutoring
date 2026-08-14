@@ -41,7 +41,7 @@ const attachmentSchema = z
 
 const schema = z
   .object({
-    action: z.enum(['create', 'markRecipient', 'complete', 'abandon', 'delete', 'list', 'get']),
+    action: z.enum(['create', 'markRecipient', 'complete', 'abandon', 'delete', 'list', 'get', 'options']),
     campaignId: z.string().trim().max(64).optional(),
     title: z.string().trim().min(1).max(140).optional(),
     messageTemplate: z.string().trim().min(1).max(4096).optional(),
@@ -145,6 +145,44 @@ export default createHandler({
       );
 
       return { ok: true, campaignId: campaignRef.id, recipientCount: recipients.length };
+    }
+
+    // ------------------------------------------------------------- options
+    //
+    // What the teacher can actually pick from, for the session / class /
+    // individual filters. Built by running the SAME eligibility rules as a real
+    // send (`resolveRecipients` with no filter), so the list can never offer
+    // somebody the send would then skip — opted out, or not yet approved.
+    //
+    // Without this the filter UI had a type dropdown and no way to choose
+    // values, so every filtered campaign posted `values: []` and matched
+    // nobody.
+    if (action === 'options') {
+      const everyone = await resolveRecipients(db, { type: 'all' });
+
+      const sessions = new Map();
+      const classes = new Set();
+
+      for (const r of everyone) {
+        if (!sessions.has(r.session)) sessions.set(r.session, { id: r.session, name: r.sessionName, count: 0 });
+        sessions.get(r.session).count += 1;
+        if (r.class) classes.add(r.class);
+      }
+
+      return {
+        ok: true,
+        sessions: [...sessions.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        classes: [...classes].sort((a, b) => a.localeCompare(b)),
+        students: everyone
+          .map((r) => ({
+            phone: r.phone,
+            studentName: r.studentName,
+            class: r.class,
+            session: r.session,
+            sessionName: r.sessionName,
+          }))
+          .sort((a, b) => (a.studentName ?? '').localeCompare(b.studentName ?? '')),
+      };
     }
 
     if (action === 'list') {

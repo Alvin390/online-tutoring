@@ -1,4 +1,4 @@
-import { redactSentryEvent } from './redact';
+import { redactSentryEvent, redactString, redact } from './redact';
 
 /**
  * Sentry configuration — Phase 11 D2.
@@ -27,11 +27,63 @@ export async function initMonitoring() {
     release: import.meta.env.VITE_APP_VERSION
       ? `online-tutoring@${import.meta.env.VITE_APP_VERSION}`
       : undefined,
+
+    integrations: [
+      // Console output as structured logs.
+      Sentry.consoleLoggingIntegration({ levels: ['log', 'warn', 'error'] }),
+
+      // Distributed tracing. `tracesSampleRate` was already set but nothing
+      // was collecting spans without this integration, so the number had no
+      // effect.
+      Sentry.browserTracingIntegration(),
+
+      // Session replay, MASKED. This app puts student names, parent phone
+      // numbers and fee balances on the screen; an unmasked replay would ship
+      // all of it to a third party as video-like DOM data, which is exactly
+      // what the redaction below exists to prevent. Masking is not optional
+      // here, and it is what Sentry's own React guide recommends by default.
+      Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true }),
+    ],
+
     tracesSampleRate: 0.1,
+    // Only our own API. Without this the tracing header is attached to every
+    // cross-origin request, which both leaks that we use Sentry and trips CORS
+    // on third parties that do not allow the header.
+    tracePropagationTargets: [/^\//, window.location.origin],
+
+    // 10% of ordinary sessions; every session that errors.
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1.0,
+
+    enableLogs: true,
+
     // Phase 01 D3 redaction, applied on the way out.
     beforeSend: redactSentryEvent,
     sendDefaultPii: false,
-    // A breadcrumb trail can capture form values and URLs; redact those too.
+
+    /**
+     * Logs go through their OWN pipeline — `beforeSend` never sees them. Without
+     * this, turning on console logging would quietly become the widest PII leak
+     * in the app: the logger prints phone numbers, receipt references and error
+     * payloads, and all of it would reach Sentry unredacted while `beforeSend`
+     * dutifully cleaned the error events next to it.
+     */
+    beforeSendLog: (log) => {
+      try {
+        return {
+          ...log,
+          message: typeof log.message === 'string' ? redactString(log.message) : log.message,
+          attributes: log.attributes ? redact(log.attributes) : log.attributes,
+        };
+      } catch {
+        // A redaction failure must drop the log, never send it raw.
+        return null;
+      }
+    },
+
+    // Console breadcrumbs stay OFF. They are attached to error events, are not
+    // covered by beforeSendLog, and now duplicate what the logging integration
+    // sends properly. Dropping them loses nothing and closes a second path.
     beforeBreadcrumb: (crumb) => {
       if (crumb.category === 'console') return null;
       return crumb;

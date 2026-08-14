@@ -13,6 +13,7 @@ import {
   completeCampaign,
   abandonCampaign,
   deleteCampaign,
+  getCampaignOptions,
   uploadAttachment,
 } from '@services/api/whatsapp';
 import { VARIABLES, previewWithExamples, formatBytes } from '@utils/messageTemplate';
@@ -52,6 +53,8 @@ export default function WhatsAppPanel() {
   const [history, setHistory] = useState([]);
   const [busy, setBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [options, setOptions] = useState(null);
+  const [optionsLoading, setOptionsLoading] = useState(false);
 
   // Autosave the draft — losing a carefully worded broadcast to an accidental
   // navigation is the fastest way to stop someone using the feature.
@@ -152,6 +155,43 @@ export default function WhatsAppPanel() {
       event.target.value = '';
     }
   };
+
+  // Loaded once, on the first time a value-taking filter is selected. Doing it
+  // on mount would cost a request for the common case of sending to everyone.
+  useEffect(() => {
+    if (!canFilter || filterType === 'all' || options !== null) return;
+    let cancelled = false;
+    setOptionsLoading(true);
+    getCampaignOptions()
+      .then((result) => { if (!cancelled) setOptions(result); })
+      .catch((error) => {
+        logger.error('Campaign options load failed', error);
+        if (!cancelled) showError('Could not load the list to choose from.');
+      })
+      .finally(() => { if (!cancelled) setOptionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [canFilter, filterType, options, showError]);
+
+  /** The checkbox list for whichever filter type is selected. */
+  const filterChoices = useMemo(() => {
+    if (!options) return [];
+    if (filterType === 'session') {
+      return options.sessions.map((s) => ({
+        value: s.id,
+        label: `${s.name} (${s.count})`,
+      }));
+    }
+    if (filterType === 'class') {
+      return options.classes.map((c) => ({ value: c, label: c }));
+    }
+    if (filterType === 'individual') {
+      return options.students.map((st) => ({
+        value: st.phone,
+        label: `${st.studentName ?? st.phone}${st.class ? ` — ${st.class}` : ''} · ${st.sessionName}`,
+      }));
+    }
+    return [];
+  }, [options, filterType]);
 
   const preview = useMemo(() => previewWithExamples(template), [template]);
   const overLimit = template.length > MAX_MESSAGE_LENGTH;
@@ -318,6 +358,59 @@ export default function WhatsAppPanel() {
                 <div className="form-text">
                   Silver sends to all students. Upgrade to Gold to message one class or
                   a handful of individuals.
+                </div>
+              )}
+
+              {/* The values. This is what was missing: the type dropdown above
+                  reset filterValues to [] and nothing ever refilled it, so
+                  every filtered campaign posted values:[] and the server
+                  correctly reported that it matched nobody.
+
+                  Options come from the server, resolved with the same
+                  eligibility rules as a real send, so nothing offered here can
+                  be skipped later. */}
+              {canFilter && filterType !== 'all' && (
+                <div className="mt-2 border rounded p-2" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  {optionsLoading && (
+                    <div className="text-muted small py-2">
+                      <span className="spinner-border spinner-border-sm me-2" />
+                      Loading…
+                    </div>
+                  )}
+
+                  {!optionsLoading && filterChoices.length === 0 && (
+                    <div className="text-muted small py-2">
+                      Nothing to choose from yet — no approved students who can receive
+                      messages.
+                    </div>
+                  )}
+
+                  {!optionsLoading && filterChoices.map((choice) => (
+                    <div className="form-check" key={choice.value}>
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        id={`wa-filter-${choice.value}`}
+                        checked={filterValues.includes(choice.value)}
+                        onChange={(e) =>
+                          setFilterValues((prev) =>
+                            e.target.checked
+                              ? [...prev, choice.value]
+                              : prev.filter((v) => v !== choice.value)
+                          )
+                        }
+                      />
+                      <label className="form-check-label small" htmlFor={`wa-filter-${choice.value}`}>
+                        {choice.label}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {canFilter && filterType !== 'all' && filterValues.length === 0 && (
+                <div className="form-text text-warning">
+                  Choose at least one, or the campaign will match nobody.
                 </div>
               )}
 

@@ -53,10 +53,33 @@ export const uploadAttachment = async (file, campaignId) => {
     reader.readAsDataURL(file);
   });
 
-  return apiPost('/api/whatsapp/upload', {
+  const result = await apiPost('/api/whatsapp/upload', {
     filename: file.name,
     contentType: file.type,
     data,
     ...(campaignId ? { campaignId } : {}),
   });
+
+  // Only the fields attachmentSchema accepts. The handler also returns `ok`
+  // and `expiresAt`, and the campaign schema is .strict() — passing the whole
+  // response straight through failed with
+  // `attachments.0: Unrecognized keys: "ok", "expiresAt"` on every send that
+  // carried a file. Narrowing here rather than loosening the schema: strict
+  // input validation is doing its job, the caller was feeding it noise.
+  return {
+    storagePath: result.storagePath,
+    downloadUrl: result.downloadUrl,
+    filename: result.filename,
+    sizeBytes: result.sizeBytes,
+    contentType: result.contentType,
+  };
 };
+
+/**
+ * The values a teacher can filter by — sessions, classes and students.
+ *
+ * Resolved server-side with the same eligibility rules as a real send, so the
+ * picker never offers a recipient the send would skip.
+ */
+export const getCampaignOptions = () =>
+  apiPost('/api/whatsapp/campaign', { action: 'options' });
