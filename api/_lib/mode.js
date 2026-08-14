@@ -49,9 +49,28 @@ export function paystackVar(base) {
   return modeVar(base, paystackMode());
 }
 
-/** Daraja uses SANDBOX/LIVE rather than TEST/LIVE. */
+/**
+ * Daraja's variables are INFIX, not suffix: `DARAJA_SANDBOX_CONSUMER_KEY`,
+ * not `DARAJA_CONSUMER_KEY_SANDBOX`.
+ *
+ * This used to call `modeVar`, which appends. Every lookup therefore missed,
+ * `credentialsFromEnv()` in ./daraja.js returned null on every call, and M-Pesa
+ * silently fell through to the encrypted Firestore record — which only exists
+ * if someone has saved credentials through a settings form that was never
+ * built. The net effect was that STK push could not work on any deployment,
+ * while `scripts/healthCheck.js` reported Daraja healthy because it reads the
+ * correct name directly.
+ *
+ * The infix form is the canonical one: it is what `.env.example`,
+ * `upgrade/ENV-SETUP-GUIDE.md`, the uploaded Cloudflare secrets and the health
+ * check all use. Only this function disagreed.
+ */
 export function darajaVar(base) {
-  return modeVar(base, darajaMode(), { suffixes: { dev: 'SANDBOX', live: 'LIVE' } });
+  const infix = darajaMode() === 'live' ? 'LIVE' : 'SANDBOX';
+  const scoped = base.replace(/^DARAJA_/, `DARAJA_${infix}_`);
+  // Unsuffixed fallback kept for the same reason modeVar has one: a deployment
+  // predating the split names keeps working.
+  return process.env[scoped] || process.env[base] || '';
 }
 
 /** One-line summary for the health check and the startup banner. */

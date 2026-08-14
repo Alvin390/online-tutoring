@@ -8,6 +8,9 @@ import {
   darajaVar,
   describeModes,
 } from '../../api/_lib/mode.js';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * dev / live mode resolution.
@@ -85,15 +88,31 @@ describe('variable selection', () => {
     expect(paystackVar('PAYSTACK_SECRET_KEY')).toBe('sk_live_xyz');
   });
 
-  it('uses SANDBOX rather than TEST for daraja', () => {
-    process.env.DARAJA_CONSUMER_KEY_SANDBOX = 'sandbox-key';
-    process.env.DARAJA_CONSUMER_KEY_LIVE = 'live-key';
+  /**
+   * The names here are INFIX and that is the whole point of the test.
+   *
+   * It previously set `DARAJA_CONSUMER_KEY_SANDBOX` — a name that appears
+   * nowhere else in the project — and so agreed with a broken implementation
+   * instead of with the contract. `.env.example:134`, ENV-SETUP-GUIDE and the
+   * deployed Cloudflare secrets all use `DARAJA_SANDBOX_CONSUMER_KEY`, so the
+   * real lookup missed every time and M-Pesa never loaded credentials from the
+   * environment on any deployment.
+   */
+  it('uses SANDBOX rather than TEST for daraja, with the mode INFIXED', () => {
+    process.env.DARAJA_SANDBOX_CONSUMER_KEY = 'sandbox-key';
+    process.env.DARAJA_LIVE_CONSUMER_KEY = 'live-key';
 
     process.env.DARAJA_MODE = 'dev';
     expect(darajaVar('DARAJA_CONSUMER_KEY')).toBe('sandbox-key');
 
     process.env.DARAJA_MODE = 'live';
     expect(darajaVar('DARAJA_CONSUMER_KEY')).toBe('live-key');
+  });
+
+  it('does not read the suffixed spelling, which nothing else in the project uses', () => {
+    process.env.DARAJA_CONSUMER_KEY_SANDBOX = 'wrong-shape';
+    process.env.DARAJA_MODE = 'dev';
+    expect(darajaVar('DARAJA_CONSUMER_KEY')).toBe('');
   });
 
   it('falls back to the unsuffixed name so an unmigrated deployment keeps working', () => {
@@ -124,4 +143,72 @@ describe('describeModes', () => {
       darajaEnvironment: 'sandbox',
     });
   });
+});
+
+/**
+ * The variable names the code looks up must be names that actually exist.
+ *
+ * This is the control that would have caught the infix bug on the day it was
+ * written. Both readers of the Daraja credentials — `darajaVar` here and
+ * `scripts/healthCheck.js` — resolved DIFFERENT names for the same secret, and
+ * every existing test agreed with whichever implementation it was testing. So
+ * this one agrees with neither: it reads `.env.example`, which is the file an
+ * operator actually fills in, and checks the resolver lands on names that are
+ * in it.
+ */
+describe('resolved names exist in .env.example', () => {
+  const documented = new Set(
+    readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '.env.example'), 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'))
+      .map((line) => line.slice(0, line.indexOf('=')).trim())
+      .filter(Boolean)
+  );
+
+  const DARAJA_FIELDS = [
+    'DARAJA_CONSUMER_KEY',
+    'DARAJA_CONSUMER_SECRET',
+    'DARAJA_PASSKEY',
+    'DARAJA_SHORTCODE',
+    'DARAJA_SHORTCODE_TYPE',
+  ];
+
+  const PAYSTACK_FIELDS = [
+    'PAYSTACK_SECRET_KEY',
+    'PAYSTACK_PLAN_BRONZE',
+    'PAYSTACK_PLAN_SILVER',
+    'PAYSTACK_PLAN_GOLD',
+  ];
+
+  for (const mode of ['dev', 'live']) {
+    it(`resolves every Daraja credential to a documented name in ${mode} mode`, () => {
+      process.env.DARAJA_MODE = mode;
+      const infix = mode === 'live' ? 'LIVE' : 'SANDBOX';
+
+      for (const base of DARAJA_FIELDS) {
+        const expected = base.replace(/^DARAJA_/, `DARAJA_${infix}_`);
+        expect(documented, `${expected} is not in .env.example`).toContain(expected);
+
+        // And the resolver must actually read THAT name.
+        process.env[expected] = `value-for-${expected}`;
+        expect(darajaVar(base)).toBe(`value-for-${expected}`);
+        delete process.env[expected];
+      }
+    });
+
+    it(`resolves every Paystack credential to a documented name in ${mode} mode`, () => {
+      process.env.PAYSTACK_MODE = mode;
+      const suffix = mode === 'live' ? 'LIVE' : 'TEST';
+
+      for (const base of PAYSTACK_FIELDS) {
+        const expected = `${base}_${suffix}`;
+        expect(documented, `${expected} is not in .env.example`).toContain(expected);
+
+        process.env[expected] = `value-for-${expected}`;
+        expect(paystackVar(base)).toBe(`value-for-${expected}`);
+        delete process.env[expected];
+      }
+    });
+  }
 });
