@@ -394,7 +394,12 @@ export default function WhatsAppPanel() {
                           {item.status.replace('_', ' ')}
                         </span>
                         <div className="d-flex gap-2 justify-content-end">
-                          {item.status === 'in_progress' && (
+                          {/* 'abandoned' too. The queue's stop control is
+                              labelled "Pause — resume later" and sets exactly
+                              that status, so offering Resume only for
+                              in_progress made the label a lie and stranded any
+                              campaign the teacher paused. */}
+                          {(item.status === 'in_progress' || item.status === 'abandoned') && (
                             <button
                               className="btn btn-link btn-sm p-0"
                               onClick={async () => {
