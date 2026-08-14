@@ -5,7 +5,7 @@ import { setUserClaims, revokeUserSessions, getUserByEmail } from '../_lib/claim
 import { badRequest, notFound, forbidden } from '../_lib/errors.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { TIER_RANK } from '../_lib/auth.js';
-import { STATUS } from '../_lib/subscription.js';
+import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
 
 /**
  * User administration — superadmin only.
@@ -31,6 +31,8 @@ const schema = z
       'setRole',
       'setTier',
       'startTrial',
+      'expireToGrace',
+      'expireNow',
       'disable',
       'enable',
       'delete',
@@ -140,6 +142,65 @@ export default createHandler({
       );
 
       return { ok: true, uid: created.uid };
+    }
+
+    // ------------------------------------------------- expireToGrace / expireNow
+    //
+    // Testing affordances, and they are not cosmetic: without them the only way
+    // to see a lockout is to wait for real calendar time to pass, which makes
+    // the most important behaviour in the product the least testable.
+    //
+    // No `uid` — this deployment has ONE subscription. The action is on
+    // `subscription/current`, not on a person.
+    //
+    // BOTH clear `grantedBySuperadmin`. That flag short-circuits the entire
+    // state machine (../_lib/subscription.js:113 returns `unchanged` before any
+    // other branch is considered), so leaving it set would make these buttons
+    // appear to work and then change nothing on the next read.
+    if (action === 'expireToGrace' || action === 'expireNow') {
+      const now = Date.now();
+      const toGrace = action === 'expireToGrace';
+
+      const patch = {
+        status: toGrace ? STATUS.GRACE : STATUS.EXPIRED,
+        currentPeriodEnd: new Date(now),
+        trialEndsAt: null,
+        // The whole point: stop being comped, so the sweep and the on-read
+        // check both start applying to this subscription again.
+        grantedBySuperadmin: false,
+        graceEndsAt: toGrace ? new Date(now + GRACE_PERIOD_MS) : null,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      const ref = db.doc('subscription/current');
+      const subscriptionBefore = (await ref.get()).data() ?? null;
+      await ref.set(patch, { merge: true });
+
+      // Keep the public projection in step, because the teacher's dashboard
+      // listens to that document rather than to this one.
+      const after = { ...((await ref.get()).data() ?? {}) };
+      await db.doc('subscription/public').set(publicProjection(after) ?? {}, { merge: false });
+
+      log.warn('Subscription expired by superadmin', {
+        to: patch.status,
+        graceHours: toGrace ? GRACE_PERIOD_MS / 3600000 : 0,
+      });
+
+      await tryWriteAudit(
+        { action: AuditAction.SUBSCRIPTION_CHANGED, actor: user.uid, actorRole: user.role,
+          target: 'subscription:current',
+          before: { status: subscriptionBefore?.status ?? null,
+                    grantedBySuperadmin: subscriptionBefore?.grantedBySuperadmin === true },
+          after: { status: patch.status },
+          context: { requestId: log.requestId, via: 'superadmin_console', reason: 'manual_expiry' } },
+        log
+      );
+
+      return {
+        ok: true,
+        status: patch.status,
+        graceEndsAt: toGrace ? new Date(now + GRACE_PERIOD_MS).toISOString() : null,
+      };
     }
 
     // Everything below needs a target.

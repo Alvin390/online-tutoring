@@ -19,6 +19,7 @@ import StudentTable from './StudentTable';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
 import TierGate from '@shared/components/TierGate';
+import { ROUTES } from '@/routes/routeConfig';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -126,6 +127,19 @@ export default function DashboardLayout() {
                 <small className="d-block opacity-75">Logged in as</small>
                 <span className="fw-semibold">{user?.email}</span>
               </div>
+              {/* Always present, not only when a feature is locked. Managing a
+                  subscription — seeing the renewal date, changing plan,
+                  cancelling — is not an upsell, and routing to it only through
+                  an upgrade prompt means a Gold teacher has no way to reach
+                  their own billing at all. */}
+              <button
+                className="btn btn-outline-light"
+                onClick={() => navigate(ROUTES.BILLING)}
+                title="Manage your subscription"
+              >
+                <i className="bi bi-credit-card me-1" aria-hidden="true" />
+                Billing
+              </button>
               <button className="btn btn-light" onClick={handleLogout}>
                 <i className="bi bi-box-arrow-right me-1" />
                 Logout

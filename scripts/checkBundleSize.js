@@ -60,7 +60,34 @@ const BUDGETS = {
  * `await import()` at the point of use. Imported statically these cost ~220 KB
  * gzipped on every dashboard load, for a button most teachers press rarely.
  */
-const EXEMPT = [/^jspdf/, /^html2canvas/, /^index\.es-/, /^purify\.es-/];
+const EXEMPT = [
+  /^jspdf/,
+  /^html2canvas/,
+  /^index\.es-/,
+  /^purify\.es-/,
+  // The Sentry SDK, behind `await import('@sentry/react')` in
+  // src/shared/utils/monitoring.js and loaded only when VITE_SENTRY_DSN is set
+  // in a production build. Confirmed lazy: dist/index.html references the app
+  // entry and the three vendor chunks, never this one, and a source-map
+  // breakdown of the chunk shows 1.4 MB of @sentry/* and no app code.
+  //
+  // Rollup happens to name it `index-<hash>.js`, which is why it landed in the
+  // route-chunk bucket and failed a budget it has nothing to do with.
+  /^index-[A-Za-z0-9_-]+\.js$/,
+];
+
+/**
+ * NOTE ON THE LIST ABOVE. Classifying chunks by FILENAME is fragile and has now
+ * misfired twice, both times because Rollup reused the `index-` prefix for a
+ * lazy chunk. The boot set below was moved off filename guessing for exactly
+ * this reason and reads dist/index.html instead.
+ *
+ * The durable fix is to derive laziness rather than assert it: enable
+ * `build.manifest` in vite.config.js and treat any entry with
+ * `isDynamicEntry: true` as exempt. That was not done here because it publishes
+ * a manifest file alongside the app; worth doing the next time this list needs
+ * touching.
+ */
 
 function gzipKb(filePath) {
   return gzipSync(readFileSync(filePath)).length / 1024;
@@ -139,7 +166,13 @@ function main() {
     console.log(`    ${chunk.kb.toFixed(1).padStart(7)} KB  ${chunk.name}`);
   }
 
-  const exempt = measured.filter((f) => f.exempt).sort((a, b) => b.kb - a.kb);
+  // `!booted.has(...)` because the app's own entry chunk matches the `index-`
+  // exemption pattern too. It is still counted in Initial JS above — that
+  // figure comes from the boot set, not from this list — but printing it under
+  // "loaded on demand" would say the opposite of the truth.
+  const exempt = measured
+    .filter((f) => f.exempt && !booted.has(f.name))
+    .sort((a, b) => b.kb - a.kb);
   if (exempt.length > 0) {
     console.log('\n  Lazy-only (exempt, loaded on demand):');
     for (const chunk of exempt) {

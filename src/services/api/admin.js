@@ -28,3 +28,14 @@ export const setUserDisabled = ({ uid, disabled }) =>
 /** Irreversible. `confirmEmail` must match the target exactly. */
 export const deleteUser = ({ uid, confirmEmail }) =>
   apiPost('/api/admin/users', { action: 'delete', uid, confirmEmail });
+
+/**
+ * Testing affordances — force the subscription into an expiring state without
+ * waiting for calendar time. Both clear the superadmin comp flag, which
+ * otherwise short-circuits the whole state machine.
+ */
+export const expireToGrace = () =>
+  apiPost('/api/admin/users', { action: 'expireToGrace' });
+
+export const expireNow = () =>
+  apiPost('/api/admin/users', { action: 'expireNow' });

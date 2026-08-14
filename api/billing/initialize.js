@@ -38,7 +38,11 @@ import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 const schema = z
   .object({
     tier: tierSchema,
-    channel: z.enum(['card', 'bank', 'mobile_money']),
+    // 'bank' is deliberately absent. Direct bank debit is not enabled on a
+    // Kenyan Paystack account — every attempt returned "No active channel to
+    // process transaction" (paystack_docs.txt:4949). Accepting a value the
+    // provider will always reject just moves the failure later.
+    channel: z.enum(['card', 'mobile_money']),
   })
   .strict();
 
@@ -56,7 +60,9 @@ export default createHandler({
     }
 
     const db = getDb();
-    const isAuto = channel === 'card' || channel === 'bank';
+    // Card is the only channel Paystack can auto-charge on this account:
+    // mobile-money authorizations are not reusable (paystack_docs.txt:1345).
+    const isAuto = channel === 'card';
     const renewalMode = isAuto ? 'auto' : 'manual';
 
     // Server-generated, recorded BEFORE the redirect, so the webhook can be
@@ -85,11 +91,13 @@ export default createHandler({
       reference,
       callbackUrl,
       channels: isAuto ? [channel] : ['mobile_money'],
-      // Card/bank pass a plan, so Paystack derives the amount AND creates the
-      // subscription. Mobile money is a one-off charge at the tier price.
-      ...(isAuto
-        ? { planCode: planCodeForTier(tier) }
-        : { amountKes: TIER_PRICE_KES[tier] }),
+      // The amount always goes, for every channel — Paystack requires it even
+      // when a plan is supplied, and the plan's price takes precedence
+      // (paystack_docs.txt:8014). Card additionally passes the plan, which is
+      // what makes Paystack create the recurring subscription; mobile money is
+      // a one-off charge at the same price.
+      amountKes: TIER_PRICE_KES[tier],
+      ...(isAuto ? { planCode: planCodeForTier(tier) } : {}),
       metadata: {
         uid: user.uid,
         tier,

@@ -31,6 +31,14 @@ export const abandonCampaign = (campaignId) =>
   apiPost('/api/whatsapp/campaign', { action: 'abandon', campaignId });
 
 /**
+ * Removes a campaign and its recipients entirely. Irreversible, and the
+ * messages already sent stay sent — only the record goes. Audited server-side
+ * with the counts before the delete, so who-was-messaged survives.
+ */
+export const deleteCampaign = (campaignId) =>
+  apiPost('/api/whatsapp/campaign', { action: 'delete', campaignId });
+
+/**
  * Uploads an attachment.
  *
  * Sent as base64 through the handler rather than direct-to-Storage, because a

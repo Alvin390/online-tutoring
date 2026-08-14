@@ -175,13 +175,30 @@ export async function initializeTransaction(opts) {
     metadata: opts.metadata,
   };
 
+  // `amount` is ALWAYS required, including when subscribing to a plan.
+  //
+  // This used to send `plan` alone, on the reasonable-sounding theory that an
+  // amount next to a plan is how you accidentally charge the wrong price.
+  // Paystack disagrees, and the checkout failed with "Invalid Amount Sent" for
+  // every card and bank subscription. From the docs shipped with this project:
+  //
+  //   "While amount is a required parameter, the amount used to create the
+  //    plan takes precedence when subscribing to a plan."
+  //     — upgrade/paystack_docs.txt:8014
+  //
+  //   "If transaction is to create a subscription to a predefined plan,
+  //    provide plan code here. This would invalidate the value provided in
+  //    amount"
+  //     — upgrade/paystack_docs.txt:766
+  //
+  // So the plan's own price wins regardless of what we send, and the original
+  // worry does not apply. We send the tier price anyway rather than a
+  // placeholder, so that if the plan code is ever wrong the charge is still
+  // the right size rather than zero.
+  body.amount = toSubunit(opts.amountKes);
+
   if (opts.planCode) {
-    // With `plan` set, Paystack derives the amount from the plan and creates
-    // the subscription on success. Sending an amount alongside a plan is how
-    // people accidentally charge the wrong price.
     body.plan = opts.planCode;
-  } else {
-    body.amount = toSubunit(opts.amountKes);
   }
 
   return paystackFetch('/transaction/initialize', { method: 'POST', body });

@@ -35,13 +35,16 @@ const CHANNELS = [
     autoRenews: false,
     blurb: 'Cannot renew automatically — you will renew by hand each month.',
   },
-  {
-    id: 'bank',
-    label: 'Bank',
-    icon: 'bi-bank',
-    autoRenews: true,
-    blurb: 'Renews automatically each month. Cancel any time.',
-  },
+  // NO BANK OPTION. It was offered and always failed with "No active channel
+  // to process transaction. Please contact merchant", because direct bank
+  // debit is not available on a Kenyan Paystack account:
+  //
+  //   "Card payment channels are available on all Paystack accounts, while the
+  //    other payment channels are only available in countries where they're
+  //    supported."  — upgrade/paystack_docs.txt:4949
+  //
+  // Card and M-Pesa are the two that work for KES. Add bank back only for a
+  // market where the account actually has it enabled.
 ];
 
 const STATUS_COPY = {

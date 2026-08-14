@@ -141,32 +141,81 @@ export default function SessionManager() {
                 )}
               </div>
 
+              {/* Pick the thing itself, not its name. A <select> listing
+                  "sunrise fill" and "Theme 4" asks the teacher to imagine the
+                  result; a swatch grid just shows it. Radio semantics so the
+                  keyboard and a screen reader still get a labelled single
+                  choice out of it. */}
               <div className="col-md-6">
-                <label className="form-label small fw-semibold" htmlFor="new-session-icon">Icon</label>
-                <select
-                  id="new-session-icon"
-                  className="form-select"
-                  value={form.icon}
-                  onChange={(e) => setForm({ ...form, icon: e.target.value })}
+                <span className="form-label small fw-semibold d-block" id="new-session-icon-label">
+                  Icon
+                </span>
+                <div
+                  className="d-flex flex-wrap gap-2"
+                  role="radiogroup"
+                  aria-labelledby="new-session-icon-label"
                 >
-                  {SESSION_ICONS.map((icon) => (
-                    <option key={icon} value={icon}>{icon.replace('bi-', '').replace(/-/g, ' ')}</option>
-                  ))}
-                </select>
+                  {SESSION_ICONS.map((icon) => {
+                    const selected = form.icon === icon;
+                    return (
+                      <button
+                        key={icon}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        aria-label={icon.replace('bi-', '').replace(/-/g, ' ')}
+                        className={`btn ${selected ? 'btn-primary' : 'btn-outline-secondary'} d-flex align-items-center justify-content-center`}
+                        style={{ width: 44, height: 44 }}
+                        onClick={() => setForm({ ...form, icon })}
+                      >
+                        <i className={`bi ${icon} fs-5`} aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="col-md-6">
-                <label className="form-label small fw-semibold" htmlFor="new-session-colour">Colour</label>
-                <select
-                  id="new-session-colour"
-                  className="form-select"
-                  value={form.gradient}
-                  onChange={(e) => setForm({ ...form, gradient: e.target.value })}
+                <span className="form-label small fw-semibold d-block" id="new-session-colour-label">
+                  Colour
+                </span>
+                <div
+                  className="d-flex flex-wrap gap-2"
+                  role="radiogroup"
+                  aria-labelledby="new-session-colour-label"
                 >
-                  {SESSION_GRADIENTS.map((g, i) => (
-                    <option key={g} value={g}>Theme {i + 1}</option>
-                  ))}
-                </select>
+                  {SESSION_GRADIENTS.map((g, i) => {
+                    const selected = form.gradient === g;
+                    return (
+                      <button
+                        key={g}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        aria-label={`Colour theme ${i + 1}`}
+                        className="btn p-0 border-2 position-relative"
+                        style={{
+                          width: 44,
+                          height: 44,
+                          background: g,
+                          borderRadius: '0.375rem',
+                          borderStyle: 'solid',
+                          borderColor: selected ? 'var(--bs-primary, #0d6efd)' : 'transparent',
+                          boxShadow: selected ? '0 0 0 2px rgba(13,110,253,.25)' : 'none',
+                        }}
+                        onClick={() => setForm({ ...form, gradient: g })}
+                      >
+                        {selected && (
+                          <i
+                            className="bi bi-check-lg position-absolute top-50 start-50 translate-middle text-white fs-5"
+                            aria-hidden="true"
+                            style={{ textShadow: '0 1px 2px rgba(0,0,0,.5)' }}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 

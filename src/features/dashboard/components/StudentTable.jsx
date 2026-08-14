@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
 import Modal from '@components/ui/Modal';
 import { SkeletonTable } from '@components/ui/Skeleton';
+import { postLedgerEntry } from '@services/api/fees';
+import logger from '@utils/logger';
 
 export default function StudentTable({
   session,
@@ -26,6 +28,11 @@ export default function StudentTable({
   const [blocking, setBlocking] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [blockReason, setBlockReason] = useState('');
+  // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;
+  // 'other' is the free-text block that existed before.
+  const [blockKind, setBlockKind] = useState('fees');
+  const [blockAmount, setBlockAmount] = useState('');
+  const [blockError, setBlockError] = useState(null);
 
   const handleDeleteClick = (student) => {
     setSelectedStudent(student);
@@ -47,6 +54,9 @@ export default function StudentTable({
   const handleBlockClick = (student) => {
     setSelectedStudent(student);
     setBlockReason('');
+    setBlockKind('fees');
+    setBlockAmount('');
+    setBlockError(null);
     setShowBlockModal(true);
   };
 
@@ -70,15 +80,71 @@ export default function StudentTable({
     setSelectedStudent(null);
   };
 
+  /**
+   * Two shapes of block, and the difference is not cosmetic.
+   *
+   * FEES: the amount the teacher types is posted to the ledger as a charge
+   * BEFORE the block lands. Everything downstream is then automatic and
+   * already built — the student's screen reads the balance off the ledger
+   * (blockReason.js derives it, never stores it), the M-Pesa panel offers to
+   * pay up to that balance, a part payment lowers the figure and leaves the
+   * block in place, and a full payment auto-unblocks with the M-Pesa receipt
+   * recorded against the entry.
+   *
+   * The charge is posted FIRST on purpose: blocking first would briefly show
+   * the student "blocked, balance KES 0", which reads as a mistake.
+   *
+   * The reason string is left EMPTY for a fee block. blockReason.js shows the
+   * derived balance line and any custom reason beneath it — putting "fees" in
+   * the custom slot would just duplicate the line above it.
+   *
+   * OTHER: no ledger involvement at all, free text exactly as before.
+   */
   const handleBlockConfirm = async () => {
     if (!selectedStudent) return;
 
-    setBlocking(true);
-    await onBlock(session, selectedStudent.id, selectedStudent.studentName, blockReason);
+    setBlockError(null);
+
+    if (blockKind === 'fees') {
+      const amount = Number(blockAmount);
+      if (!Number.isInteger(amount) || amount < 1) {
+        setBlockError('Enter the amount owed, in whole shillings.');
+        return;
+      }
+
+      setBlocking(true);
+      try {
+        await postLedgerEntry({
+          session,
+          phone: selectedStudent.id,
+          type: 'invoice',
+          amount,
+          note: 'Fees due — recorded when blocking',
+        });
+      } catch (error) {
+        logger.error('Could not post the fee charge', error);
+        // Nothing is blocked if the charge failed. Blocking anyway would leave
+        // the student locked out with no balance to pay and no way back in.
+        setBlockError(error?.message ?? 'Could not record that amount. Nothing was changed.');
+        setBlocking(false);
+        return;
+      }
+    } else {
+      setBlocking(true);
+    }
+
+    await onBlock(
+      session,
+      selectedStudent.id,
+      selectedStudent.studentName,
+      blockKind === 'fees' ? '' : blockReason
+    );
+
     setBlocking(false);
     setShowBlockModal(false);
     setSelectedStudent(null);
     setBlockReason('');
+    setBlockAmount('');
   };
 
   // Skeleton rather than a spinner — Phase 10 D4. The placeholder occupies the
@@ -299,22 +365,80 @@ export default function StudentTable({
             </p>
 
             <div className="mb-3 text-start">
-              <label className="form-label fw-bold">
+              <span className="form-label fw-bold d-block" id="block-kind-label">
                 <i className="bi bi-chat-left-text me-2" />
-                Block Reason (Optional)
-              </label>
-              <textarea
-                className="form-control"
-                rows="3"
-                value={blockReason}
-                onChange={(e) => setBlockReason(e.target.value)}
-                placeholder="e.g., Fee arrears for January 2025"
-              />
+                Why?
+              </span>
+              <div className="btn-group w-100 mb-3" role="radiogroup" aria-labelledby="block-kind-label">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={blockKind === 'fees'}
+                  className={`btn ${blockKind === 'fees' ? 'btn-primary' : 'btn-outline-primary'}`}
+                  onClick={() => setBlockKind('fees')}
+                >
+                  <i className="bi bi-cash-coin me-1" aria-hidden="true" />
+                  Unpaid fees
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={blockKind === 'other'}
+                  className={`btn ${blockKind === 'other' ? 'btn-primary' : 'btn-outline-primary'}`}
+                  onClick={() => setBlockKind('other')}
+                >
+                  <i className="bi bi-pencil me-1" aria-hidden="true" />
+                  Another reason
+                </button>
+              </div>
+
+              {blockKind === 'fees' ? (
+                <>
+                  <label className="form-label small fw-semibold" htmlFor="block-amount">
+                    Amount owed (KES)
+                  </label>
+                  <input
+                    id="block-amount"
+                    type="text"
+                    inputMode="numeric"
+                    className={`form-control ${blockError ? 'is-invalid' : ''}`}
+                    value={blockAmount}
+                    onChange={(e) => setBlockAmount(e.target.value.replace(/[^\d]/g, ''))}
+                    placeholder="e.g. 1500"
+                    autoFocus
+                  />
+                  {blockError && <div className="invalid-feedback d-block">{blockError}</div>}
+                  <div className="form-text">
+                    Charged to their fee account. They can pay it by M-Pesa from their own
+                    screen — paying in full unblocks them automatically, and a part payment
+                    lowers the balance but leaves the block for you to lift.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="form-label small fw-semibold" htmlFor="block-reason">
+                    Reason <span className="text-muted fw-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    id="block-reason"
+                    className="form-control"
+                    rows="3"
+                    value={blockReason}
+                    onChange={(e) => setBlockReason(e.target.value)}
+                    placeholder="e.g., Repeated disruption in class"
+                  />
+                  {blockError && <div className="text-danger small mt-1">{blockError}</div>}
+                </>
+              )}
             </div>
 
             <div className="alert alert-warning text-start">
               <i className="bi bi-exclamation-triangle me-2" />
-              <small>The student will be blocked until they submit a new payment receipt and you approve it.</small>
+              <small>
+                {blockKind === 'fees'
+                  ? 'The student sees the balance owed and can clear it by M-Pesa to regain access.'
+                  : 'The student will be blocked until you unblock them from this dashboard.'}
+              </small>
             </div>
           </div>
         </Modal>

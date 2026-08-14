@@ -41,7 +41,7 @@ const attachmentSchema = z
 
 const schema = z
   .object({
-    action: z.enum(['create', 'markRecipient', 'complete', 'abandon', 'list', 'get']),
+    action: z.enum(['create', 'markRecipient', 'complete', 'abandon', 'delete', 'list', 'get']),
     campaignId: z.string().trim().max(64).optional(),
     title: z.string().trim().min(1).max(140).optional(),
     messageTemplate: z.string().trim().min(1).max(4096).optional(),
@@ -235,6 +235,42 @@ export default createHandler({
       );
       log.info(`Campaign ${action}d`);
       return { ok: true };
+    }
+
+    // ------------------------------------------------------------- delete
+    //
+    // Removes the campaign AND its recipients subcollection. Deleting the
+    // parent document alone would orphan the recipients — Firestore keeps
+    // subcollections when their parent goes, so they would linger unreachable
+    // and still counted against storage.
+    //
+    // Audited BEFORE the delete, with the counts, because afterwards there is
+    // nothing left to say who was already messaged. Those messages did go out;
+    // the record of them should not vanish silently just because the campaign
+    // did.
+    if (action === 'delete') {
+      const snap = await campaignRef.get();
+      if (!snap.exists) throw notFound('That campaign no longer exists.');
+
+      const data = snap.data();
+
+      await tryWriteAudit(
+        { action: 'whatsapp.campaign_deleted', actor: user.uid, actorRole: user.role,
+          target: body.campaignId,
+          before: {
+            title: data.title ?? null,
+            status: data.status ?? null,
+            sentCount: data.sentCount ?? 0,
+            recipientCount: data.recipientCount ?? 0,
+          },
+          context: { requestId: log.requestId } },
+        log
+      );
+
+      await db.recursiveDelete(campaignRef);
+
+      log.warn('Campaign deleted', { sentCount: data.sentCount ?? 0 });
+      return { ok: true, deleted: body.campaignId };
     }
 
     throw badRequest('Unknown action.');

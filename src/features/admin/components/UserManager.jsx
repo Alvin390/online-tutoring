@@ -4,6 +4,7 @@ import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import {
   listUsers, createTeacher, setUserTier, startTrial, setUserDisabled, deleteUser,
+  expireToGrace, expireNow,
 } from '@services/api/admin';
 import logger from '@utils/logger';
 
@@ -128,6 +129,35 @@ export default function UserManager() {
                 <strong>{new Date(subscription.trialEndsAt).toLocaleDateString('en-KE')}</strong>
               </div>
             )}
+
+            {/* Force an expiry, so the lockout flow can be exercised without
+                waiting for calendar time. Both clear the comped flag — it
+                short-circuits the state machine, so without clearing it these
+                would appear to work and change nothing. */}
+            <div className="ms-auto d-flex gap-2">
+              <button
+                type="button"
+                className="btn btn-outline-warning btn-sm"
+                disabled={busy}
+                onClick={() =>
+                  run(expireToGrace, 'Grace period started — access continues until the clock runs out.')
+                }
+                title="Set status to grace with a 48-hour clock. Access continues."
+              >
+                <i className="bi bi-hourglass-split me-1" aria-hidden="true" />
+                Expire into grace
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-danger btn-sm"
+                disabled={busy}
+                onClick={() => run(expireNow, 'Subscription expired — access cut immediately.')}
+                title="Set status to expired. Access is cut on the next check."
+              >
+                <i className="bi bi-slash-circle me-1" aria-hidden="true" />
+                End access now
+              </button>
+            </div>
           </div>
         )}
 
@@ -268,11 +298,20 @@ export default function UserManager() {
                             disabled={busy}
                             onClick={() =>
                               run(
-                                () => startTrial({ uid: u.uid, tier: 'gold', trialDays: 14 }),
-                                '14-day Gold trial started.'
+                                // The tier from THIS ROW, not a hardcoded gold.
+                                // The dropdown to the left applies immediately,
+                                // so "pick Silver, then click Trial" now starts
+                                // a Silver trial rather than silently upgrading
+                                // the account to Gold for fourteen days.
+                                () => startTrial({
+                                  uid: u.uid,
+                                  tier: u.tier ?? 'bronze',
+                                  trialDays: 14,
+                                }),
+                                `14-day ${TIERS[u.tier ?? 'bronze'].name} trial started.`
                               )
                             }
-                            title="Start a 14-day Gold trial"
+                            title={`Start a 14-day ${TIERS[u.tier ?? 'bronze'].name} trial`}
                           >
                             Trial
                           </button>

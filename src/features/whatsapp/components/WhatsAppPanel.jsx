@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import SendQueue from './SendQueue';
+import Modal from '@components/ui/Modal';
 import { useAuthState } from '@features/auth/context/AuthContext';
 import { useFlag } from '@shared/config/FlagsContext';
 import { useToast } from '@/context/ToastContext';
@@ -11,6 +12,7 @@ import {
   markRecipient,
   completeCampaign,
   abandonCampaign,
+  deleteCampaign,
   uploadAttachment,
 } from '@services/api/whatsapp';
 import { VARIABLES, previewWithExamples, formatBytes } from '@utils/messageTemplate';
@@ -49,6 +51,7 @@ export default function WhatsAppPanel() {
   const [recipients, setRecipients] = useState([]);
   const [history, setHistory] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   // Autosave the draft — losing a carefully worded broadcast to an accidental
   // navigation is the fastest way to stop someone using the feature.
@@ -390,17 +393,26 @@ export default function WhatsAppPanel() {
                         >
                           {item.status.replace('_', ' ')}
                         </span>
-                        {item.status === 'in_progress' && (
+                        <div className="d-flex gap-2 justify-content-end">
+                          {item.status === 'in_progress' && (
+                            <button
+                              className="btn btn-link btn-sm p-0"
+                              onClick={async () => {
+                                await refreshCampaign(item.id);
+                                setView('queue');
+                              }}
+                            >
+                              Resume
+                            </button>
+                          )}
                           <button
-                            className="btn btn-link btn-sm d-block p-0"
-                            onClick={async () => {
-                              await refreshCampaign(item.id);
-                              setView('queue');
-                            }}
+                            className="btn btn-link btn-sm p-0 text-danger"
+                            onClick={() => setDeleteTarget(item)}
+                            aria-label={`Delete campaign ${item.title}`}
                           >
-                            Resume
+                            Delete
                           </button>
-                        )}
+                        </div>
                       </div>
                     </div>
                   </li>
@@ -410,6 +422,48 @@ export default function WhatsAppPanel() {
           </div>
         )}
       </div>
+
+      {/* Deleting a campaign is irreversible and the messages already sent stay
+          sent, so it asks first and names what is going. */}
+      {deleteTarget && (
+        <Modal
+          title="Delete campaign"
+          type="danger"
+          confirmLabel="Delete"
+          loading={busy}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={async () => {
+            setBusy(true);
+            try {
+              await deleteCampaign(deleteTarget.id);
+              // If the queue currently open is the one being deleted, leave it
+              // — otherwise the next mark would write to a document that no
+              // longer exists.
+              if (campaign?.id === deleteTarget.id) {
+                setCampaign(null);
+                setRecipients([]);
+              }
+              setDeleteTarget(null);
+              showSuccess('Campaign deleted.');
+              await loadHistory();
+            } catch (error) {
+              logger.error('Campaign delete failed', error);
+              showError(error?.message ?? 'Could not delete that campaign.');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <p className="mb-2">
+            Delete <strong>{deleteTarget.title}</strong> and its recipient list?
+          </p>
+          <p className="text-muted small mb-0">
+            {deleteTarget.sentCount ?? 0} message
+            {(deleteTarget.sentCount ?? 0) === 1 ? ' has' : 's have'} already been sent. Those
+            are not recalled — only the record here is removed, and it cannot be undone.
+          </p>
+        </Modal>
+      )}
     </motion.div>
   );
 }

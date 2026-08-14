@@ -31,6 +31,20 @@ export default function Modal({
   const previouslyFocused = useRef(null);
   const titleId = useId();
 
+  /**
+   * MOUNT-ONLY. This effect must not depend on any prop.
+   *
+   * It used to be one effect with `[onClose]`, and every caller passes an
+   * inline `onClose={() => setShowX(false)}` — a new function identity on every
+   * render. So a single keystroke in any field inside a modal re-ran this,
+   * which called `dialogRef.current.focus()` and yanked the cursor out of the
+   * input. The symptom was being able to type exactly one character at a time,
+   * in every modal in the app.
+   *
+   * The listener below needs the CURRENT onClose, so it lives in its own effect
+   * rather than forcing every caller to remember useCallback — rebinding a
+   * listener is free, and stealing focus is not.
+   */
   useEffect(() => {
     previouslyFocused.current = document.activeElement;
     document.body.style.overflow = 'hidden';
@@ -40,6 +54,15 @@ export default function Modal({
     // before the title has been read.
     dialogRef.current?.focus();
 
+    return () => {
+      document.body.style.overflow = 'unset';
+      // Focus restore. Losing focus to <body> on close strands a keyboard user
+      // at the top of the document.
+      previouslyFocused.current?.focus?.();
+    };
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -69,14 +92,7 @@ export default function Modal({
     };
 
     document.addEventListener('keydown', onKeyDown);
-
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = 'unset';
-      // Focus restore. Losing focus to <body> on close strands a keyboard user
-      // at the top of the document.
-      previouslyFocused.current?.focus?.();
-    };
+    return () => document.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
   return createPortal(
