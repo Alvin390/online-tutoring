@@ -140,6 +140,21 @@ the next.
 has verified their phone. Turning it off early locks existing students out of
 check-in entirely.
 
+**`auth.studentIdentity` is absent from that table on purpose, and cannot be
+turned on as the system stands.** The one-time code is stored only as a
+SHA-256 hash (`api/student/requestCode.js:69`) and is returned to the caller
+only when `EXPOSE_DEV_OTP === 'true'`, which must never be set in production —
+it hands the code to whoever asked for it and defeats phone verification. There
+is no SMS provider wired and no teacher-facing view of pending codes, so with
+the flag on and `EXPOSE_DEV_OTP` unset, **nobody can read a live code and no
+student can complete check-in.** It needs one of: an SMS integration, or a
+teacher-visible pending-codes panel fed by something other than the hash.
+
+Tier gating is enforced twice, and the two must agree: `requireTier` in
+`api/_lib/auth.js` for the endpoint, and `<TierGate>` in the dashboard for the
+panel that calls it. `tests/unit/tierGate.test.jsx` scans `api/` for `tier:`
+declarations and fails if one gains no client counterpart.
+
 ---
 
 ## 4. Pre-launch checklist
