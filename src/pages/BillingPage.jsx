@@ -4,7 +4,12 @@ import { motion } from 'framer-motion';
 import { useBilling } from '@features/billing/context/BillingContext';
 import { useToast } from '@/context/ToastContext';
 import { TIERS, TIER_ORDER, TIER_RANK, formatKes } from '@shared/constants/tiers';
-import { initializeCheckout, cancelSubscription, resumeSubscription } from '@services/api/billing';
+import {
+  initializeCheckout,
+  cancelSubscription,
+  resumeSubscription,
+  scheduleDowngrade,
+} from '@services/api/billing';
 import logger from '@utils/logger';
 
 /**
@@ -83,6 +88,7 @@ export default function BillingPage() {
   const [channel, setChannel] = useState('card');
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmDowngrade, setConfirmDowngrade] = useState(null);
 
   const currentRank = TIER_RANK[tier] ?? 0;
 
@@ -115,6 +121,36 @@ export default function BillingPage() {
     } catch (err) {
       logger.error('Checkout failed', err);
       showError(err?.message ?? 'Could not start checkout. Please try again.');
+      setBusy(false);
+    }
+  };
+
+  /**
+   * A downgrade is NOT a purchase, and must not run checkout.
+   *
+   * This button used to call handleCheckout(tier), which charged the teacher
+   * the full lower-tier price immediately, restarted the billing period —
+   * discarding the remainder of the period they had already paid for — and, on
+   * card, left the previous subscription running at Paystack. The note beneath
+   * it has always promised "takes effect at the end of your current period",
+   * which is what api/billing/manage.js schedule_downgrade actually does. That
+   * endpoint existed and simply had no caller.
+   */
+  const handleDowngrade = async (tierId) => {
+    setBusy(true);
+    try {
+      const result = await scheduleDowngrade(tierId);
+      showSuccess(
+        `Scheduled. You keep ${TIERS[tier]?.name ?? 'your current plan'} until ${
+          formatDate(result.effectiveAt) ?? 'the end of your period'
+        }, then move to ${TIERS[tierId]?.name}.`
+      );
+      setConfirmDowngrade(null);
+      await refresh();
+    } catch (err) {
+      logger.error('Downgrade scheduling failed', err);
+      showError(err?.message ?? 'Could not schedule that change.');
+    } finally {
       setBusy(false);
     }
   };
@@ -271,6 +307,47 @@ export default function BillingPage() {
         </div>
       )}
 
+      {/* Downgrade confirmation. Names the date and the new price, because the
+          two questions a teacher has are "when does this bite" and "what will I
+          pay". Nothing is charged now. */}
+      {confirmDowngrade && (
+        <div className="alert alert-warning" role="alert">
+          <h2 className="h6 fw-bold">
+            Move to {TIERS[confirmDowngrade]?.name} at the end of this period?
+          </h2>
+          <p className="mb-2">
+            You keep <strong>{TIERS[tier]?.name ?? 'your current plan'}</strong> and everything
+            in it until{' '}
+            <strong>{formatDate(subscription?.currentPeriodEnd) ?? 'the end of your period'}</strong>.
+            From then you pay{' '}
+            <strong>{formatKes(TIERS[confirmDowngrade]?.priceKes ?? 0)}</strong>/month instead of{' '}
+            {formatKes(TIERS[tier]?.priceKes ?? 0)}.
+          </p>
+          <p className="small text-muted mb-3">
+            <strong>You are not charged now.</strong> Your fees, calendar and campaign history
+            from the higher plan are kept and hidden, and come back if you upgrade again.
+            You can undo this before the date by choosing your current plan again.
+          </p>
+          <div className="d-flex gap-2">
+            <button
+              className="btn btn-warning btn-sm"
+              onClick={() => handleDowngrade(confirmDowngrade)}
+              disabled={busy}
+            >
+              {busy ? <span className="spinner-border spinner-border-sm me-2" /> : null}
+              Schedule the change
+            </button>
+            <button
+              className="btn btn-outline-secondary btn-sm"
+              onClick={() => setConfirmDowngrade(null)}
+              disabled={busy}
+            >
+              Keep {TIERS[tier]?.name ?? 'my plan'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Payment method — chosen BEFORE the plan, because it changes what the
           plan buttons mean. */}
       <h2 className="h5 fw-bold mt-5 mb-3">How would you like to pay?</h2>
@@ -361,7 +438,9 @@ export default function BillingPage() {
                     disabled={busy || (isCurrent && !hasLapsed)}
                     onClick={() => {
                       setSelectedTier(id);
-                      handleCheckout(id);
+                      // A downgrade schedules; everything else buys.
+                      if (isDowngrade && !hasLapsed) setConfirmDowngrade(id);
+                      else handleCheckout(id);
                     }}
                   >
                     {busy && selectedTier === id ? (
@@ -383,7 +462,11 @@ export default function BillingPage() {
                     )}
                   </button>
 
-                  {isDowngrade && (
+                  {/* Only while a period is actually running. Once the
+                      subscription has lapsed there is no period left to ride
+                      out, so this becomes an ordinary purchase and the promise
+                      would be false. */}
+                  {isDowngrade && !hasLapsed && (
                     <p className="small text-muted mt-2 mb-0">
                       Takes effect at the end of your current period. Nothing is deleted.
                     </p>

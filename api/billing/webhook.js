@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger } from '../_lib/log.js';
 import { readRawBody } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
-import { verifyWebhookSignature, isPaystackIp } from '../_lib/paystack.js';
+import { verifyWebhookSignature, isPaystackIp, disableSubscription } from '../_lib/paystack.js';
 import { clientIp } from '../_lib/rateLimit.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
@@ -153,6 +153,62 @@ export default async function handler(req, res) {
   }
 }
 
+/**
+ * Turns off the subscription a new one is replacing.
+ *
+ * Never throws. A webhook that 500s makes Paystack retry the whole event, and
+ * the subscription record has already been updated correctly by the time this
+ * matters — a failed disable is a billing problem to chase, not a reason to
+ * reprocess a payment. It is logged and audited so it can be found.
+ *
+ * @param {object|null} before   the subscription document before this event
+ * @param {string|null} newCode  the incoming subscription code, if any
+ */
+async function disablePreviousSubscription({ before, newCode, log, requestId }) {
+  const code = before?.paystackSubscriptionCode ?? null;
+  const token = before?.paystackEmailToken ?? null;
+
+  if (!code) return;
+  // Same subscription renewing, not a replacement.
+  if (newCode && newCode === code) return;
+
+  if (!token) {
+    // Without the email token Paystack will not accept the disable. Recorded
+    // rather than swallowed: this one has to be finished by hand in the
+    // Paystack dashboard or it bills forever.
+    log.error('Cannot disable the previous subscription: no stored email token', { code });
+    await tryWriteAudit(
+      { action: AuditAction.SUBSCRIPTION_CHANGED, actor: 'system:paystack',
+        target: 'subscription:current',
+        after: { previousSubscription: code, disabled: false, reason: 'missing_email_token' },
+        context: { requestId, needsManualAction: true } },
+      log
+    );
+    return;
+  }
+
+  try {
+    await disableSubscription({ code, token });
+    log.info('Previous subscription disabled', { code });
+    await tryWriteAudit(
+      { action: AuditAction.SUBSCRIPTION_CHANGED, actor: 'system:paystack',
+        target: 'subscription:current',
+        after: { previousSubscription: code, disabled: true },
+        context: { requestId, change: 'superseded' } },
+      log
+    );
+  } catch (err) {
+    log.error('Failed to disable the previous subscription', err);
+    await tryWriteAudit(
+      { action: AuditAction.SUBSCRIPTION_CHANGED, actor: 'system:paystack',
+        target: 'subscription:current',
+        after: { previousSubscription: code, disabled: false, reason: 'paystack_error' },
+        context: { requestId, needsManualAction: true } },
+      log
+    );
+  }
+}
+
 async function processEvent({ db, event, log, requestId }) {
   const subRef = db.doc('subscription/current');
   const publicRef = db.doc('subscription/public');
@@ -168,6 +224,19 @@ async function processEvent({ db, event, log, requestId }) {
       const renewalMode = metadata.renewalMode ?? before?.renewalMode ?? 'manual';
       const now = Date.now();
       const periodEnd = monthFromNow(now);
+
+      // Switching from a card subscription to M-Pesa. No `subscription.create`
+      // fires for mobile money, so without this the old card subscription keeps
+      // auto-charging alongside the manual payments.
+      //
+      // The condition is deliberately narrow. `metadata.renewalMode` is set by
+      // us at checkout (api/billing/initialize.js), so 'manual' here means a
+      // person just chose to pay by M-Pesa. A RECURRING card charge cannot
+      // reach this branch — a manual checkout never produces recurring charges
+      // — so this can never disable a healthy subscription on its own renewal.
+      if (metadata.renewalMode === 'manual') {
+        await disablePreviousSubscription({ before, newCode: null, log, requestId });
+      }
 
       patch = {
         tier,
@@ -202,6 +271,26 @@ async function processEvent({ db, event, log, requestId }) {
     }
 
     case 'subscription.create': {
+      // A NEW subscription replaces the old one, so the old one has to be shut
+      // off or Paystack bills both every month.
+      //
+      // This is the bug that made changing plan expensive: nothing anywhere
+      // disabled the previous subscription, and the line below then overwrote
+      // `paystackSubscriptionCode` with the new code — so the old subscription
+      // kept charging AND the app no longer held the code needed to cancel it.
+      // The only way out was the Paystack dashboard.
+      //
+      // Done HERE rather than at checkout time on purpose: the replacement is
+      // known to exist at this point. Disabling when checkout merely STARTS
+      // would leave a teacher who abandoned the page with no active
+      // subscription and no charge to show for it.
+      await disablePreviousSubscription({
+        before,
+        newCode: data.subscription_code ?? null,
+        log,
+        requestId,
+      });
+
       patch = {
         status: STATUS.ACTIVE,
         renewalMode: 'auto',
