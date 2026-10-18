@@ -256,6 +256,8 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
 }
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   auth: true,
   role: 'teacher',

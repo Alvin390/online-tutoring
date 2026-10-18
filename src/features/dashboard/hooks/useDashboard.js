@@ -4,6 +4,7 @@ import {
   subscribeToPendingApprovals,
   deleteStudent as deleteStudentService,
   getZoomLinks,
+  subscribeToClassLink,
   registerStudent as updateStudentService,
   blockStudent as blockStudentService,
   unblockStudent as unblockStudentService,
@@ -13,6 +14,7 @@ import {
 import { setClassLink, decideApproval } from '@services/api/teacher';
 import { approveReceiptWithPayment } from '@services/api/fees';
 import { useSessions } from '@features/sessions/hooks/useSessions';
+import { FALLBACK_SESSIONS } from '@shared/constants/sessions';
 import { useFlag } from '@shared/config/FlagsContext';
 import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
@@ -36,26 +38,32 @@ export const useDashboard = () => {
    */
   const [studentsBySession, setStudentsBySession] = useState({});
   const [pendingApprovals, setPendingApprovals] = useState([]);
-  const [zoomLinks, setZoomLinks] = useState({ morning: '', evening: '' });
+  const [classLinkDocs, setClassLinkDocs] = useState({});
+  const [legacyLinks, setLegacyLinks] = useState({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('morning');
+  const [activeTab, setActiveTabState] = useState(() => {
+    try { return sessionStorage.getItem('dashboard.activeTab'); } catch { return null; }
+  });
   const feesEnabled = useFlag('fees.enabled');
   const { showSuccess, showError } = useToast();
 
-  const { activeSessions, loading: sessionsLoading } = useSessions();
+  // Phase 13 / 02 D1: an empty list on the dashboard triggers the server-side
+  // bootstrap of the default sessions.
+  const { sessions: allSessions, loading: sessionsLoading } = useSessions({ bootstrap: true });
 
   /**
-   * Session ids to watch.
-   *
-   * Falls back to the two original sessions when the sessions collection is
-   * empty — a deployment that has not run `npm run seed:sessions` must still
-   * show its students, exactly as SessionRoutePage falls back for the student
-   * side.
+   * Every session the dashboard knows about — active AND hidden (Phase 13 /
+   * 02 D7), because a hidden session can still hold students the teacher needs
+   * to see. Until the bootstrap has created the default documents, the two
+   * original sessions stand in, exactly as SessionRoutePage falls back for the
+   * student side.
    */
-  const sessionIds = useMemo(() => {
-    if (activeSessions.length > 0) return activeSessions.map((s) => s.id);
-    return sessionsLoading ? [] : ['morning', 'evening'];
-  }, [activeSessions, sessionsLoading]);
+  const sessions = useMemo(() => {
+    if (allSessions.length > 0) return allSessions;
+    return sessionsLoading ? [] : FALLBACK_SESSIONS;
+  }, [allSessions, sessionsLoading]);
+
+  const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions]);
 
   // Joined into a primitive so the effect below depends on the CONTENT of the
   // list rather than the array identity, which changes on every snapshot.
@@ -106,12 +114,24 @@ export const useDashboard = () => {
   }, []);
 
   /**
-   * Back-compat accessors. The dashboard's tab UI is still session-keyed, and
-   * these keep every existing consumer working while the underlying shape is
-   * now dynamic.
+   * Tabs (Phase 13 / 02 D7): active sessions in the teacher's order, then any
+   * hidden session that still has students.
    */
-  const morningStudents = studentsBySession.morning ?? [];
-  const eveningStudents = studentsBySession.evening ?? [];
+  const tabs = useMemo(() => {
+    const active = sessions.filter((s) => s.active !== false);
+    const hiddenWithStudents = sessions.filter(
+      (s) => s.active === false && (studentsBySession[s.id]?.length ?? 0) > 0
+    );
+    return [...active, ...hiddenWithStudents];
+  }, [sessions, studentsBySession]);
+
+  // The remembered tab if it still exists, else the first one.
+  const currentTab = tabs.some((t) => t.id === activeTab) ? activeTab : (tabs[0]?.id ?? null);
+
+  const setActiveTab = useCallback((id) => {
+    setActiveTabState(id);
+    try { sessionStorage.setItem('dashboard.activeTab', id); } catch { /* storage unavailable */ }
+  }, []);
 
   // Pending approvals — one collection-group listener across all sessions.
   useEffect(() => {
@@ -119,41 +139,68 @@ export const useDashboard = () => {
     return () => unsubscribe();
   }, []);
 
-  // Load class links
+  /**
+   * Class links — Phase 13 / 02 D3/D4.
+   *
+   * One live listener per session on `sessions/{slug}/private/classLink`, the
+   * single link store, opened and closed with the session list — so a session
+   * created a moment ago gets its link slot immediately, and a link saved from
+   * another tab appears without a reload.
+   */
   useEffect(() => {
-    const loadLinks = async () => {
-      try {
-        const links = await getZoomLinks();
-        setZoomLinks(links);
-      } catch (error) {
-        logger.error('Load class links failed', error);
-      }
-    };
-    loadLinks();
+    const ids = sessionKey ? sessionKey.split(',') : [];
+    const unsubscribers = ids.map((id) =>
+      subscribeToClassLink(id, (link) => {
+        setClassLinkDocs((prev) => ({ ...prev, [id]: link }));
+      })
+    );
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [sessionKey]);
+
+  // Legacy links, read once: shown only for a session whose private document
+  // does not exist yet (before the bootstrap migrates it). Never written.
+  useEffect(() => {
+    getZoomLinks()
+      .then((links) => setLegacyLinks(links ?? {}))
+      .catch((error) => logger.warn('Legacy class links unavailable', { code: error?.code }));
   }, []);
+
+  /** { [slug]: { url, provider, updatedAt } | null } for every known session. */
+  const classLinks = useMemo(() => {
+    const out = {};
+    for (const id of sessionIds) {
+      const linkDoc = classLinkDocs[id];
+      if (linkDoc?.url) out[id] = linkDoc;
+      else if (legacyLinks[id]) {
+        out[id] = {
+          url: legacyLinks[id],
+          provider: legacyLinks[`${id}Provider`] ?? null,
+          updatedAt: legacyLinks[`${id}LastUpdated`] ?? null,
+          legacy: true,
+        };
+      } else out[id] = null;
+    }
+    return out;
+  }, [sessionIds, classLinkDocs, legacyLinks]);
 
   /**
    * Saves a class link through the serverless handler, which re-validates it
    * with the server copy of parseClassLink. The client validates too, for
-   * immediate feedback — but that check is advice, not a control.
+   * immediate feedback — but that check is advice, not a control. The saved
+   * value arrives back through the listener above.
    */
-  const updateZoomLink = useCallback(async (session, url) => {
+  const updateClassLink = useCallback(async (session, url) => {
     try {
-      const result = await setClassLink(session, url);
-      setZoomLinks(prev => ({
-        ...prev,
-        [session]: result.url,
-        [`${session}Provider`]: result.provider,
-        [`${session}LastUpdated`]: new Date(),
-      }));
-      showSuccess(`${session.charAt(0).toUpperCase() + session.slice(1)} link updated!`);
+      await setClassLink(session, url);
+      const name = sessions.find((s) => s.id === session)?.name ?? session;
+      showSuccess(`${name} link updated!`);
       return { success: true };
     } catch (error) {
       logger.error('Update class link failed', error);
       showError(error?.message ?? 'Failed to update link. Please try again.');
       return { success: false };
     }
-  }, [showSuccess, showError]);
+  }, [sessions, showSuccess, showError]);
 
   const approveStudents = useCallback(async (session, phones) => {
     try {
@@ -245,7 +292,8 @@ export const useDashboard = () => {
     // Add title
     doc.setFontSize(18);
     doc.setTextColor(102, 126, 234);
-    doc.text(`${session.charAt(0).toUpperCase() + session.slice(1)} Session - Student List`, 14, 22);
+    const sessionName = sessions.find((s) => s.id === session)?.name ?? session;
+    doc.text(`${sessionName} - Student List`, 14, 22);
 
     // Add date
     doc.setFontSize(10);
@@ -325,7 +373,7 @@ export const useDashboard = () => {
 
     trackCSVExport(session, students.length);
     showSuccess('PDF exported successfully');
-  }, [studentsBySession, showSuccess, showError]);
+  }, [studentsBySession, sessions, showSuccess, showError]);
 
   const blockStudent = useCallback(async (session, phoneNumber, studentName, blockReason) => {
     try {
@@ -407,18 +455,17 @@ export const useDashboard = () => {
   }, [showSuccess, showError]);
 
   return {
-    // Dynamic, session-keyed — the shape new code should use.
     studentsBySession,
-    sessions: activeSessions,
-    // Retained so existing consumers keep working.
-    morningStudents,
-    eveningStudents,
+    // Every session (active and hidden), in the teacher's order.
+    sessions,
+    // The sessions that get a tab: active ones, then hidden ones with students.
+    tabs,
     pendingApprovals,
-    zoomLinks,
+    classLinks,
     loading,
-    activeTab,
+    activeTab: currentTab,
     setActiveTab,
-    updateZoomLink,
+    updateClassLink,
     deleteStudent,
     updateStudent,
     exportToPDF,

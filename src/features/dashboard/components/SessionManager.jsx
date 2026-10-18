@@ -1,20 +1,24 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useSessions } from '@features/sessions/hooks/useSessions';
-import { validateSlug, slugify, SESSION_ICONS, SESSION_GRADIENTS } from '@shared/constants/sessions';
+import SessionEditor from '@features/sessions/components/SessionEditor';
+import { formatSchedule } from '@utils/formatSchedule';
 
 /**
- * Session management — Phase 05 Part A.
+ * Session management — Phase 05 Part A; full editing since Phase 13 / 02 D8.
  *
- * Create, rename, activate/deactivate, reorder and delete sessions.
+ * Create, edit, show/hide, reorder and delete sessions. Morning and evening are
+ * created automatically (server-side, once) and are ordinary sessions: the
+ * pencil opens the same editor for them as for any session the teacher adds —
+ * name, description, days and times, icon, colour and homepage visibility,
+ * with a live preview of the homepage card.
  *
  * The slug is immutable after creation and the UI says so: it is the
- * registration URL students have been given, and it is the document ID. Letting
- * it be edited would silently invalidate every link and QR code already handed
- * out.
+ * registration URL students have been given, and it is the document ID.
  *
  * Delete requires typing the session name AND offers reassignment, because
- * deleting a session takes its students and their private notes with it.
+ * deleting a session takes its students and their private notes with it. A
+ * deleted default session is not recreated.
  */
 export default function SessionManager() {
   const {
@@ -29,40 +33,24 @@ export default function SessionManager() {
   } = useSessions();
 
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ name: '', slug: '', icon: SESSION_ICONS[0], gradient: SESSION_GRADIENTS[0] });
-  const [slugTouched, setSlugTouched] = useState(false);
-  const [slugError, setSlugError] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [editorError, setEditorError] = useState('');
   const [deleting, setDeleting] = useState(null);
   const [confirmText, setConfirmText] = useState('');
   const [reassignTo, setReassignTo] = useState('');
-  const [renaming, setRenaming] = useState(null);
-  const [renameValue, setRenameValue] = useState('');
 
-  const handleNameChange = (name) => {
-    setForm((prev) => ({
-      ...prev,
-      name,
-      // Auto-derive the slug until the teacher edits it themselves.
-      slug: slugTouched ? prev.slug : slugify(name),
-    }));
+  const handleCreate = async (payload) => {
+    setEditorError('');
+    const result = await createSession(payload);
+    if (result.success) setCreating(false);
+    else setEditorError(result.message ?? 'Could not create the session.');
   };
 
-  const handleCreate = async () => {
-    const check = validateSlug(form.slug);
-    if (!check.valid) {
-      setSlugError(check.error);
-      return;
-    }
-    setSlugError('');
-
-    const result = await createSession({ ...form, slug: check.slug });
-    if (result.success) {
-      setForm({ name: '', slug: '', icon: SESSION_ICONS[0], gradient: SESSION_GRADIENTS[0] });
-      setSlugTouched(false);
-      setCreating(false);
-    } else if (result.code === 'slug_taken' || result.code === 'invalid_slug') {
-      setSlugError(result.message);
-    }
+  const handleEdit = (slug) => async (patch) => {
+    setEditorError('');
+    const result = await updateSession(slug, patch);
+    if (result.success) setEditing(null);
+    else setEditorError(result.message ?? 'Could not save the session.');
   };
 
   const handleDelete = async () => {
@@ -89,7 +77,15 @@ export default function SessionManager() {
           <i className="bi bi-calendar3 me-2" aria-hidden="true" />
           Sessions
         </h5>
-        <button className="btn btn-sm btn-primary" onClick={() => setCreating(!creating)} disabled={busy}>
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={() => {
+            setCreating(!creating);
+            setEditing(null);
+            setEditorError('');
+          }}
+          disabled={busy}
+        >
           <i className="bi bi-plus-lg me-1" aria-hidden="true" />
           New session
         </button>
@@ -97,145 +93,19 @@ export default function SessionManager() {
 
       <div className="card-body">
         {creating && (
-          <div className="border rounded p-3 mb-3 bg-light">
-            <div className="row g-2">
-              <div className="col-md-6">
-                <label className="form-label small fw-semibold" htmlFor="new-session-name">
-                  Session name
-                </label>
-                <input
-                  id="new-session-name"
-                  className="form-control"
-                  placeholder="e.g. Saturday Revision"
-                  value={form.name}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                  maxLength={60}
-                />
-              </div>
-
-              <div className="col-md-6">
-                <label className="form-label small fw-semibold" htmlFor="new-session-slug">
-                  Registration link
-                </label>
-                <div className="input-group">
-                  <span className="input-group-text small">{window.location.origin}/</span>
-                  <input
-                    id="new-session-slug"
-                    className={`form-control ${slugError ? 'is-invalid' : ''}`}
-                    value={form.slug}
-                    onChange={(e) => {
-                      setSlugTouched(true);
-                      setForm({ ...form, slug: e.target.value });
-                      setSlugError('');
-                    }}
-                    maxLength={40}
-                    aria-describedby="slug-help"
-                  />
-                </div>
-                {slugError ? (
-                  <div className="text-danger small mt-1" role="alert">{slugError}</div>
-                ) : (
-                  <div id="slug-help" className="form-text">
-                    This becomes the link you share. It cannot be changed later.
-                  </div>
-                )}
-              </div>
-
-              {/* Pick the thing itself, not its name. A <select> listing
-                  "sunrise fill" and "Theme 4" asks the teacher to imagine the
-                  result; a swatch grid just shows it. Radio semantics so the
-                  keyboard and a screen reader still get a labelled single
-                  choice out of it. */}
-              <div className="col-md-6">
-                <span className="form-label small fw-semibold d-block" id="new-session-icon-label">
-                  Icon
-                </span>
-                <div
-                  className="d-flex flex-wrap gap-2"
-                  role="radiogroup"
-                  aria-labelledby="new-session-icon-label"
-                >
-                  {SESSION_ICONS.map((icon) => {
-                    const selected = form.icon === icon;
-                    return (
-                      <button
-                        key={icon}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        aria-label={icon.replace('bi-', '').replace(/-/g, ' ')}
-                        className={`btn ${selected ? 'btn-primary' : 'btn-outline-secondary'} d-flex align-items-center justify-content-center`}
-                        style={{ width: 44, height: 44 }}
-                        onClick={() => setForm({ ...form, icon })}
-                      >
-                        <i className={`bi ${icon} fs-5`} aria-hidden="true" />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="col-md-6">
-                <span className="form-label small fw-semibold d-block" id="new-session-colour-label">
-                  Colour
-                </span>
-                <div
-                  className="d-flex flex-wrap gap-2"
-                  role="radiogroup"
-                  aria-labelledby="new-session-colour-label"
-                >
-                  {SESSION_GRADIENTS.map((g, i) => {
-                    const selected = form.gradient === g;
-                    return (
-                      <button
-                        key={g}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        aria-label={`Colour theme ${i + 1}`}
-                        className="btn p-0 border-2 position-relative"
-                        style={{
-                          width: 44,
-                          height: 44,
-                          background: g,
-                          borderRadius: '0.375rem',
-                          borderStyle: 'solid',
-                          borderColor: selected ? 'var(--bs-primary, #0d6efd)' : 'transparent',
-                          boxShadow: selected ? '0 0 0 2px rgba(13,110,253,.25)' : 'none',
-                        }}
-                        onClick={() => setForm({ ...form, gradient: g })}
-                      >
-                        {selected && (
-                          <i
-                            className="bi bi-check-lg position-absolute top-50 start-50 translate-middle text-white fs-5"
-                            aria-hidden="true"
-                            style={{ textShadow: '0 1px 2px rgba(0,0,0,.5)' }}
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="d-flex gap-2 mt-3">
-              <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={busy || !form.name.trim()}>
-                Create session
-              </button>
-              <button className="btn btn-outline-secondary btn-sm" onClick={() => setCreating(false)} disabled={busy}>
-                Cancel
-              </button>
-            </div>
-          </div>
+          <SessionEditor
+            onSave={handleCreate}
+            onCancel={() => setCreating(false)}
+            busy={busy}
+            serverError={editorError}
+          />
         )}
 
         {loading && <div className="text-center py-3"><span className="spinner-border spinner-border-sm" /></div>}
 
         {!loading && sessions.length === 0 && (
           <p className="text-muted text-center py-3 mb-0">
-            No sessions yet. Create one, or run <code>npm run seed:sessions</code> to set up the
-            morning and evening defaults.
+            Setting up your default sessions — this takes a moment the first time.
           </p>
         )}
 
@@ -252,40 +122,16 @@ export default function SessionManager() {
                 </div>
 
                 <div className="flex-grow-1" style={{ minWidth: 180 }}>
-                  {renaming === session.id ? (
-                    <div className="input-group input-group-sm">
-                      <input
-                        className="form-control"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        maxLength={60}
-                        aria-label="Session name"
-                      />
-                      <button
-                        className="btn btn-primary"
-                        onClick={async () => {
-                          await updateSession(session.id, { name: renameValue });
-                          setRenaming(null);
-                        }}
-                        disabled={busy || !renameValue.trim()}
-                      >
-                        Save
-                      </button>
-                      <button className="btn btn-outline-secondary" onClick={() => setRenaming(null)}>
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="fw-semibold">
-                        {session.name}
-                        {session.active === false && (
-                          <span className="badge text-bg-secondary ms-2">Hidden</span>
-                        )}
-                      </div>
-                      <small className="text-muted">/{session.id}</small>
-                    </>
-                  )}
+                  <div className="fw-semibold">
+                    {session.name}
+                    {session.active === false && (
+                      <span className="badge text-bg-secondary ms-2">Hidden</span>
+                    )}
+                  </div>
+                  <small className="text-muted">
+                    /{session.id}
+                    {formatSchedule(session.schedule) && ` · ${formatSchedule(session.schedule)}`}
+                  </small>
                 </div>
 
                 <div className="btn-group btn-group-sm">
@@ -308,11 +154,13 @@ export default function SessionManager() {
                   <button
                     className="btn btn-outline-secondary"
                     onClick={() => {
-                      setRenaming(session.id);
-                      setRenameValue(session.name);
+                      setEditing(editing === session.id ? null : session.id);
+                      setCreating(false);
+                      setEditorError('');
                     }}
                     disabled={busy}
-                    aria-label={`Rename ${session.name}`}
+                    aria-label={`Edit ${session.name}`}
+                    aria-expanded={editing === session.id}
                   >
                     <i className="bi bi-pencil" aria-hidden="true" />
                   </button>
@@ -338,6 +186,18 @@ export default function SessionManager() {
                   </button>
                 </div>
               </div>
+
+              {editing === session.id && (
+                <div className="mt-3">
+                  <SessionEditor
+                    session={session}
+                    onSave={handleEdit(session.id)}
+                    onCancel={() => setEditing(null)}
+                    busy={busy}
+                    serverError={editorError}
+                  />
+                </div>
+              )}
 
               {deleting?.id === session.id && (
                 <div className="alert alert-danger mt-3 mb-0">

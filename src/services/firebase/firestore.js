@@ -279,6 +279,34 @@ export const subscribeToStudents = (session, callback) => {
  * public to the internet. They now call /api/class/link, which checks their
  * state before returning a URL.
  */
+/**
+ * Live view of one session's class link — Phase 13 / 02 D3.
+ *
+ * `sessions/{slug}/private/classLink` is the ONLY link store; the dashboard
+ * reads it directly (teacher-readable in firestore.rules) so a link saved from
+ * any tab, or migrated by the bootstrap, appears without a reload.
+ *
+ * @param {string} slug
+ * @param {(link: {url: string, provider: string|null, updatedAt: any}|null) => void} callback
+ * @returns {() => void} unsubscribe
+ */
+export const subscribeToClassLink = (slug, callback) =>
+  onSnapshot(
+    doc(db, 'sessions', slug, 'private', 'classLink'),
+    (snap) => {
+      callback(snap.exists() ? { url: snap.data().url ?? '', provider: snap.data().provider ?? null, updatedAt: snap.data().updatedAt ?? null } : null);
+    },
+    (error) => {
+      logger.error('subscribeToClassLink error', error);
+      callback(null);
+    }
+  );
+
+/**
+ * Legacy class links (config/zoomLinks). Read ONCE by the dashboard as a
+ * display fallback for a session whose private link document does not exist
+ * yet — i.e. before the Phase 13 bootstrap has migrated it. Never written.
+ */
 export const getZoomLinks = async () => {
   try {
     const docRef = doc(db, 'config', 'zoomLinks');
@@ -296,18 +324,5 @@ export const getZoomLinks = async () => {
   }
 };
 
-export const updateZoomLink = async (session, url) => {
-  try {
-    const docRef = doc(db, 'config', 'zoomLinks');
-    await setDoc(docRef, {
-      [session]: url,
-      [`${session}LastUpdated`]: serverTimestamp()
-    }, { merge: true });
-
-    logger.info('updateZoomLink success', { session });
-    return { success: true };
-  } catch (error) {
-    logger.error('updateZoomLink failed', error);
-    throw error;
-  }
-};
+// updateZoomLink (a direct client write to config/zoomLinks) was removed in
+// Phase 13 / 02: links have one store, written only by /api/class/setLink.

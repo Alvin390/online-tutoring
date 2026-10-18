@@ -12,6 +12,8 @@ import { useRegistration } from '../hooks/useRegistration';
 import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
 import { providerLabel } from '@utils/classLink';
+import { formatSchedule } from '@utils/formatSchedule';
+import '@/styles/landing.css';
 
 /**
  * One session check-in flow — Phase 04.
@@ -24,7 +26,8 @@ import { providerLabel } from '@utils/classLink';
  * Phase 05 drives this from a route slug and a session document; the props are
  * shaped for that already.
  */
-export default function SessionPage({ session, label, icon, badgeClass, gradient }) {
+export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '' }) {
+  const timeLine = formatSchedule(schedule);
   const [step, setStep] = useState('checkin');
   const [phoneNumber, setPhoneNumber] = useState('');
 
@@ -136,10 +139,22 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
             </motion.div>
 
             <div className="text-center mb-4 animate-fade-in-up">
-              <div className={`session-badge ${badgeClass} d-inline-flex`}>
+              <div className="session-badge" style={{ '--card-gradient': gradient }}>
                 <i className={`bi ${icon} me-2`} aria-hidden="true" />
                 {label}
               </div>
+              {/* Phase 13 / 02 D5: the same details as the homepage card. */}
+              {(timeLine || description) && (
+                <div className="session-page-details mt-2 small">
+                  {timeLine && (
+                    <div>
+                      <i className="bi bi-clock-fill me-1" aria-hidden="true" />
+                      {timeLine}
+                    </div>
+                  )}
+                  {description && <div className="mt-1">{description}</div>}
+                </div>
+              )}
             </div>
 
             <AnimatePresence mode="wait">

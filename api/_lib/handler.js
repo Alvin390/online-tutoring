@@ -5,6 +5,8 @@ import { authenticate, requireRole, requireTier } from './auth.js';
 import { enforceRateLimit, clientIp } from './rateLimit.js';
 import { validate } from './validate.js';
 import { subrequestsSpent } from './firestoreRest.js';
+import { getDb } from './firebaseAdmin.js';
+import { assertSessionExists } from './sessions.js';
 
 /**
  * The middleware chain — Phase 01 D4.
@@ -99,6 +101,10 @@ function parseJsonBody(req, raw) {
  * @param {object}  [opts.schema]              Zod schema for the body
  * @param {object}  [opts.rateLimit]           { bucket, limit, windowSeconds, keyBy }
  * @param {boolean} [opts.rawBody]             pass raw bytes instead of parsed JSON
+ * @param {'active'|'any'} [opts.sessions]     Phase 13 / 02 D6: after validation,
+ *        every session slug in the body (`session`, `sessions[]`, `sessionIds[]`)
+ *        must exist — 'active' additionally requires it to be shown to students.
+ *        Unknown → 404. Exposed as `handler.sessionPolicy` for the policy test.
  * @param {Function} opts.handle               (ctx) => Promise<any>
  */
 export function createHandler(opts) {
@@ -110,12 +116,26 @@ export function createHandler(opts) {
     schema = null,
     rateLimit = null,
     rawBody = false,
+    sessions = null,
     handle,
   } = opts;
 
   const allowedMethods = Array.isArray(method) ? method : [method];
 
-  return async function vercelHandler(req, res) {
+  async function checkSessions(body) {
+    const slugs = new Set();
+    if (typeof body?.session === 'string') slugs.add(body.session);
+    for (const key of ['sessions', 'sessionIds']) {
+      if (Array.isArray(body?.[key])) body[key].forEach((s) => slugs.add(s));
+    }
+    if (slugs.size === 0) return;
+    const db = getDb();
+    await Promise.all(
+      [...slugs].map((slug) => assertSessionExists(db, slug, { requireActive: sessions === 'active' }))
+    );
+  }
+
+  async function vercelHandler(req, res) {
     const requestId = randomUUID();
     const log = createLogger(requestId);
     const perf = perfTimingEnabled()
@@ -191,6 +211,10 @@ export function createHandler(opts) {
         body = validate(schema, req.query ?? {});
       }
 
+      // 6b. Session existence (Phase 13 / 02 D6) — after validation, so the
+      //     slugs are already well-formed and not reserved.
+      if (sessions) await checkSessions(body);
+
       // 7. Handle
       const result = await handle({ req, res, body, raw, user, log, ip, requestId });
 
@@ -204,7 +228,10 @@ export function createHandler(opts) {
         sendError(res, err, log);
       }
     }
-  };
+  }
+
+  vercelHandler.sessionPolicy = sessions;
+  return vercelHandler;
 }
 
 export { MAX_BODY_BYTES };

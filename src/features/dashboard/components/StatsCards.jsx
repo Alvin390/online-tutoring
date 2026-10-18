@@ -19,14 +19,9 @@ import { memo, useMemo } from 'react';
  *    decorative; with `prefers-reduced-motion` the cards simply appear.
  */
 
-const SESSION_ICONS = {
-  morning: 'sunrise-fill',
-  evening: 'moon-stars-fill',
-};
-
 const SESSION_COLOURS = ['primary', 'danger', 'info', 'secondary'];
 
-function StatsCards({ studentsBySession, sessions, totalCount, linksConfigured }) {
+function StatsCards({ studentsBySession, sessions, totalCount, linksConfigured, linksTotal }) {
   const reduceMotion = useReducedMotion();
 
   const stats = useMemo(() => {
@@ -35,18 +30,20 @@ function StatsCards({ studentsBySession, sessions, totalCount, linksConfigured }
 
     // Name each session from its document where available, so a renamed
     // session shows its real name rather than its slug.
+    const sessionFor = (id) => sessions?.find((s) => s.id === id);
     const nameFor = (id) =>
-      sessions?.find((s) => s.id === id)?.name
-      ?? `${id.charAt(0).toUpperCase()}${id.slice(1)} Students`;
+      sessionFor(id)?.name ?? `${id.charAt(0).toUpperCase()}${id.slice(1)} Students`;
 
     // Two session cards at most, so the row stays four across. Beyond that the
     // total card carries the rest — the per-session detail is in the tabs.
     const sessionCards = ids.slice(0, 2).map((id, index) => ({
       title: nameFor(id),
       value: bySession[id]?.length ?? 0,
-      icon: SESSION_ICONS[id] ?? 'people',
+      // The session's own icon (Phase 13 / 02), minus the `bi-` prefix this
+      // card adds itself.
+      icon: (sessionFor(id)?.icon ?? 'bi-people').replace(/^bi-/, ''),
       color: SESSION_COLOURS[index % SESSION_COLOURS.length],
-      gradient: id === 'morning' ? 'morning-gradient' : id === 'evening' ? 'evening-gradient' : null,
+      gradient: null,
     }));
 
     return [
@@ -62,13 +59,13 @@ function StatsCards({ studentsBySession, sessions, totalCount, linksConfigured }
       },
       {
         title: 'Class Links',
-        value: `${linksConfigured}/${Math.max(ids.length, 2)}`,
+        value: `${linksConfigured}/${linksTotal ?? ids.length}`,
         icon: 'link-45deg',
         color: 'warning',
         gradient: null,
       },
     ];
-  }, [studentsBySession, sessions, totalCount, linksConfigured]);
+  }, [studentsBySession, sessions, totalCount, linksConfigured, linksTotal]);
 
   return (
     <div className="row g-4 mb-4">

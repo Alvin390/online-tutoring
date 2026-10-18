@@ -460,3 +460,19 @@
     font-size: 0.875rem;
   }
 }
+
+/* Session tabs — Phase 13 / 02 D7. Any number of sessions: on a narrow screen
+   the tab row scrolls sideways (with snap) instead of wrapping into a jumble. */
+.dashboard-session-tabs {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-session-tabs .nav-tabs {
+  scroll-snap-type: x proximity;
+}
+
+.dashboard-session-tabs .nav-item {
+  scroll-snap-align: start;
+}

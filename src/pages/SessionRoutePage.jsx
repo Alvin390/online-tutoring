@@ -5,6 +5,7 @@ import { db } from '@services/firebase/config';
 import SessionPage from '@features/registration/components/SessionPage';
 import LoadingFallback from '@components/ui/LoadingFallback';
 import logger from '@utils/logger';
+import { FALLBACK_SESSIONS } from '@shared/constants/sessions';
 
 /**
  * Slug-resolved session page — Phase 05 Part A.
@@ -23,20 +24,12 @@ import logger from '@utils/logger';
  * seed would take both class pages offline.
  */
 
-const LEGACY_FALLBACK = {
-  morning: {
-    name: 'Morning Session',
-    icon: 'bi-sunrise-fill',
-    gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    badgeClass: 'morning-badge',
-  },
-  evening: {
-    name: 'Evening Session',
-    icon: 'bi-moon-stars-fill',
-    gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-    badgeClass: 'evening-badge',
-  },
-};
+/**
+ * The two original sessions, from the shared defaults (Phase 13 / 02) — the
+ * same name, description and times the server bootstrap writes, so a page
+ * rendered from the fallback looks identical to one rendered from the document.
+ */
+const LEGACY_FALLBACK = Object.fromEntries(FALLBACK_SESSIONS.map((s) => [s.slug, s]));
 
 export default function SessionRoutePage({ slug: slugProp }) {
   const params = useParams();
@@ -111,8 +104,9 @@ export default function SessionRoutePage({ slug: slugProp }) {
       session={session.id}
       label={session.name}
       icon={session.icon ?? 'bi-book-fill'}
-      badgeClass={session.badgeClass ?? `${session.id}-badge`}
       gradient={session.gradient ?? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'}
+      schedule={session.schedule ?? null}
+      description={session.description ?? ''}
     />
   );
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { badRequest } from './errors.js';
+import { SLUG_PATTERN, RESERVED_SLUGS } from './sessions.js';
 
 /**
  * Zod schema runner — Phase 01 D4.
@@ -30,7 +31,20 @@ export const phoneSchema = z
   .trim()
   .regex(/^\+[1-9]\d{7,18}$/, 'must be a valid international phone number, e.g. +254712345678');
 
-export const sessionSchema = z.enum(['morning', 'evening']);
+/**
+ * A session slug — Phase 13 / 02 D6.
+ *
+ * Was `z.enum(['morning', 'evening'])`, which made every teacher-created
+ * session unusable on all 18 endpoints that take one. Now: any slug that is
+ * well-formed and not reserved. Whether the session actually EXISTS is checked
+ * after validation by createHandler's `sessions` policy (assertSessionExists),
+ * because a schema cannot read Firestore.
+ */
+export const sessionSchema = z
+  .string()
+  .trim()
+  .regex(SLUG_PATTERN, 'must be a valid session address')
+  .refine((slug) => !RESERVED_SLUGS.includes(slug), 'is reserved by the app');
 
 export const tierSchema = z.enum(['bronze', 'silver', 'gold']);
 

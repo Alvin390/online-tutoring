@@ -5,6 +5,7 @@ import { authenticate } from '../_lib/auth.js';
 import { forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
+import { assertSessionExists } from '../_lib/sessions.js';
 
 /**
  * Class link issuance — Phase 01 D1, completing the lockdown of
@@ -32,6 +33,8 @@ const schema = z
   .strict();
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   rateLimit: {
     bucket: 'class_link',
@@ -79,6 +82,11 @@ export default createHandler({
 
     // --- Gate 2: the student's own state.
     if (!isStaff) {
+      // createHandler checked the session exists ('any', so staff can preview
+      // a hidden session). Students also need it to be shown — cached, so this
+      // costs nothing extra on the hot path.
+      await assertSessionExists(db, session, { requireActive: true });
+
       const snap = await db.doc(`sessions/${session}/students/${phone}`).get();
       if (!snap.exists) throw notFound('No registration found for that number.');
 
@@ -129,7 +137,7 @@ export default createHandler({
     if (!url) {
       const legacySnap = await db.doc('config/zoomLinks').get();
       url = legacySnap.exists ? (legacySnap.data()[session] ?? null) : null;
-      if (url) log.warn('Class link served from legacy config/zoomLinks shim', { session });
+      if (url) log.warn('legacy_link_fallback: class link served from config/zoomLinks', { session });
     }
 
     if (!url) {

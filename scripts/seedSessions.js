@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 /**
- * Session seeding — Phase 05 Part A.
+ * Session seeding — Phase 05 Part A; a thin wrapper since Phase 13 / 02.
  *
  *   npm run seed:sessions
  *
- * Creates the `morning` and `evening` session documents and copies any existing
- * links out of `config/zoomLinks` into each session's PRIVATE subcollection.
+ * NO LONGER REQUIRED: the default sessions are created automatically, by the
+ * server, the first time a teacher opens the dashboard or within the hour by
+ * the subscription sweep. This script runs the same function
+ * (ensureDefaultSessions in api/_lib/sessions.js) for operators who want to do
+ * it explicitly, e.g. on a fresh clone deployment.
  *
  * Why there is no student migration: student documents already live at
  * `sessions/{id}/students/{phone}`, and the session IDs do not change — the
  * slug IS the document ID, and `morning`/`evening` are already valid slugs. The
  * existing data is correctly shaped by accident of the original design.
  *
- * Idempotent. Re-running updates presentation fields and re-copies links
- * without touching students.
+ * Idempotent and run-once: a second run, or a run after the dashboard already
+ * bootstrapped, does nothing. It never overwrites a session or a link.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -43,98 +46,46 @@ function loadEnvLocal() {
   }
 }
 
-const DEFAULTS = [
-  {
-    slug: 'morning',
-    name: 'Morning Session',
-    icon: 'bi-sunrise-fill',
-    gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    order: 0,
-  },
-  {
-    slug: 'evening',
-    name: 'Evening Session',
-    icon: 'bi-moon-stars-fill',
-    gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-    order: 1,
-  },
-];
-
 async function main() {
   loadEnvLocal();
 
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-    console.error('\n  ✗ FIREBASE_SERVICE_ACCOUNT is not set. See .env.example.\n');
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT && !process.env.FIRESTORE_EMULATOR_HOST) {
+    console.error(`
+  ✗ FIREBASE_SERVICE_ACCOUNT is not set. See .env.example.
+`);
     process.exit(1);
   }
 
-  const { getDb, FieldValue } = await import('../api/_lib/firebaseAdmin.js');
-  const { parseClassLink } = await import('../api/_lib/classLink.js');
+  const { getDb } = await import('../api/_lib/firebaseAdmin.js');
+  const { ensureDefaultSessions, DEFAULT_SESSIONS } = await import('../api/_lib/sessions.js');
 
   const db = getDb();
+  const outcome = await ensureDefaultSessions(db, { actor: 'script:seedSessions' });
 
-  // Existing links, if any.
-  const legacySnap = await db.doc('config/zoomLinks').get();
-  const legacy = legacySnap.exists ? legacySnap.data() : {};
+  if (!outcome.ran) {
+    console.log(`
+  ✓ Sessions were already bootstrapped on this deployment — nothing to do.
+    (Default sessions are created once; a deleted default is never recreated.)
+`);
+    return;
+  }
 
-  for (const session of DEFAULTS) {
-    const ref = db.doc(`sessions/${session.slug}`);
-    const existing = await ref.get();
-
-    await ref.set(
-      {
-        name: session.name,
-        slug: session.slug,
-        icon: session.icon,
-        gradient: session.gradient,
-        order: session.order,
-        active: true,
-        schedule: null,
-        ...(existing.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    const legacyUrl = legacy[session.slug];
-    if (legacyUrl) {
-      const parsed = parseClassLink(legacyUrl);
-      if (parsed.valid) {
-        await db.doc(`sessions/${session.slug}/private/classLink`).set(
-          {
-            url: parsed.url,
-            provider: parsed.provider,
-            updatedAt: FieldValue.serverTimestamp(),
-            updatedBy: 'system:seed',
-          },
-          { merge: true }
-        );
-        console.log(`  · ${session.slug}: copied ${parsed.provider} link into private/classLink`);
-      } else {
-        // Reported, not silently dropped. An invalid stored link is exactly the
-        // sort of thing the old substring check would have accepted.
-        console.warn(
-          `  ! ${session.slug}: existing link is not a valid Zoom or Meet URL and was NOT copied.\n` +
-          `    Reason: ${parsed.error}\n` +
-          `    Set it again from the dashboard.`
-        );
-      }
-    } else {
-      console.log(`  · ${session.slug}: no existing link to copy`);
-    }
-
-    const studentCount = (await ref.collection('students').count().get()).data().count;
-    console.log(`  ✓ ${session.slug} (${session.name}) — ${studentCount} student(s) already present`);
+  for (const def of DEFAULT_SESSIONS) {
+    const created = outcome.created.includes(def.slug) ? 'created' : 'already existed';
+    const link = outcome.migratedLinks.includes(def.slug)
+      ? 'link copied from config/zoomLinks'
+      : outcome.skippedInvalidLinks.includes(def.slug)
+        ? 'existing link is NOT a valid Zoom/Meet URL and was not copied — set it from the dashboard'
+        : 'no link copied';
+    // count() is implemented by the REST shim since Phase 13 / 02 — this line
+    // used to crash the script after the first session.
+    // eslint-disable-next-line no-await-in-loop
+    const students = (await db.collection(`sessions/${def.slug}/students`).count().get()).data().count;
+    console.log(`  ✓ ${def.slug} (${def.name}) — ${created}; ${link}; ${students} student(s)`);
   }
 
   console.log(`
-  ✓ Sessions seeded.
-
-  Students were NOT touched: they already live at sessions/{id}/students/{phone}
-  and the IDs are unchanged.
-
-  Next: flip sessions.teacherDefined to true in config/flags once you have
-  confirmed /morning and /evening still resolve.
+  ✓ Sessions bootstrapped. Students were not touched.
 `);
 }
 

@@ -760,6 +760,11 @@ export class Query {
   async get() {
     return this._firestore._runQuery(this);
   }
+
+  /** Mirrors firebase-admin: `query.count().get()` → `{ data: () => ({ count }) }`. */
+  count() {
+    return { get: () => this._firestore._runCount(this) };
+  }
 }
 
 export class CollectionReference extends Query {
@@ -1111,7 +1116,8 @@ export class Firestore {
    * roster ever approaches four figures, add cursor pagination via
    * `startAfter` on `__name__` rather than raising a limit.
    */
-  async _runQuery(query) {
+  /** Builds the REST `structuredQuery` and the parent resource for `query`. */
+  _structuredQuery(query) {
     const path = query._collectionPath;
     const at = path.lastIndexOf('/');
     const parentPath = at === -1 ? '' : path.slice(0, at);
@@ -1145,6 +1151,12 @@ export class Firestore {
 
     if (query._parts.limit != null) structuredQuery.limit = query._parts.limit;
 
+    return { parentName, structuredQuery };
+  }
+
+  async _runQuery(query) {
+    const { parentName, structuredQuery } = this._structuredQuery(query);
+
     const results = await this._request(`${encodePath(parentName)}:runQuery`, {
       method: 'POST',
       body: { structuredQuery },
@@ -1158,6 +1170,32 @@ export class Firestore {
     }
 
     return new QuerySnapshot(docs);
+  }
+
+  /**
+   * Server-side COUNT aggregation — Phase 13 / 02 D2.
+   *
+   * One `:runAggregationQuery` call however many documents match; nothing is
+   * downloaded. Same semantics as firebase-admin's `query.count().get()`,
+   * including a `limit()` capping the count.
+   */
+  async _runCount(query) {
+    const { parentName, structuredQuery } = this._structuredQuery(query);
+
+    const results = await this._request(`${encodePath(parentName)}:runAggregationQuery`, {
+      method: 'POST',
+      body: {
+        structuredAggregationQuery: {
+          structuredQuery,
+          aggregations: [{ alias: 'count', count: {} }],
+        },
+      },
+    });
+
+    const entry = (results ?? []).find((r) => r.result);
+    const raw = entry?.result?.aggregateFields?.count?.integerValue ?? 0;
+    const count = Number(raw);
+    return { data: () => ({ count }) };
   }
 
   async _listDocuments(collectionRef) {

@@ -1,7 +1,12 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import SessionCard from '@features/sessions/components/SessionCard';
+import { usePublicSessions } from '@features/sessions/hooks/usePublicSessions';
+import '@/styles/landing.css';
 
 export default function LandingPage() {
+  const { sessions, loading } = usePublicSessions();
+
   return (
     <div className="hero-section">
       <div className="hero-background"></div>
@@ -39,67 +44,28 @@ export default function LandingPage() {
               Join our interactive Zoom classes and excel in your studies
             </motion.p>
 
-            {/* Session Cards */}
-            <div className="row g-4 justify-content-center">
-              {/* Morning Card */}
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 }}
-                className="col-md-5"
-              >
-                <Link to="/morning" className="text-decoration-none">
-                  <div className="session-card morning-card">
-                    <div className="session-icon-wrapper">
-                      <div className="session-icon morning-icon">
-                        <i className="bi bi-sunrise-fill" />
-                      </div>
+            {/* Session cards — Phase 13 / 02 D5. One per ACTIVE session, in the
+                teacher's order, every detail from the session document. The
+                rest of this page (heading, subtitle, features, footer) stays
+                fixed by design. */}
+            <div className="row g-4 justify-content-center" aria-live="polite" aria-busy={loading}>
+              {loading
+                ? [0, 1].map((i) => (
+                    <div key={i} className="col-md-6 col-lg-5">
+                      <div className="session-card-skeleton" aria-hidden="true" />
                     </div>
-                    <h3 className="session-card-title">Morning Session</h3>
-                    <p className="session-card-time">
-                      <i className="bi bi-clock-fill me-2" />
-                      8:00 AM - 12:00 PM
-                    </p>
-                    <p className="session-card-description">
-                      Start your day with focused learning and interactive classes
-                    </p>
-                    <div className="session-card-button">
-                      Register Now
-                      <i className="bi bi-arrow-right ms-2" />
-                    </div>
-                  </div>
-                </Link>
-              </motion.div>
-
-              {/* Evening Card */}
-              <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.5 }}
-                className="col-md-5"
-              >
-                <Link to="/evening" className="text-decoration-none">
-                  <div className="session-card evening-card">
-                    <div className="session-icon-wrapper">
-                      <div className="session-icon evening-icon">
-                        <i className="bi bi-moon-stars-fill" />
-                      </div>
-                    </div>
-                    <h3 className="session-card-title">Evening Session</h3>
-                    <p className="session-card-time">
-                      <i className="bi bi-clock-fill me-2" />
-                      4:00 PM - 8:00 PM
-                    </p>
-                    <p className="session-card-description">
-                      Perfect for after-school learning and homework support
-                    </p>
-                    <div className="session-card-button">
-                      Register Now
-                      <i className="bi bi-arrow-right ms-2" />
-                    </div>
-                  </div>
-                </Link>
-              </motion.div>
+                  ))
+                : sessions.map((session, index) => (
+                    <motion.div
+                      key={session.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 + Math.min(index, 5) * 0.1 }}
+                      className={sessions.length > 2 ? 'col-md-6 col-lg-4' : 'col-md-6 col-lg-5'}
+                    >
+                      <SessionCard session={session} />
+                    </motion.div>
+                  ))}
             </div>
 
             {/* Teacher Portal Link */}

@@ -10,6 +10,7 @@ import {
 } from '../_lib/subscription.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { isEnabled } from '../_lib/flags.js';
+import { ensureDefaultSessions } from '../_lib/sessions.js';
 
 /**
  * Hourly subscription sweep — Phase 03 D5.
@@ -57,6 +58,16 @@ export default async function handler(req, res) {
   if (!authorized(req)) {
     log.warn('Unauthorized cron invocation');
     return res.status(401).json({ error: { code: 'unauthorized' } });
+  }
+
+  // Phase 13 / 02 D1 — default sessions without a script. Runs before the
+  // billing check because it has nothing to do with billing; once the run-once
+  // marker exists this is a single document read per hour. Never fails the
+  // sweep: sessions are also bootstrapped from the dashboard.
+  try {
+    await ensureDefaultSessions(getDb(), { actor: 'system:subscriptionSweep', log });
+  } catch (err) {
+    log.error('Default session bootstrap failed', err);
   }
 
   if (!(await isEnabled('billing.enabled'))) {

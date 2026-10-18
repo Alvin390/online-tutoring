@@ -1,21 +1,17 @@
 import { createHandler } from '../_lib/handler.js';
-import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
+import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, sessionSchema } from '../_lib/validate.js';
-import { parseClassLink } from '../_lib/classLink.js';
-import { badRequest } from '../_lib/errors.js';
-import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
+import { setSessionLink } from '../_lib/sessions.js';
 
 /**
- * Save a class link — Phase 04 Part B.
+ * Sets a session's class link — Phase 04 Part B, single-store since Phase 13 / 02.
  *
- * The server copy of `parseClassLink` runs HERE, and this is the copy that
- * counts. The teacher's browser validates as they type so they get an
- * immediate error, but a client check is advice, not a control.
- *
- * Storing `result.url` (the re-serialised value) rather than the raw input
- * means what is stored is exactly what was validated — no trailing whitespace,
- * no unnormalised encoding, nothing that could parse differently on the way
- * back out.
+ * Used to write `config/zoomLinks[session]`, while /api/class/link preferred
+ * `sessions/{s}/private/classLink` — so after a seed, every link the teacher
+ * saved from the dashboard was silently ignored (validated: students kept
+ * receiving the seeded link). Both write paths now go through setSessionLink,
+ * which writes ONLY the private document. The URL of this endpoint is kept so
+ * existing clients keep working.
  */
 
 const schema = z
@@ -26,6 +22,8 @@ const schema = z
   .strict();
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   auth: true,
   role: 'teacher',
@@ -34,38 +32,14 @@ export default createHandler({
   handle: async ({ body, user, log }) => {
     const { session, url } = body;
 
-    const result = parseClassLink(url);
-    if (!result.valid) throw badRequest(result.error, 'invalid_class_link');
-
-    const db = getDb();
-    const ref = db.doc('config/zoomLinks');
-    const before = (await ref.get()).data() ?? {};
-
-    await ref.set(
-      {
-        [session]: result.url,
-        [`${session}Provider`]: result.provider,
-        [`${session}LastUpdated`]: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const result = await setSessionLink(getDb(), session, url, {
+      actor: user.uid,
+      actorRole: user.role,
+      log,
+      requestId: log.requestId,
+    });
 
     log.info('Class link updated', { session, provider: result.provider });
-
-    await tryWriteAudit(
-      {
-        action: AuditAction.CLASS_LINK_UPDATED,
-        actor: user.uid,
-        actorRole: user.role,
-        target: `config/zoomLinks#${session}`,
-        // The link itself is not a secret, but it is an access credential —
-        // record that it changed and to which provider, not the URL.
-        before: { provider: before[`${session}Provider`] ?? null, hadLink: Boolean(before[session]) },
-        after: { provider: result.provider, hadLink: true },
-        context: { requestId: log.requestId },
-      },
-      log
-    );
 
     return { ok: true, session, provider: result.provider, url: result.url };
   },

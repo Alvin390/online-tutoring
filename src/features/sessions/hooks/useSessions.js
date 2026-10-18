@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { db } from '@services/firebase/config';
 import { manageSession } from '@services/api/sessions';
@@ -16,14 +16,22 @@ import logger from '@utils/logger';
  * error) or a missing listener on one that does (silently absent students).
  *
  * The collection is a handful of small documents; this is not the expensive
- * listener on the page. TanStack Query arrives in Phase 10 and can take this
- * over then.
+ * listener on the page.
+ *
+ * `bootstrap` (Phase 13 / 02 D1): when the dashboard sees an EMPTY session list,
+ * it asks the server to create the default morning and evening sessions —
+ * once per mount, silently. The server side is run-once and idempotent, so a
+ * second tab or a deliberately emptied list is harmless: once bootstrapped, a
+ * deployment is never re-seeded.
+ *
+ * @param {{ bootstrap?: boolean }} [options]
  */
-export const useSessions = () => {
+export const useSessions = ({ bootstrap = false } = {}) => {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const { showSuccess, showError } = useToast();
+  const bootstrapAttempted = useRef(false);
 
   useEffect(() => {
     const q = query(collection(db, 'sessions'), orderBy('order', 'asc'));
@@ -44,6 +52,16 @@ export const useSessions = () => {
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!bootstrap || loading || sessions.length > 0 || bootstrapAttempted.current) return;
+    bootstrapAttempted.current = true;
+    manageSession({ action: 'bootstrap' }).catch((error) => {
+      // Not surfaced: the hourly sweep bootstraps too, and the dashboard
+      // already falls back to the two original sessions meanwhile.
+      logger.warn('Session bootstrap request failed', { code: error?.code });
+    });
+  }, [bootstrap, loading, sessions.length]);
 
   const run = useCallback(
     async (payload, successMessage) => {

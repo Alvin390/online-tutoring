@@ -154,7 +154,10 @@ service cloud.firestore {
              && data.receiptMessage.size() <= 500
              && data.session is string
              && data.session == session
-             && (data.session == 'morning' || data.session == 'evening')
+             // Phase 13 / 02 D6: the session must EXIST and be shown to
+             // students — not be one of two hard-coded names, which made every
+             // teacher-created session impossible to register into.
+             && isOpenSession(session)
 
              // Mandated initial state. This is the database-layer fix for the
              // gap where `blocked` was absent, read back as `undefined`, and
@@ -214,21 +217,34 @@ service cloud.firestore {
     // that identifies a person.
     // ==================================================================
 
+    // A session students may register into: its document exists and is
+    // active. TRANSITIONAL second clause — morning/evening count before their
+    // documents exist, because production predates the bootstrap; removed in
+    // Phase 13 / 09 once config/sessionsBootstrap exists in production.
+    function isOpenSession(session) {
+      return (exists(/databases/$(database)/documents/sessions/$(session))
+              && get(/databases/$(database)/documents/sessions/$(session)).data.active == true)
+             || (session in ['morning', 'evening']
+                 && !exists(/databases/$(database)/documents/sessions/$(session)));
+    }
+
     function isReservedSlug(slug) {
       return slug in [
         'login', 'logout', 'dashboard', 'billing', 'superadmin', 'admin',
         '403', '404', 'api', 'assets', 'static', 'sw', 'workbox', 'manifest',
         'robots', 'favicon', 'fees', 'calendar', 'whatsapp', 'settings',
-        'account', 'help'
+        'account', 'help', 'reports', 'support'
       ];
     }
 
     function isValidSessionDoc(data) {
       return data.keys().hasAll(['name', 'slug', 'active'])
              && data.keys().hasOnly([
-               'name', 'slug', 'icon', 'gradient', 'order', 'active',
+               'name', 'slug', 'description', 'icon', 'gradient', 'order', 'active',
                'schedule', 'createdAt', 'updatedAt'
              ])
+             && (!('description' in data)
+                 || (data.description is string && data.description.size() <= 160))
              && data.name is string
              && data.name.size() >= 1
              && data.name.size() <= 60

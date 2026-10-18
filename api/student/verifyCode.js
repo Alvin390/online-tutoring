@@ -31,6 +31,8 @@ const schema = z
   .strict();
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist and be shown to students.
+  sessions: 'active',
   method: 'POST',
   schema,
   rateLimit: { bucket: 'otp_verify_ip', limit: 20, windowSeconds: 3600, keyBy: 'ip' },

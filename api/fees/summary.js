@@ -27,6 +27,8 @@ const schema = z
   .strict();
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   schema,
   rateLimit: { bucket: 'fees_summary', limit: 60, windowSeconds: 3600, keyBy: 'ip' },

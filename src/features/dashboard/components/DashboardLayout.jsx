@@ -28,14 +28,13 @@ export default function DashboardLayout() {
   const {
     studentsBySession,
     sessions,
-    morningStudents,
-    eveningStudents,
+    tabs,
     pendingApprovals,
-    zoomLinks,
+    classLinks,
     loading,
     activeTab,
     setActiveTab,
-    updateZoomLink,
+    updateClassLink,
     deleteStudent,
     updateStudent,
     exportToPDF,
@@ -49,7 +48,6 @@ export default function DashboardLayout() {
   } = useDashboard();
 
   const requireApproval = useFlag('registration.requireApproval');
-  const teacherDefinedSessions = useFlag('sessions.teacherDefined');
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
   const calendarEnabled = useFlag('calendar.enabled');
@@ -82,7 +80,10 @@ export default function DashboardLayout() {
     setTimeout(() => setRefreshing(false), 1000);
   };
 
-  const linksConfigured = (zoomLinks.morning ? 1 : 0) + (zoomLinks.evening ? 1 : 0);
+  // Phase 13 / 02 D7: counted over the active sessions, however many there are.
+  const activeSessions = sessions.filter((s) => s.active !== false);
+  const linksConfigured = activeSessions.filter((s) => classLinks[s.id]?.url).length;
+  const currentStudents = activeTab ? (studentsBySession[activeTab] ?? []) : [];
 
   return (
     <motion.div
@@ -157,6 +158,7 @@ export default function DashboardLayout() {
           sessions={sessions}
           totalCount={totalStudents}
           linksConfigured={linksConfigured}
+          linksTotal={activeSessions.length}
         />
 
         {/* Pending approvals sit above everything else: a student waiting to be
@@ -228,59 +230,62 @@ export default function DashboardLayout() {
           </TierGate>
         )}
 
-        {/* Sessions (Phase 05). Behind a flag: with it off the two original
-            sessions are managed through ClassLinkManager exactly as before.
-            Bronze, matching api/sessions/manage.js — so in practice every
-            paying teacher passes. The gate is here so the rule stays written
-            down next to the panel it governs. */}
-        {teacherDefinedSessions && (
-          <TierGate
-            tier="bronze"
-            feature="Custom sessions"
-            description="Run more than the two built-in class times"
-          >
-            <SessionManager />
-          </TierGate>
-        )}
+        {/* Sessions (Phase 05; always shown since Phase 13 / 02 — morning and
+            evening are ordinary, editable sessions now, so the panel is how a
+            teacher sets their times and homepage details). Bronze, matching
+            api/sessions/manage.js. */}
+        <TierGate
+          tier="bronze"
+          feature="Sessions"
+          description="Edit your class times and run more than one session"
+        >
+          <SessionManager />
+        </TierGate>
 
-        {/* Class Link Management */}
+        {/* Class Link Management — one slot per session (Phase 13 / 02 D4). */}
         <ClassLinkManager
-          zoomLinks={zoomLinks}
-          onUpdate={updateZoomLink}
+          sessions={sessions}
+          classLinks={classLinks}
+          onUpdate={updateClassLink}
           loading={loading}
         />
 
         {/* Students Management */}
         <div className="card animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-          <div className="card-header bg-white border-0">
-            <ul className="nav nav-tabs card-header-tabs mb-0">
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'morning' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('morning')}
-                >
-                  <i className="bi bi-sunrise-fill me-2" />
-                  Morning Session (<span className="fw-bold">{morningStudents.length}</span>)
-                </button>
-              </li>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'evening' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('evening')}
-                >
-                  <i className="bi bi-moon-stars-fill me-2" />
-                  Evening Session (<span className="fw-bold">{eveningStudents.length}</span>)
-                </button>
-              </li>
+          {/* One tab per session (Phase 13 / 02 D7): active sessions in the
+              teacher's order, then hidden sessions that still have students.
+              Scrolls sideways on a phone rather than wrapping. */}
+          <div className="card-header bg-white border-0 dashboard-session-tabs">
+            <ul className="nav nav-tabs card-header-tabs mb-0 flex-nowrap" role="tablist">
+              {tabs.map((session) => (
+                <li className="nav-item" key={session.id} role="presentation">
+                  <button
+                    type="button"
+                    role="tab"
+                    id={`tab-${session.id}`}
+                    aria-selected={activeTab === session.id}
+                    aria-controls="session-tabpanel"
+                    className={`nav-link text-nowrap ${activeTab === session.id ? 'active' : ''}`}
+                    onClick={() => setActiveTab(session.id)}
+                  >
+                    <i className={`bi ${session.icon ?? 'bi-book-fill'} me-2`} aria-hidden="true" />
+                    {session.name} (<span className="fw-bold">{studentsBySession[session.id]?.length ?? 0}</span>)
+                    {session.active === false && (
+                      <span className="badge text-bg-secondary ms-2">Hidden</span>
+                    )}
+                  </button>
+                </li>
+              ))}
             </ul>
           </div>
 
           <div className="card-body p-0">
-            <div className="tab-content p-4">
-              {activeTab === 'morning' ? (
+            <div className="tab-content p-4" id="session-tabpanel" role="tabpanel" aria-labelledby={activeTab ? `tab-${activeTab}` : undefined}>
+              {activeTab ? (
                 <StudentTable
-                  session="morning"
-                  students={morningStudents}
+                  key={activeTab}
+                  session={activeTab}
+                  students={currentStudents}
                   onDelete={deleteStudent}
                   onEdit={updateStudent}
                   onView={notesEnabled ? setDrawerStudent : undefined}
@@ -292,19 +297,7 @@ export default function DashboardLayout() {
                   loading={loading}
                 />
               ) : (
-                <StudentTable
-                  session="evening"
-                  students={eveningStudents}
-                  onDelete={deleteStudent}
-                  onEdit={updateStudent}
-                  onView={notesEnabled ? setDrawerStudent : undefined}
-                  onExport={exportToPDF}
-                  onBlock={blockStudent}
-                  onUnblock={unblockStudent}
-                  onApprove={approveReceipt}
-                  onDecline={declineReceipt}
-                  loading={loading}
-                />
+                !loading && <p className="text-muted text-center mb-0">No sessions yet — create one above.</p>
               )}
             </div>
           </div>

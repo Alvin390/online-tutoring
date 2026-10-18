@@ -64,6 +64,8 @@ function projectStudent(data) {
 }
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist and be shown to students.
+  sessions: 'active',
   method: 'POST',
   rateLimit: {
     bucket: 'student_checkin',
