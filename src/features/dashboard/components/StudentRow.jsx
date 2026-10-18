@@ -20,7 +20,6 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
 
   const isBlocked = student.blocked || false;
   const hasPendingReceipt = student.receiptStatus === 'pending' && student.pendingReceipt;
-  const isDeclined = student.receiptStatus === 'declined';
 
   const regDate = student.registeredAt?.toDate?.()
     .toLocaleString('en-GB', {

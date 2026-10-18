@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import { visualizer } from 'rollup-plugin-visualizer'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -48,7 +49,16 @@ export default defineConfig({
           }
         ]
       }
-    })
+    }),
+    // Phase 13 / 01 D3 — bundle composition report. Only when ANALYZE=1, so a
+    // normal build is unchanged: `ANALYZE=1 npm run build:quiet` writes
+    // dist/stats.html (treemap) and dist/stats.json (raw data).
+    ...(process.env.ANALYZE === '1'
+      ? [
+          visualizer({ filename: 'dist/stats.html', gzipSize: true, brotliSize: true, template: 'treemap' }),
+          visualizer({ filename: 'dist/stats.json', gzipSize: true, template: 'raw-data' }),
+        ]
+      : []),
   ],
   resolve: {
     alias: {

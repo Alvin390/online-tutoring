@@ -4,6 +4,7 @@ import { sendError, badRequest, methodNotAllowed, payloadTooLarge } from './erro
 import { authenticate, requireRole, requireTier } from './auth.js';
 import { enforceRateLimit, clientIp } from './rateLimit.js';
 import { validate } from './validate.js';
+import { subrequestsSpent } from './firestoreRest.js';
 
 /**
  * The middleware chain — Phase 01 D4.
@@ -23,6 +24,28 @@ import { validate } from './validate.js';
  */
 
 const MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * Server-Timing instrumentation — Phase 13 / 01 D3.
+ *
+ * Off unless PERF_TIMING=1, which is set for local measurement only. When on,
+ * every response carries `Server-Timing: total;dur=…, auth;dur=…, subreq;desc=N`
+ * so scripts/perf/apiLatency.mjs can attribute latency without a profiler.
+ * `subreq` is the number of Firestore REST calls the request made (the same
+ * counter the subrequest budget uses).
+ */
+function perfTimingEnabled() {
+  return process.env.PERF_TIMING === '1';
+}
+
+function writeServerTiming(res, perf) {
+  if (!perf || res.headersSent) return;
+  const total = performance.now() - perf.start;
+  const parts = [`total;dur=${total.toFixed(1)}`];
+  if (perf.auth != null) parts.push(`auth;dur=${perf.auth.toFixed(1)}`);
+  parts.push(`subreq;desc="${subrequestsSpent() - perf.subreqStart}"`);
+  res.setHeader('Server-Timing', parts.join(', '));
+}
 
 /**
  * Reads the raw request body.
@@ -95,6 +118,9 @@ export function createHandler(opts) {
   return async function vercelHandler(req, res) {
     const requestId = randomUUID();
     const log = createLogger(requestId);
+    const perf = perfTimingEnabled()
+      ? { start: performance.now(), subreqStart: subrequestsSpent(), auth: null }
+      : null;
     res.setHeader('X-Request-Id', requestId);
 
     // These endpoints are same-origin only. No CORS headers are emitted at all,
@@ -149,7 +175,9 @@ export function createHandler(opts) {
       // 5. Auth
       let user = null;
       if (auth) {
+        const authStart = perf ? performance.now() : 0;
         user = await authenticate(req);
+        if (perf) perf.auth = performance.now() - authStart;
         if (role) requireRole(user, role);
         if (tier) requireTier(user, tier);
       }
@@ -167,10 +195,14 @@ export function createHandler(opts) {
       const result = await handle({ req, res, body, raw, user, log, ip, requestId });
 
       if (!res.writableEnded) {
+        writeServerTiming(res, perf);
         res.status(200).json(result ?? { ok: true });
       }
     } catch (err) {
-      if (!res.writableEnded) sendError(res, err, log);
+      if (!res.writableEnded) {
+        writeServerTiming(res, perf);
+        sendError(res, err, log);
+      }
     }
   };
 }

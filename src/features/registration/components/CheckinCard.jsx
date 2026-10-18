@@ -5,7 +5,7 @@ import PhoneInput from './PhoneInput';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import { countries } from '@/shared/constants/countries';
 
-export default function CheckinCard({ session, onSubmit, loading }) {
+export default function CheckinCard({ onSubmit, loading }) {
   const {
     selectedCountry,
     phoneNumber,

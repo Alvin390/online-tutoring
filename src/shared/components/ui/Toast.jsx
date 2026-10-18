@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 
-const Toast = ({ id, type, title, message, onClose }) => {
+const Toast = ({ type, title, message, onClose }) => {
   const icons = {
     success: '✓',
     error: '✕',

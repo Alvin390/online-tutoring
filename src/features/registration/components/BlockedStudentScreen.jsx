@@ -13,7 +13,6 @@ export default function BlockedStudentScreen({
   phoneNumber,
   onSubmitReceipt,
   onBack,
-  loading
 }) {
   const [newReceipt, setNewReceipt] = useState('');
   const [submitting, setSubmitting] = useState(false);

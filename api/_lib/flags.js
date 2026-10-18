@@ -62,4 +62,10 @@ export async function isEnabled(key) {
   return flags[key] === true;
 }
 
+/** Test hook: drops the memoised flags so the next read hits Firestore. */
+export function __resetFlagCache() {
+  cache = null;
+  cachedAt = 0;
+}
+
 export { DEFAULT_FLAGS };

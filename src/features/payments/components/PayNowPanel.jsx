@@ -37,7 +37,7 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
   const [payerPhone, setPayerPhone] = useState(phone ?? '');
   const [message, setMessage] = useState('');
   const [environment, setEnvironment] = useState(null);
-  const [checkoutId, setCheckoutId] = useState(null);
+  const [, setCheckoutId] = useState(null);
 
   const pollTimer = useRef(null);
   const timeoutTimer = useRef(null);

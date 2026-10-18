@@ -53,7 +53,6 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
     // One call per session, because the API is session-scoped — and because a
     // partial failure should not span sessions.
     for (const [session, students] of grouped.entries()) {
-      // eslint-disable-next-line no-await-in-loop
       await onApprove(session, students.map((s) => s.id));
     }
     setConfirmBulk(false);

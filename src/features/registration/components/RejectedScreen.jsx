@@ -12,7 +12,7 @@ import { motion } from 'framer-motion';
  * rejections trigger a 24-hour soft block; when that fires, the API returns
  * `resubmit_blocked` and this screen shows the wait time instead of the form.
  */
-export default function RejectedScreen({ session, studentData, onResubmit, onBack, loading }) {
+export default function RejectedScreen({ studentData, onResubmit, onBack, loading }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     studentName: studentData?.studentName ?? '',
