@@ -39,9 +39,54 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "dueAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "submittedBy.uid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "description",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "steps",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "internalNotes",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "context",
+      "indexes": []
+    },
     {
       "collectionGroup": "ledger",
       "fieldPath": "occurredAt",

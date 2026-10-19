@@ -1,5 +1,7 @@
 import health from '../api/health.js';
 
+import adminNotifications from '../api/admin/notifications.js';
+import adminReports from '../api/admin/reports.js';
 import adminSetRole from '../api/admin/setRole.js';
 import adminUsers from '../api/admin/users.js';
 import authLoginAttempt from '../api/auth/loginAttempt.js';
@@ -19,6 +21,7 @@ import classSetLink from '../api/class/setLink.js';
 
 import cronFeesSweep from '../api/cron/feesSweep.js';
 import cronMpesaReconcile from '../api/cron/mpesaReconcile.js';
+import cronNotificationsSweep from '../api/cron/notificationsSweep.js';
 import cronSubscriptionSweep from '../api/cron/subscriptionSweep.js';
 
 import darajaCallback from '../api/daraja/callback/[secret].js';
@@ -47,6 +50,9 @@ import studentVerifyCode from '../api/student/verifyCode.js';
 
 import whatsappCampaign from '../api/whatsapp/campaign.js';
 import whatsappUpload from '../api/whatsapp/upload.js';
+import reportsAttachment from '../api/reports/attachment.js';
+import reportsMine from '../api/reports/mine.js';
+import reportsSubmit from '../api/reports/submit.js';
 
 /**
  * The route table — Phase 12 D6.
@@ -68,6 +74,8 @@ import whatsappUpload from '../api/whatsapp/upload.js';
 export const STATIC_ROUTES = {
   '/api/health': health,
 
+  '/api/admin/notifications': adminNotifications,
+  '/api/admin/reports': adminReports,
   '/api/admin/setRole': adminSetRole,
   '/api/admin/users': adminUsers,
   '/api/auth/loginAttempt': authLoginAttempt,
@@ -87,11 +95,15 @@ export const STATIC_ROUTES = {
 
   '/api/cron/feesSweep': cronFeesSweep,
   '/api/cron/mpesaReconcile': cronMpesaReconcile,
+  '/api/cron/notificationsSweep': cronNotificationsSweep,
   '/api/cron/subscriptionSweep': cronSubscriptionSweep,
 
   '/api/daraja/credentials': darajaCredentials,
 
   '/api/fees/annotate': feesAnnotate,
+  '/api/reports/attachment': reportsAttachment,
+  '/api/reports/mine': reportsMine,
+  '/api/reports/submit': reportsSubmit,
   '/api/fees/approveReceipt': feesApproveReceipt,
   '/api/fees/config': feesConfig,
   '/api/fees/generateInvoices': feesGenerateInvoices,
@@ -159,4 +171,5 @@ export const CRON_HANDLERS = {
   subscriptionSweep: cronSubscriptionSweep,
   feesSweep: cronFeesSweep,
   mpesaReconcile: cronMpesaReconcile,
+  notificationsSweep: cronNotificationsSweep,
 };

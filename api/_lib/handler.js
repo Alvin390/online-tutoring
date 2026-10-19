@@ -93,6 +93,25 @@ function parseJsonBody(req, raw) {
 }
 
 /**
+ * Runs `promise` after the response without blocking it — Phase 13 / 06 D5.
+ *
+ * On Cloudflare the promise is handed to `ctx.waitUntil`, so the runtime keeps
+ * the invocation alive until it settles. A bare un-awaited promise (what the
+ * class-link audit, the check-in heartbeat and the feed stamp used to be) can
+ * be cancelled the moment the response is sent. Outside a Worker (Node tests,
+ * scripts) the promise simply runs. Failures are logged, never thrown.
+ *
+ * @returns {Promise<void>} settles when the task does (tests may await it)
+ */
+export function backgroundTask(req, promise, log) {
+  const guarded = Promise.resolve()
+    .then(() => promise)
+    .then(() => undefined, (err) => log?.error?.('Background task failed', err));
+  if (typeof req?.waitUntil === 'function') req.waitUntil(guarded);
+  return guarded;
+}
+
+/**
  * @param {object} opts
  * @param {string|string[]} opts.method        allowed HTTP method(s)
  * @param {boolean} [opts.auth]                require a verified ID token
@@ -216,7 +235,8 @@ export function createHandler(opts) {
       if (sessions) await checkSessions(body);
 
       // 7. Handle
-      const result = await handle({ req, res, body, raw, user, log, ip, requestId });
+      const waitUntil = (promise) => backgroundTask(req, promise, log);
+      const result = await handle({ req, res, body, raw, user, log, ip, requestId, waitUntil });
 
       if (!res.writableEnded) {
         writeServerTiming(res, perf);

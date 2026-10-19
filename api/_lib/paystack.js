@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { safeCompare } from './crypto.js';
 import { ApiError } from './errors.js';
 import { paystackMode, paystackVar } from './mode.js';
+import { countExternalSubrequest } from './firestoreRest.js';
 
 /**
  * Paystack client — Phase 03 D1/D3/D4.
@@ -95,6 +96,7 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
   const timer = setTimeout(() => controller.abort(), 15_000);
 
   try {
+    countExternalSubrequest();
     const response = await fetch(`${API_BASE}${path}`, {
       method,
       headers: {

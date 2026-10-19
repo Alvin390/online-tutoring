@@ -2,6 +2,7 @@ import { getDb } from './firebaseAdmin.js';
 import { decrypt, randomToken } from './crypto.js';
 import { ApiError } from './errors.js';
 import { darajaMode, darajaEnvironment, darajaVar } from './mode.js';
+import { countExternalSubrequest } from './firestoreRest.js';
 
 /**
  * M-Pesa Daraja client — Phase 09.
@@ -353,6 +354,7 @@ export async function getAccessToken(credentials) {
     const timer = setTimeout(() => controller.abort(), 15_000);
 
     try {
+      countExternalSubrequest();
       const response = await fetch(ENDPOINTS[credentials.environment].oauth, {
         method: 'GET',
         headers: { Authorization: `Basic ${basic}` },
@@ -406,6 +408,7 @@ async function darajaPost(url, token, body) {
   const timer = setTimeout(() => controller.abort(), 20_000);
 
   try {
+    countExternalSubrequest();
     const response = await fetch(url, {
       method: 'POST',
       headers: {

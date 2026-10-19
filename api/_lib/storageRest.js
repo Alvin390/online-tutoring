@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { getProjectId, loadServiceAccount, signBytes, storageAuthHeader } from './googleAuth.js';
+import { countExternalSubrequest } from './firestoreRest.js';
 
 /**
  * Cloud Storage over REST — Phase 12 D3.
@@ -79,6 +80,7 @@ class StorageFile {
 
     const url = `${UPLOAD_ROOT}/${encodeURIComponent(this.bucket)}/o?uploadType=multipart`;
 
+    countExternalSubrequest();
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -139,6 +141,7 @@ class StorageFile {
     const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(this.bucket)}`
       + `/o/${encodeURIComponent(this.name)}`;
 
+    countExternalSubrequest();
     const response = await fetch(url, {
       method: 'DELETE',
       headers: { Authorization: await storageAuthHeader() },

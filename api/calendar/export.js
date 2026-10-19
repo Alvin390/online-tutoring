@@ -4,6 +4,7 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { buildIcs } from '../_lib/ics.js';
 import { sha256, randomToken } from '../_lib/crypto.js';
 import { isEnabled } from '../_lib/flags.js';
+import { backgroundTask } from '../_lib/handler.js';
 
 /**
  * `.ics` export and subscription feed — Phase 07 D5.
@@ -66,9 +67,12 @@ export default async function handler(req, res) {
   // than it is worth. A coarse daily stamp is enough to spot dead feeds.
   const today = new Date().toISOString().slice(0, 10);
   if (tokenData.lastAccessedDay !== today) {
-    db.doc(`calendar/tokens/items/${sha256(token)}`)
-      .set({ lastAccessedDay: today, lastAccessedAt: FieldValue.serverTimestamp() }, { merge: true })
-      .catch(() => {});
+    backgroundTask(
+      req,
+      db.doc(`calendar/tokens/items/${sha256(token)}`)
+        .set({ lastAccessedDay: today, lastAccessedAt: FieldValue.serverTimestamp() }, { merge: true }),
+      log
+    );
   }
 
   const scope = tokenData.session ?? null;

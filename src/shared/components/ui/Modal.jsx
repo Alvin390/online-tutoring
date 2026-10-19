@@ -26,6 +26,10 @@ export default function Modal({
   type = 'primary',
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  // Phase 13 / 06: `footer` replaces the Cancel/Confirm pair (null hides it);
+  // `wide` gives forms with side-by-side fields room. Both optional.
+  footer,
+  wide = false,
 }) {
   const dialogRef = useRef(null);
   const previouslyFocused = useRef(null);
@@ -114,7 +118,7 @@ export default function Modal({
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
           transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="modal-container"
+          className={`modal-container${wide ? ' modal-container-wide' : ''}`}
           onClick={(e) => e.stopPropagation()}
           style={{ outline: 'none' }}
         >
@@ -133,6 +137,7 @@ export default function Modal({
 
           <div className="modal-body">{children}</div>
 
+          {footer !== undefined ? (footer && <div className="modal-footer">{footer}</div>) : (
           <div className="modal-footer">
             <button
               type="button"
@@ -154,6 +159,7 @@ export default function Modal({
               {confirmLabel}
             </button>
           </div>
+          )}
         </motion.div>
       </motion.div>
     </AnimatePresence>,

@@ -14,6 +14,7 @@ import {
 import logger from '@utils/logger';
 import TierGate from '@shared/components/TierGate';
 import { useFlag } from '@shared/config/FlagsContext';
+import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
 
 // Lazy: only Gold teachers with M-Pesa enabled ever render it.
 const DarajaSettingsCard = lazy(() => import('@features/payments/components/DarajaSettingsCard'));
@@ -217,12 +218,17 @@ export default function BillingPage() {
           <h1 className="fw-bold h3 mb-1">Your plan</h1>
           <p className="text-muted mb-0">Manage your subscription and billing.</p>
         </div>
-        {!isLocked && (
-          <Link to="/dashboard" className="btn btn-outline-secondary">
-            <i className="bi bi-arrow-left me-2" aria-hidden="true" />
-            Back to dashboard
-          </Link>
-        )}
+        <div className="d-flex gap-2 flex-wrap">
+          {/* Shown even when locked: a teacher stuck at renewal is exactly
+              who needs a way to reach us. */}
+          <HelpFeedbackButton className="btn btn-outline-primary" />
+          {!isLocked && (
+            <Link to="/dashboard" className="btn btn-outline-secondary">
+              <i className="bi bi-arrow-left me-2" aria-hidden="true" />
+              Back to dashboard
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Lockout notice. Never says "you didn't pay" to anyone but the teacher,

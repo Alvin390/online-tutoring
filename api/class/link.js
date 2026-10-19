@@ -44,7 +44,7 @@ export default createHandler({
     keyBy: 'ip',
   },
   schema,
-  handle: async ({ body, req, log }) => {
+  handle: async ({ body, req, log, waitUntil }) => {
     const { session, phone } = body;
 
     let authorized = false;
@@ -150,7 +150,7 @@ export default createHandler({
 
     // Not awaited into the response path — a slow audit write must not delay a
     // student joining a class that is already running.
-    tryWriteAudit(
+    waitUntil(tryWriteAudit(
       {
         action: AuditAction.CLASS_LINK_ISSUED,
         actor: isStaff ? 'staff' : 'student',
@@ -158,7 +158,7 @@ export default createHandler({
         context: { requestId: log.requestId },
       },
       log
-    );
+    ));
 
     return {
       url,

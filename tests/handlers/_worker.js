@@ -27,6 +27,7 @@ export const TEST_ENV = Object.freeze({
   FIREBASE_AUTH_EMULATOR_HOST: AUTH_HOST,
   GCLOUD_PROJECT: PROJECT,
   FIREBASE_SERVICE_ACCOUNT: '',
+  FIREBASE_STORAGE_BUCKET: '',
   METADATA_SERVER_DETECTION: 'none',
   GCE_METADATA_HOST: '0.0.0.0',
   PUBLIC_BASE_URL: 'https://validation.example',
@@ -70,7 +71,9 @@ export const externalCalls = [];
 export const fakes = {
   daraja: { queryResultCode: '0', seq: 0 },
   paystack: { fail: {}, seq: 0 },
-  gmail: { fail: null, oauthError: null, seq: 0 },
+  // hold: a promise the fake Gmail send awaits before answering.
+  gmail: { fail: null, oauthError: null, seq: 0, hold: null },
+  storage: { fail: null, objects: new Map() },
 };
 
 export function resetFakes() {
@@ -79,6 +82,27 @@ export function resetFakes() {
   fakes.paystack.fail = {};
   fakes.gmail.fail = null;
   fakes.gmail.oauthError = null;
+  fakes.gmail.hold = null;
+  fakes.storage.fail = null;
+  fakes.storage.objects.clear();
+}
+
+/**
+ * A throwaway service-account key, for code paths that SIGN (Storage signed
+ * URLs, Storage OAuth). Generated per run; never a real credential. Firestore
+ * and Auth still use the emulators because their emulator hosts are set.
+ */
+export async function useFakeServiceAccount() {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({
+    type: 'service_account',
+    project_id: PROJECT,
+    client_email: 'harness@demo-online-tutoring.iam.gserviceaccount.com',
+    private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+  });
+  process.env.FIREBASE_STORAGE_BUCKET = 'fake-bucket';
+  (await import('../../api/_lib/googleAuth.js')).__resetCredentialCaches?.();
 }
 
 const json = (obj, status = 200) =>
@@ -133,12 +157,28 @@ export function installFetchGuard() {
       return json({ status: true, message: 'fake', data: {} });
     }
 
+    if (hostname === 'storage.googleapis.com') {
+      if (fakes.storage.fail) return json({ error: { code: fakes.storage.fail } }, fakes.storage.fail);
+      if ((init.method ?? 'GET') === 'DELETE') {
+        const name = decodeURIComponent(pathname.split('/o/')[1] ?? '');
+        fakes.storage.objects.delete(name);
+        return new Response(null, { status: 204 });
+      }
+      // Multipart upload: the object name is in the JSON metadata part.
+      const raw = typeof init.body === 'string' ? init.body : Buffer.from(init.body ?? '').toString('latin1');
+      const metaLine = raw.split(/\r?\n/).find((line) => line.startsWith('{') && line.includes('"name"'));
+      const meta = JSON.parse(metaLine ?? '{}');
+      fakes.storage.objects.set(meta.name, { contentType: meta.contentType, bytes: raw.length });
+      return json({ name: meta.name, bucket: 'fake-bucket', contentType: meta.contentType });
+    }
+
     if (hostname === 'oauth2.googleapis.com') {
       if (fakes.gmail.oauthError) return json({ error: fakes.gmail.oauthError }, 400);
       return json({ access_token: 'fake-gmail-token', expires_in: 3599, token_type: 'Bearer' });
     }
 
     if (hostname === 'gmail.googleapis.com') {
+      if (fakes.gmail.hold) await fakes.gmail.hold;
       if (fakes.gmail.fail) return json({ error: { code: fakes.gmail.fail, message: 'fake gmail failure' } }, fakes.gmail.fail);
       fakes.gmail.seq += 1;
       return json({ id: `gmail_${fakes.gmail.seq}`, threadId: `t_${fakes.gmail.seq}`, labelIds: ['SENT'] });

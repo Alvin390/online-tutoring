@@ -201,12 +201,14 @@ describe('D1 /api/student/update — phone change (B6b)', () => {
       expect(move.status).toBe(200);
       const moveCost = subreq(move);
 
-      // Measured: edit = 7 = the edit's own 3 (student read, update, audit)
-      // + rate limiter ~3 + one cold session-cache lookup. Phase 08 C2 moves
-      // the rate limiter off Firestore and tightens these numbers.
+      // Measured: edit = 8 = the edit's own 3 (student read, update, audit)
+      // + rate limiter ~3 + one cold session-cache lookup + the ID-token
+      // revocation check (an Auth call, counted since Phase 13 / 06 made the
+      // budget count every outbound fetch, not only Firestore). Phase 08 C2
+      // moves the rate limiter off Firestore and tightens these numbers.
       console.log('SUBREQ edit', editCost, 'move', moveCost);
-      expect(editCost).toBeLessThanOrEqual(7);
-      expect(moveCost).toBeLessThan(15);
+      expect(editCost).toBeLessThanOrEqual(8);
+      expect(moveCost).toBeLessThan(16);
     } finally {
       delete process.env.PERF_TIMING;
     }

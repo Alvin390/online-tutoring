@@ -108,6 +108,13 @@ export default {
     try {
       const req = await toNodeRequest(request, route.params);
 
+      // Phase 13 / 06 D5: background work (email, audit, heartbeats) must be
+      // registered with the runtime, or Cloudflare may cancel it once the
+      // response has been sent.
+      if (!req.tooLarge && ctx && typeof ctx.waitUntil === 'function') {
+        req.waitUntil = (promise) => ctx.waitUntil(promise);
+      }
+
       if (req.tooLarge) {
         return jsonError(413, 'payload_too_large', 'Request body too large.');
       }
@@ -150,8 +157,8 @@ export default {
   async scheduled(controller, env, ctx) {
     armSubrequestBudget(budget());
 
-    const name = CRON_SCHEDULE_TO_SWEEP[controller.cron];
-    if (!name) {
+    const names = [CRON_SCHEDULE_TO_SWEEP[controller.cron] ?? []].flat();
+    if (names.length === 0) {
       console.error(JSON.stringify({
         level: 'error',
         msg: 'Cron fired with no matching sweep — check wrangler.jsonc triggers',
@@ -160,7 +167,6 @@ export default {
       return;
     }
 
-    const handler = CRON_HANDLERS[name];
     const secret = process.env.CRON_SECRET;
 
     if (!secret) {
@@ -169,44 +175,54 @@ export default {
       console.error(JSON.stringify({
         level: 'error',
         msg: 'CRON_SECRET is not set — scheduled sweep cannot authorise itself',
-        sweep: name,
+        sweep: names.join(','),
       }));
       return;
     }
 
-    const req = {
-      method: 'POST',
-      url: `/api/cron/${name}`,
-      headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
-      query: {},
-      body: Buffer.alloc(0),
-      readable: false,
-      socket: null,
-    };
-
-    const res = createNodeResponse();
-
-    try {
-      await handler(req, res);
-
-      const payload = typeof res.body === 'string' ? res.body : '';
-      console.log(JSON.stringify({
-        level: res.statusCode >= 500 ? 'error' : 'info',
-        msg: 'Scheduled sweep finished',
-        sweep: name,
-        status: res.statusCode,
-        result: payload.slice(0, 500),
-      }));
-    } catch (err) {
-      console.error(JSON.stringify({
-        level: 'error',
-        msg: 'Scheduled sweep threw',
-        sweep: name,
-        error: String(err?.stack ?? err),
-      }));
+    // Sweeps sharing a trigger run in order, in ONE invocation, so they share
+    // the subrequest budget armed above — each checks what is left.
+    for (const name of names) {
+      await runSweep(name, secret);
     }
   },
 };
+
+/** Runs one sweep through its HTTP handler with a synthesised request. */
+async function runSweep(name, secret) {
+  const handler = CRON_HANDLERS[name];
+  const req = {
+    method: 'POST',
+    url: `/api/cron/${name}`,
+    headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+    query: {},
+    body: Buffer.alloc(0),
+    readable: false,
+    socket: null,
+  };
+
+  const res = createNodeResponse();
+
+  try {
+    await handler(req, res);
+
+    const payload = typeof res.body === 'string' ? res.body : '';
+    console.log(JSON.stringify({
+      level: res.statusCode >= 500 ? 'error' : 'info',
+      msg: 'Scheduled sweep finished',
+      sweep: name,
+      status: res.statusCode,
+      result: payload.slice(0, 500),
+    }));
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error',
+      msg: 'Scheduled sweep threw',
+      sweep: name,
+      error: String(err?.stack ?? err),
+    }));
+  }
+}
 
 /**
  * Cron expression -> sweep name.
@@ -218,7 +234,10 @@ export default {
 const CRON_SCHEDULE_TO_SWEEP = {
   '0 * * * *': 'subscriptionSweep',   // hourly — subscription state and reminders
   '0 2 * * *': 'feesSweep',           // 02:00 UTC — overdue flags and invoice runs
-  '*/10 * * * *': 'mpesaReconcile',   // every 10 min — recover lost M-Pesa callbacks
+  // every 10 min — recover lost M-Pesa callbacks, then retry report emails.
+  // One trigger, two sweeps (money first): stays within the free plan's
+  // cron-trigger allowance — Phase 13 / 06.
+  '*/10 * * * *': ['mpesaReconcile', 'notificationsSweep'],
 };
 
 export { API_SECURITY_HEADERS, CRON_SCHEDULE_TO_SWEEP };

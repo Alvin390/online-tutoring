@@ -76,7 +76,7 @@ export default createHandler({
     keyBy: 'ip',
   },
   schema,
-  handle: async ({ body, req, log }) => {
+  handle: async ({ body, req, log, waitUntil }) => {
     const { session, phone } = body;
 
     // Strongest available authorization first.
@@ -121,9 +121,11 @@ export default createHandler({
     // Heartbeat. Fire-and-forget: a failed timestamp write must not fail a
     // check-in. Skipped while blocked, matching the previous behaviour.
     if (data.blocked !== true) {
-      ref.set({ lastAccessed: FieldValue.serverTimestamp() }, { merge: true }).catch((err) => {
-        log.warn('lastAccessed update failed', { code: err?.code });
-      });
+      waitUntil(
+        ref.set({ lastAccessed: FieldValue.serverTimestamp() }, { merge: true }).catch((err) => {
+          log.warn('lastAccessed update failed', { code: err?.code });
+        })
+      );
     }
 
     log.info('Student check-in', {

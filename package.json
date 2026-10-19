@@ -30,6 +30,7 @@
     "dev:api": "wrangler dev",
     "seed:superadmin": "node scripts/seedSuperadmin.js",
     "seed:sessions": "node scripts/seedSessions.js",
+    "gmail:auth": "node scripts/gmailAuth.js",
     "audit:ci": "npm audit --audit-level=high",
     "perf:latency": "node scripts/perf/apiLatency.mjs",
     "perf:seed": "node scripts/perf/seedLocal.mjs",

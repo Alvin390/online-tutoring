@@ -183,6 +183,23 @@ export function subrequestsSpent() {
   return subrequestsUsed;
 }
 
+/**
+ * Counts a NON-Firestore subrequest (Google OAuth, Gmail, Storage, Daraja,
+ * Paystack, Auth) — Phase 13 / 06.
+ *
+ * Cloudflare's limit is on every outbound fetch, but only Firestore calls were
+ * counted, so a sweep checking `subrequestsRemaining()` was told it had room
+ * that Daraja or Gmail calls had already used. Since the ten-minute trigger
+ * now runs two sweeps in one invocation, the count has to be honest.
+ *
+ * Counts without throwing: the caller has already decided to make the call,
+ * and an error here would be indistinguishable from the remote failing. The
+ * next budget check sees the true figure.
+ */
+export function countExternalSubrequest() {
+  subrequestsUsed += 1;
+}
+
 function spendSubrequest() {
   subrequestsUsed += 1;
   if (subrequestsUsed > subrequestBudget) {
@@ -764,8 +781,8 @@ export class Query {
     return this._derive({ limit: n });
   }
 
-  startAfter(value) {
-    return this._derive({ startAfter: value });
+  startAfter(...values) {
+    return this._derive({ startAfter: values.length === 1 ? values[0] : values });
   }
 
   async get() {
@@ -1161,6 +1178,21 @@ export class Firestore {
     }
 
     if (query._parts.limit != null) structuredQuery.limit = query._parts.limit;
+
+    // Cursor — Phase 13 / 06. `startAfter()` used to be RECORDED but never
+    // sent, so a "next page" query silently returned the first page again.
+    // Accepts what firebase-admin accepts: field value(s) matching the
+    // orderBy clauses, or a DocumentSnapshot (its orderBy field values).
+    if (query._parts.startAfter !== undefined) {
+      const cursor = query._parts.startAfter;
+      let values;
+      if (cursor instanceof DocumentSnapshot) {
+        values = query._parts.orders.map(({ fieldPath }) => cursor.get(fieldPath));
+      } else {
+        values = Array.isArray(cursor) ? cursor : [cursor];
+      }
+      structuredQuery.startAt = { values: values.map((v) => encodeValue(v)), before: false };
+    }
 
     return { parentName, structuredQuery };
   }

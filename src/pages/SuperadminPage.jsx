@@ -1,10 +1,23 @@
-import { useState, lazy, Suspense } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
 
 const AuditLogViewer = lazy(() => import('@features/audit/components/AuditLogViewer'));
 const UserManager = lazy(() => import('@features/admin/components/UserManager'));
+const ReportsInbox = lazy(() => import('@features/reports/components/ReportsInbox'));
+const NotificationsSettingsCard = lazy(() => import('@features/reports/components/NotificationsSettingsCard'));
+
+// Phase 13 / 06: bugs and feature requests are separate inboxes. `?tab=` is
+// what the link in every alert email targets, with `&report=<id>`.
+const TABS = [
+  { id: 'users', label: 'Accounts & tiers', icon: 'bi-people' },
+  { id: 'bugs', label: 'Bug reports', icon: 'bi-bug', type: 'bug' },
+  { id: 'features', label: 'Feature requests', icon: 'bi-lightbulb', type: 'feature' },
+  { id: 'audit', label: 'Audit log', icon: 'bi-shield-check' },
+  { id: 'settings', label: 'Settings', icon: 'bi-gear' },
+];
+const TAB_IDS = new Set(TABS.map((t) => t.id));
 
 /**
  * Superadmin console.
@@ -32,7 +45,35 @@ export default function SuperadminPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [tab, setTab] = useState('users');
+  const [params, setParams] = useSearchParams();
+  const requestedTab = params.get('tab');
+  const [tab, setTabState] = useState(TAB_IDS.has(requestedTab) ? requestedTab : 'users');
+  const linkedReport = params.get('report');
+  const [unread, setUnread] = useState({ bug: 0, feature: 0 });
+
+  const setTab = (id) => {
+    setTabState(id);
+    setParams(id === 'users' ? {} : { tab: id }, { replace: true });
+  };
+
+  const onCountsChange = useCallback((type, counts) => {
+    setUnread((u) => ({ ...u, [type]: counts?.new ?? 0 }));
+  }, []);
+
+  // Unread badges before either inbox is opened: one list call per type, which
+  // returns the per-status counts.
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    let cancelled = false;
+    import('@services/api/reports').then(({ listReports }) => {
+      for (const type of ['bug', 'feature']) {
+        listReports({ type, status: 'new' })
+          .then((res) => { if (!cancelled) onCountsChange(type, res.counts); })
+          .catch(() => {});
+      }
+    });
+    return () => { cancelled = true; };
+  }, [isSuperadmin, onCountsChange]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -188,10 +229,7 @@ export default function SuperadminPage() {
       </div>
 
       <ul className="nav nav-tabs mb-4" role="tablist">
-        {[
-          { id: 'users', label: 'Accounts & tiers', icon: 'bi-people' },
-          { id: 'audit', label: 'Audit log', icon: 'bi-shield-check' },
-        ].map((t) => (
+        {TABS.map((t) => (
           <li className="nav-item" key={t.id} role="presentation">
             <button
               className={`nav-link ${tab === t.id ? 'active' : ''}`}
@@ -201,6 +239,11 @@ export default function SuperadminPage() {
             >
               <i className={`bi ${t.icon} me-1`} aria-hidden="true" />
               {t.label}
+              {t.type && unread[t.type] > 0 && (
+                <span className="badge rounded-pill text-bg-danger ms-1" aria-label={`${unread[t.type]} new`}>
+                  {unread[t.type]}
+                </span>
+              )}
             </button>
           </li>
         ))}
@@ -215,7 +258,15 @@ export default function SuperadminPage() {
           </div>
         }
       >
-        {tab === 'users' ? <UserManager /> : <AuditLogViewer />}
+        {tab === 'users' && <UserManager />}
+        {tab === 'bugs' && (
+          <ReportsInbox key="bug" type="bug" initialReportId={requestedTab === 'bugs' ? linkedReport : null} onCountsChange={onCountsChange} />
+        )}
+        {tab === 'features' && (
+          <ReportsInbox key="feature" type="feature" initialReportId={requestedTab === 'features' ? linkedReport : null} onCountsChange={onCountsChange} />
+        )}
+        {tab === 'audit' && <AuditLogViewer />}
+        {tab === 'settings' && <NotificationsSettingsCard />}
       </Suspense>
     </div>
   );

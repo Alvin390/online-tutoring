@@ -554,5 +554,20 @@ service cloud.firestore {
     match /admin/{document=**} {
       allow read, write: if isSuperadmin();
     }
+
+    // ==================================================================
+    // Bug reports and feature requests — Phase 13 / 06
+    //
+    // Server-only, superadmin included: every read and write goes through
+    // /api/reports/* and /api/admin/reports, which enforce ownership, rate
+    // limits and the status workflows. Reports hold teachers' email
+    // addresses and free text, and `config/notifications` holds the owner's
+    // address. Already denied by default — stated here so a future wildcard
+    // (say `match /config/{doc}`) cannot quietly open them.
+    // ==================================================================
+    match /reports/{document=**}       { allow read, write: if false; }
+    match /reportUploads/{document=**} { allow read, write: if false; }
+    match /counters/{document=**}      { allow read, write: if false; }
+    match /config/notifications        { allow read, write: if false; }
   }
 }

@@ -10,6 +10,7 @@ import PendingApprovalsPanel from './PendingApprovalsPanel';
 import SessionManager from './SessionManager';
 import StudentDrawer from './StudentDrawer';
 import FeeKpiCards from '@features/fees/components/FeeKpiCards';
+import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
 
 // Lazy: the calendar carries a month grid, an agenda and a recurrence form the
 // dashboard should not pay for on first paint. It never enters the initial chunk.
@@ -141,6 +142,7 @@ export default function DashboardLayout() {
                 <i className="bi bi-credit-card me-1" aria-hidden="true" />
                 Billing
               </button>
+              <HelpFeedbackButton />
               <button className="btn btn-light" onClick={handleLogout}>
                 <i className="bi bi-box-arrow-right me-1" />
                 Logout

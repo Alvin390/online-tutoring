@@ -116,6 +116,11 @@
   position: relative;
 }
 
+/* Phase 13 / 06 — the Help & feedback form. */
+.modal-container-wide {
+  max-width: 720px;
+}
+
 .modal-header {
   padding: 1.5rem;
   border-bottom: 1px solid #e5e7eb;

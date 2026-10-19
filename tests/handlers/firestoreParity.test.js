@@ -610,6 +610,25 @@ describe('queries', () => {
     expect(ids(r)).toEqual(['z', 'x']);
   });
 
+  // Phase 13 / 06: startAfter used to be recorded and never sent — page two
+  // came back identical to page one.
+  it('paginates with startAfter (value and snapshot) identically to admin', async () => {
+    const page = (db) => db.collection(collection).orderBy('order').limit(2);
+    const [a1, r1] = await Promise.all([page(adminDb).get(), page(restDb).get()]);
+    expect(ids(r1)).toEqual(ids(a1));
+    expect(ids(r1)).toEqual(['b', 'c']);
+
+    const [a2, r2] = await Promise.all([
+      page(adminDb).startAfter(2).get(),
+      page(restDb).startAfter(2).get(),
+    ]);
+    expect(ids(r2)).toEqual(ids(a2));
+    expect(ids(r2)).toEqual(['a', 'd']);
+
+    const r3 = await page(restDb).startAfter(r1.docs[r1.docs.length - 1]).get();
+    expect(ids(r3)).toEqual(['a', 'd']);
+  });
+
   it('filters on equality identically to admin', async () => {
     const [a, r] = await Promise.all([
       adminDb.collection(collection).where('status', '==', 'pending').get(),
