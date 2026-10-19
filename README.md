@@ -10,7 +10,10 @@ A modern, production-ready React application for managing student registrations 
 - **Forms**: React Hook Form + Zod validation
 - **Styling**: Bootstrap 5.3.8 + Tailwind CSS 4.1.17
 - **Animations**: Framer Motion 12.23.24
-- **Backend**: Firebase 12.6.0 (Auth + Firestore + Analytics)
+- **Hosting & API**: Cloudflare Workers (static assets + `/api/*` + cron sweeps)
+- **Backend data**: Firebase (Auth + Firestore), reached from the Worker over REST
+- **Payments**: Paystack (teacher plans), M-Pesa Daraja STK push (student fees)
+- **Email**: Gmail API (bug-report and feature-request alerts)
 - **Error Tracking**: Sentry 10.26.0
 - **Testing**: Vitest 4.0.10 + React Testing Library 16.3.0
 - **PWA**: vite-plugin-pwa 1.1.0
@@ -126,42 +129,52 @@ npm run test:coverage
 
 ## 🏗️ Build & Deploy
 
-### Production Build
+The app runs on **Cloudflare Workers**: one Worker (`worker/index.js`) serves the
+built SPA from `dist/` as static assets and the API under `/api/*` (the handlers
+in `api/`, routed by `worker/routes.js`). Cron sweeps run from the same Worker
+(`triggers.crons` in `wrangler.jsonc`). Data and auth stay on Firebase.
+
+### Production build
 
 ```bash
-# Build for production
-npm run build
-
-# Preview production build locally
-npm run preview
+npm run build        # health check, then vite build -> dist/
+npm run check:bundle # per-route size budgets
 ```
 
-### Deployment to Vercel
+### Deploying
 
 ```bash
-# Install Vercel CLI
-npm install -g vercel
-
-# Deploy to production
-vercel --prod
-
-# Or configure automatic deployment via GitHub integration
+npx wrangler login              # once per machine
+npm run deploy                  # build, then upload a NEW VERSION (no traffic yet)
+npx wrangler versions deploy    # promote it (optionally 10% first, then 100%)
+npx wrangler rollback           # instant revert to the previous version
 ```
 
-### Environment Variables for Production
+`npm run deploy` builds from `.env.local`, so the browser bundle gets the
+`VITE_*` values on this machine. CI (`.github/workflows/ci.yml`) runs lint,
+unit, rules and handler tests and the bundle budget on every PR; uploading a
+version from CI needs the `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`
+secrets and the `VITE_*` repository variables.
 
-Set these in your Vercel project settings:
+Firestore rules and indexes deploy separately, with the Firebase CLI:
 
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_STORAGE_BUCKET`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
-- `VITE_FIREBASE_APP_ID`
-- `VITE_FIREBASE_MEASUREMENT_ID`
-- `VITE_ENABLE_ANALYTICS` (true/false)
-- `VITE_SENTRY_DSN` (optional, for error tracking)
-- `VITE_LOG_LEVEL` (debug/info/warn/error)
+```bash
+npx firebase-tools deploy --only firestore:indexes --project online-tutoring-6d71a
+npx firebase-tools deploy --only firestore:rules   --project online-tutoring-6d71a
+```
+
+**The full deploy order, the secrets table and the incident runbooks are in
+[`docs/LAUNCH.md`](docs/LAUNCH.md). Read it before a production deploy.**
+
+### Environment variables
+
+Two halves (details in `docs/LAUNCH.md` §2 and `.env.example`):
+
+- **Build-time `VITE_*`** (Firebase web config, Sentry DSN, log level): inlined
+  into the browser bundle, so public by construction; never put a secret here.
+- **Runtime secrets** (service account, Paystack, Daraja, Gmail, `CRON_SECRET`,
+  `PUBLIC_BASE_URL`, …): Cloudflare Worker secrets in production
+  (`npm run cf:secrets -- --only NAME`), `.dev.vars` locally.
 
 ## 📁 Project Structure
 
@@ -197,15 +210,18 @@ online-tutoring/
 ├── tests/
 │   ├── unit/                 # Unit tests
 │   └── integration/          # Integration tests
+├── api/                      # API handlers (one file per endpoint) + api/_lib shared code
+├── worker/                   # Cloudflare Worker entry (index.js) and route table (routes.js)
+├── docs/                     # LAUNCH.md (deploy + runbooks), DATA_MODEL.md, GMAIL_SETUP.md
 ├── public/                   # Static assets
-├── refactoring/              # Refactoring documentation
-│   └── completed/            # Phase completion docs
 ├── .github/workflows/        # CI/CD pipelines
 ├── index.html                # HTML entry point
 ├── vite.config.js            # Vite configuration
 ├── vitest.config.js          # Test configuration
 ├── tailwind.config.js        # Tailwind configuration
-├── vercel.json               # Vercel deployment config
+├── wrangler.jsonc            # Worker config: assets, crons, vars
+├── firestore.rules           # Firestore security rules
+├── firestore.indexes.json    # Firestore indexes
 └── package.json              # Dependencies
 ```
 
@@ -263,28 +279,18 @@ Each country includes:
 
 ## 📊 Database Structure
 
+The full model (sessions, students, fee ledger, reports, subscription, config
+documents) is in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md). In short:
+
 ```
-Firestore Collections:
-├── config/
-│   └── zoomLinks/
-│       ├── morning: "https://zoom.us/..."
-│       ├── evening: "https://zoom.us/..."
-│       ├── morningUpdated: Timestamp
-│       └── eveningUpdated: Timestamp
-├── sessions/
-│   ├── morning/
-│   │   └── {phoneNumber}/
-│   │       ├── studentName: string
-│   │       ├── class: string
-│   │       ├── subjects: string
-│   │       ├── receiptMessage: string
-│   │       ├── country: string
-│   │       ├── phoneNumber: string
-│   │       ├── createdAt: Timestamp
-│   │       └── updatedAt: Timestamp
-│   └── evening/
-│       └── {phoneNumber}/
-│           └── [same structure as morning]
+sessions/{slug}                      name, description, schedule, classes, icon, gradient, order, active
+  private/classLink                  the class link (served by the API to admitted students only)
+  students/{phone}                   registration, approval and fee state
+    ledger/{id}, notes/{id}          fee transactions, teacher notes
+config/flags, config/notifications   feature flags, report-email recipient
+subscription/current                 the teacher's plan (bronze / silver / gold)
+reports/{id}                         bug reports and feature requests
+audit/{id}                           who changed what
 ```
 
 ## 🧰 Available Scripts
@@ -296,7 +302,14 @@ npm run preview      # Preview production build
 npm run test         # Run all tests
 npm run test:watch   # Run tests in watch mode
 npm run test:coverage # Generate coverage report
-npm run lint         # Run ESLint (if configured)
+npm run lint         # ESLint (0 warnings allowed)
+npm run test:rules   # Firestore rules tests (emulator)
+npm run test:handlers # API handler tests (Firestore + Auth emulators)
+npm run deploy       # Build and upload a Worker version (see Build & Deploy)
+npm run cf:secrets   # Upload runtime secrets to the Worker (use --only NAME)
+npm run cf:tail      # Stream production Worker logs
+npm run mpesa:reconcile # Local: confirm sandbox STK payments (no callback on localhost)
+npm run gmail:auth   # One-time Gmail refresh token (docs/GMAIL_SETUP.md)
 ```
 
 ## 🔧 Configuration Files
@@ -304,7 +317,9 @@ npm run lint         # Run ESLint (if configured)
 - **vite.config.js**: Build configuration, path aliases, PWA settings
 - **vitest.config.js**: Test configuration, coverage settings
 - **tailwind.config.js**: Custom colors, gradients, utilities
-- **vercel.json**: Deployment config, security headers, caching
+- **wrangler.jsonc**: Worker name, static assets, cron triggers, non-secret vars
+- **firestore.rules / firestore.indexes.json**: Firestore security rules and indexes
+- **.dev.vars**: Runtime secrets for `wrangler dev` (not committed)
 - **.env.local**: Environment variables (not committed)
 - **.env.example**: Template for required environment variables
 
@@ -358,13 +373,9 @@ cat .env.local
 
 ## 📚 Documentation
 
-Detailed phase-by-phase implementation documentation available in:
-- `refactoring/completed/PHASE_1_COMPLETE.md` - Project Setup
-- `refactoring/completed/PHASE_2_COMPLETE.md` - Core Services
-- `refactoring/completed/PHASE_3_COMPLETE.md` - Context & State
-- `refactoring/completed/PHASES_4-6_COMPLETE.md` - Features, Routing, Components
-- `refactoring/completed/PHASE_7_COMPLETE.md` - Testing Infrastructure
-- `refactoring/completed/PHASE_8_COMPLETE.md` - Deployment Configuration
+- [`docs/LAUNCH.md`](docs/LAUNCH.md): deploy order, secrets, flag rollout, incident runbooks, rollback
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md): Firestore collections and documents
+- [`docs/GMAIL_SETUP.md`](docs/GMAIL_SETUP.md): one-time Gmail API setup for report emails
 
 ## 🤝 Contributing
 

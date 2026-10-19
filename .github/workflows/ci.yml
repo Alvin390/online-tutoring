@@ -96,9 +96,31 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm' }
       - run: npm ci
+      # VITE_* are inlined into the browser bundle, so they are public by
+      # construction and live in repository VARIABLES (Settings -> Secrets and
+      # variables -> Actions -> Variables), not secrets. Without them the build
+      # succeeds but the app has no Firebase config, so a master build refuses.
+      - name: Require the Firebase web config on master
+        if: github.event_name == 'push'
+        run: |
+          if [ -z "${{ vars.VITE_FIREBASE_API_KEY }}" ] || [ -z "${{ vars.VITE_FIREBASE_PROJECT_ID }}" ]; then
+            echo "::error::Repository variables VITE_FIREBASE_* are not set; the deploy artefact would have no Firebase config."
+            exit 1
+          fi
       - run: npm run build:quiet
         env:
           NODE_ENV: production
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_MEASUREMENT_ID: ${{ vars.VITE_FIREBASE_MEASUREMENT_ID }}
+          VITE_ENABLE_ANALYTICS: ${{ vars.VITE_ENABLE_ANALYTICS }}
+          VITE_LOG_LEVEL: ${{ vars.VITE_LOG_LEVEL }}
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
       # Fails the build on breach, so a bundle regression is caught before merge.
       - run: npm run check:bundle
       # sourcemap:'hidden' emits maps without a sourceMappingURL comment. They

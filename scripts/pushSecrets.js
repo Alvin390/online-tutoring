@@ -20,6 +20,7 @@
  *   npm run cf:secrets              upload everything that has a value
  *   npm run cf:secrets -- --dry-run list what WOULD be uploaded, no values
  *   npm run cf:secrets -- --only PAYSTACK_SECRET_KEY_LIVE
+ *   npm run cf:secrets -- --only GMAIL_CLIENT_ID,GMAIL_CLIENT_SECRET   (comma-separated)
  *
  * Never prints a secret's value — only its name and length.
  */
@@ -34,7 +35,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const onlyIndex = args.indexOf('--only');
-const only = onlyIndex !== -1 ? args[onlyIndex + 1] : null;
+const only = onlyIndex !== -1
+  ? new Set(String(args[onlyIndex + 1] ?? '').split(',').map((k) => k.trim()).filter(Boolean))
+  : null;
 
 /**
  * Runtime variables that are NOT secrets and live in wrangler.jsonc `vars`
@@ -103,7 +106,7 @@ function main() {
     if (key.startsWith('VITE_')) return false;   // build-time, public
     if (PLAIN_VARS.has(key)) return false;        // wrangler.jsonc vars
     if (isLocalhostUrl(value)) return false;      // local-only, see below
-    if (only) return key === only;
+    if (only) return only.has(key);
     return value.length > 0;                      // never upload a blank
   });
 

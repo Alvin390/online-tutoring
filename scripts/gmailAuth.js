@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Generates GMAIL_REFRESH_TOKEN for report alerts — Phase 13 / 06.
- * Walkthrough: issues/plan/appendix-c-gmail-api-setup.md (step 5).
+ * Walkthrough: docs/GMAIL_SETUP.md (step 5).
  *
  * Google's "installed app" loopback flow with PKCE:
  *   1. a throwaway HTTP server on 127.0.0.1 (random port)
@@ -116,7 +116,7 @@ async function main() {
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     console.error('GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET are required (env, .dev.vars or .env.local).');
-    console.error('See issues/plan/appendix-c-gmail-api-setup.md, step 4.');
+    console.error('See docs/GMAIL_SETUP.md, step 4.');
     process.exit(1);
   }
 

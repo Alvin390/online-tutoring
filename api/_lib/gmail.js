@@ -7,7 +7,7 @@ import { countExternalSubrequest } from './firestoreRest.js';
  * Cloudflare's email service needs a domain on Cloudflare. Sending through a
  * real Gmail account via Google's API gives Google-signed mail (SPF, DKIM and
  * DMARC pass for gmail.com) to ANY recipient, free. Setup:
- * issues/plan/appendix-c-gmail-api-setup.md.
+ * docs/GMAIL_SETUP.md.
  *
  * Secrets (Worker secrets, never in the repo):
  *   GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_SENDER
