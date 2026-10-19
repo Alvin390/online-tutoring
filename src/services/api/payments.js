@@ -20,9 +20,5 @@ export const initiatePayment = ({ session, phone, payerPhone, payAmount }) =>
 export const getPaymentStatus = (checkoutRequestId, phone) =>
   apiPost('/api/payments/status', { checkoutRequestId, phone });
 
-export const saveDarajaCredentials = (payload) =>
-  apiPost('/api/daraja/credentials', { action: 'save', ...payload });
-
-export const getDarajaStatus = () => apiPost('/api/daraja/credentials', { action: 'status' });
-
-export const testDarajaConnection = () => apiPost('/api/daraja/credentials', { action: 'test' });
+// M-Pesa credentials are operator-supplied environment variables (Phase 13):
+// there is no teacher-facing credentials call any more.

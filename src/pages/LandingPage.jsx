@@ -8,78 +8,83 @@ export default function LandingPage() {
   const { sessions, loading } = usePublicSessions();
 
   return (
-    <div className="hero-section">
-      <div className="hero-background"></div>
-      <div className="hero-overlay"></div>
+    <>
+      {/* The hero closes BEFORE the features and footer (as in the original
+          design): `.hero-section` is a flex container, and with them inside
+          it they were laid out side by side and squeezed the session cards. */}
+      <div className="hero-section">
+        <div className="hero-background"></div>
+        <div className="hero-overlay"></div>
 
-      <div className="container position-relative">
-        <div className="row min-vh-100 align-items-center justify-content-center">
-          <div className="col-lg-10 text-center">
-            {/* Animated Logo */}
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', duration: 0.8 }}
-              className="hero-icon mb-4 animate-float"
-            >
-              <i className="bi bi-mortarboard-fill" />
-            </motion.div>
+        <div className="container position-relative">
+          <div className="row min-vh-100 align-items-center justify-content-center">
+            <div className="col-lg-10 text-center">
+              {/* Animated Logo */}
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', duration: 0.8 }}
+                className="hero-icon mb-4 animate-float"
+              >
+                <i className="bi bi-mortarboard-fill" />
+              </motion.div>
 
-            {/* Main Heading */}
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="hero-title mb-3"
-            >
-              Welcome to Online Tutoring
-            </motion.h1>
+              {/* Main Heading */}
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="hero-title mb-3"
+              >
+                Welcome to Online Tutoring
+              </motion.h1>
 
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="hero-subtitle mb-5"
-            >
-              Join our interactive Zoom classes and excel in your studies
-            </motion.p>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="hero-subtitle mb-5"
+              >
+                Join our interactive Zoom classes and excel in your studies
+              </motion.p>
 
-            {/* Session cards — Phase 13 / 02 D5. One per ACTIVE session, in the
-                teacher's order, every detail from the session document. The
-                rest of this page (heading, subtitle, features, footer) stays
-                fixed by design. */}
-            <div className="row g-4 justify-content-center" aria-live="polite" aria-busy={loading}>
-              {loading
-                ? [0, 1].map((i) => (
-                    <div key={i} className="col-md-6 col-lg-5">
-                      <div className="session-card-skeleton" aria-hidden="true" />
-                    </div>
-                  ))
-                : sessions.map((session, index) => (
-                    <motion.div
-                      key={session.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.4 + Math.min(index, 5) * 0.1 }}
-                      className={sessions.length > 2 ? 'col-md-6 col-lg-4' : 'col-md-6 col-lg-5'}
-                    >
-                      <SessionCard session={session} />
-                    </motion.div>
-                  ))}
+              {/* Session cards — Phase 13 / 02 D5. One per ACTIVE session, in the
+                  teacher's order, every detail from the session document. The
+                  rest of this page (heading, subtitle, features, footer) stays
+                  fixed by design. */}
+              <div className="row g-4 justify-content-center" aria-live="polite" aria-busy={loading}>
+                {loading
+                  ? [0, 1].map((i) => (
+                      <div key={i} className="col-md-6 col-lg-5">
+                        <div className="session-card-skeleton" aria-hidden="true" />
+                      </div>
+                    ))
+                  : sessions.map((session, index) => (
+                      <motion.div
+                        key={session.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.4 + Math.min(index, 5) * 0.1 }}
+                        className={sessions.length > 2 ? 'col-md-6 col-lg-4' : 'col-md-6 col-lg-5'}
+                      >
+                        <SessionCard session={session} />
+                      </motion.div>
+                    ))}
+              </div>
+
+              {/* Teacher Portal Link */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+                className="mt-5"
+              >
+                <Link to="/dashboard" className="teacher-portal-link">
+                  <i className="bi bi-person-circle me-2" />
+                  Teacher Dashboard
+                </Link>
+              </motion.div>
             </div>
-
-            {/* Teacher Portal Link */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-              className="mt-5"
-            >
-              <Link to="/dashboard" className="teacher-portal-link">
-                <i className="bi bi-person-circle me-2" />
-                Teacher Dashboard
-              </Link>
-            </motion.div>
           </div>
         </div>
       </div>
@@ -109,7 +114,7 @@ export default function LandingPage() {
             <div className="col-md-4">
               <div className="feature-card">
                 <div className="feature-icon">
-                  <i className="bi bi-shield-check-fill" />
+                  <i className="bi bi-shield-fill-check" />
                 </div>
                 <h4 className="feature-title">Secure & Verified</h4>
                 <p className="feature-description">All registrations are verified by teachers</p>
@@ -125,6 +130,6 @@ export default function LandingPage() {
           <p className="mb-0">© 2025 Online Tutoring Platform. All rights reserved.</p>
         </div>
       </footer>
-    </div>
+    </>
   );
 }

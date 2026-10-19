@@ -120,9 +120,10 @@ describe('server tier requirements have a client gate', () => {
   const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
   /**
-   * Handlers a teacher never reaches from a gated panel. Empty since Phase 13 /
-   * 04: `daraja/credentials.js` (Gold) got its panel, DarajaSettingsCard on the
-   * billing page, behind <TierGate tier="gold">.
+   * Handlers a teacher never reaches from a gated panel. Empty.
+   * (`daraja/credentials.js` is no longer a teacher endpoint at all: M-Pesa
+   * credentials are operator-supplied environment variables, and the
+   * endpoint is superadmin-only diagnostics that refuses saves.)
    */
   const NO_PANEL_YET = new Set();
 
@@ -131,7 +132,6 @@ describe('server tier requirements have a client gate', () => {
     expect([...tiers.keys()].sort()).toEqual([
       'calendar/feedToken.js',
       'calendar/manage.js',
-      'daraja/credentials.js',
       'fees/annotate.js',
       'fees/config.js',
       'fees/generateInvoices.js',

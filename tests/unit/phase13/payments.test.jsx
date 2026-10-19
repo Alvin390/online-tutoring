@@ -127,32 +127,23 @@ describe('D2 student payment screen', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('D4 M-Pesa settings card (B8d)', () => {
-  it('env-sourced credentials: status and callback URL shown, read-only', async () => {
-    vi.doMock('@services/api/payments', () => ({
-      getDarajaStatus: vi.fn().mockResolvedValue({
-        configured: true, source: 'env', environment: 'sandbox', shortCode: '174379', shortCodeType: 'paybill',
-        verifiedAt: null, callbackUrl: 'https://x.example/api/daraja/callback/Ab3dEf6hIj9kLm2nOp5qRs',
-      }),
-      saveDarajaCredentials: vi.fn(), testDarajaConnection: vi.fn(),
-    }));
-    const { default: Card } = await import('@/features/payments/components/DarajaSettingsCard.jsx');
-    render(<Card />);
-    expect(await screen.findByDisplayValue(/callback\/Ab3dEf6hIj9kLm2nOp5qRs$/)).toBeTruthy();
-    expect(screen.getByText('Server configuration')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Copy callback URL' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Test connection/ })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Set up M-Pesa|Replace credentials/ })).toBeNull();
-  });
-
-  it('not configured: offers set-up', async () => {
-    vi.doMock('@services/api/payments', () => ({
-      getDarajaStatus: vi.fn().mockResolvedValue({ configured: false, source: null, callbackUrl: null }),
-      saveDarajaCredentials: vi.fn(), testDarajaConnection: vi.fn(),
-    }));
-    const { default: Card } = await import('@/features/payments/components/DarajaSettingsCard.jsx');
-    render(<Card />);
-    expect(await screen.findByRole('button', { name: 'Set up M-Pesa' })).toBeTruthy();
+// M-Pesa credentials are operator-supplied environment variables (Cloudflare
+// variables in production). The Phase 13 / 04 settings card was removed: no
+// teacher-facing screen or client call may offer to view or enter them.
+describe('M-Pesa credentials are not a teacher concern', () => {
+  it('nothing in the app calls the credentials endpoint or renders a settings card', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs');
+    const path = await import('node:path');
+    const files = [];
+    (function walk(dir) {
+      for (const name of readdirSync(dir)) {
+        const full = path.join(dir, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.(jsx?|tsx?)$/.test(name)) files.push(full);
+      }
+    })(path.join(process.cwd(), 'src'));
+    const offenders = files.filter((f) => /daraja\/credentials|DarajaSettingsCard|saveDarajaCredentials/.test(readFileSync(f, 'utf8')));
+    expect(offenders).toEqual([]);
   });
 });
 

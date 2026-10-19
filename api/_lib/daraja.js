@@ -1,5 +1,5 @@
 import { getDb } from './firebaseAdmin.js';
-import { decrypt, randomToken } from './crypto.js';
+import { randomToken } from './crypto.js';
 import { ApiError } from './errors.js';
 import { darajaMode, darajaEnvironment, darajaVar } from './mode.js';
 import { countExternalSubrequest } from './firestoreRest.js';
@@ -133,19 +133,9 @@ export function toDarajaPhone(phone) {
 // ---------------------------------------------------------------------------
 
 /**
- * Loads and decrypts the teacher's Daraja credentials.
- *
- * These move real money out of a real till, so they are AES-256-GCM encrypted
- * at rest (Phase 01 D5) and `integrations/daraja` is `allow read, write: if
- * false` for every client including the superadmin. Only the Admin SDK reads it.
- */
-/**
  * Credentials from the environment, when the current mode has a full set.
- *
- * A local-testing convenience so STK pushes can be exercised without going
- * through the credentials form first. Returns null unless EVERY field for the
- * active mode is present — a partial set would fail against Safaricom with a
- * confusing error rather than falling through to the stored record.
+ * Returns null unless EVERY field for the active mode is present — a partial
+ * set would fail against Safaricom with a confusing error.
  */
 function credentialsFromEnv() {
   const consumerKey = darajaVar('DARAJA_CONSUMER_KEY');
@@ -162,69 +152,43 @@ function credentialsFromEnv() {
     consumerKey,
     consumerSecret,
     passkey,
-    // Env-supplied credentials are taken as operator-verified: whoever set them
-    // has the .env file, and there is no form step that could have tested them.
+    // Operator-supplied credentials are taken as verified: whoever set them
+    // has the deployment's variables, and there is no form step to test them.
     verifiedAt: new Date(),
     source: 'env',
   };
 }
 
+/**
+ * The Daraja credentials — from the ENVIRONMENT only (Cloudflare Worker
+ * variables/secrets in production, `.dev.vars` locally).
+ *
+ * Phase 13 decision: the operator supplies the till and keys; teachers never
+ * see or enter them. The in-app credentials form is gone, the save endpoint
+ * refuses, and the old Firestore-stored copy (`integrations/daraja`, encrypted)
+ * is no longer read. That document still holds the callback secret, which is
+ * not a credential.
+ *
+ * `DARAJA_MODE` selects the sandbox or live set (see mode.js).
+ */
 export async function loadCredentials() {
-  // Environment first, so DARAJA_MODE genuinely controls which till is hit.
   const fromEnv = credentialsFromEnv();
   if (fromEnv) return fromEnv;
 
-  const snap = await getDb().doc('integrations/daraja').get();
-
-  if (!snap.exists) {
-    throw new ApiError(
-      503,
-      'daraja_not_configured',
-      'M-Pesa payments are not set up yet.',
-      {
-        expose: true,
-        cause: new Error(
-          `No DARAJA_${darajaMode() === 'live' ? 'LIVE' : 'SANDBOX'}_* env credentials and no integrations/daraja record`
-        ),
-      }
-    );
-  }
-
-  const data = snap.data();
-
-  try {
-    return {
-      shortCode: String(data.shortCode ?? ''),
-      shortCodeType: data.shortCodeType === 'paybill' ? 'paybill' : 'till',
-      // DARAJA_MODE wins over the stored value when it is explicitly set, so
-      // flipping the env var moves the whole app between sandbox and
-      // production without editing the Firestore record.
-      environment: process.env.DARAJA_MODE
-        ? darajaEnvironment()
-        : (data.environment === 'production' ? 'production' : 'sandbox'),
-      consumerKey: decrypt(data.consumerKeyEnc),
-      consumerSecret: decrypt(data.consumerSecretEnc),
-      passkey: decrypt(data.passkeyEnc),
-      verifiedAt: data.verifiedAt ?? null,
-      source: 'firestore',
-    };
-  } catch (err) {
-    // A decryption failure means the encryption key changed or the record is
-    // corrupt. Either way this is not something to retry against.
-    throw new ApiError(
-      503,
-      'daraja_credentials_unreadable',
-      'M-Pesa credentials could not be read. Please re-enter them.',
-      { expose: true, cause: err }
-    );
-  }
+  throw new ApiError(
+    503,
+    'daraja_not_configured',
+    'M-Pesa payments are not set up yet.',
+    {
+      expose: true,
+      cause: new Error(`No DARAJA_${darajaMode() === 'live' ? 'LIVE' : 'SANDBOX'}_* credentials in the environment`),
+    }
+  );
 }
 
-/** Where the active credentials come from: 'env', 'firestore', or null. */
+/** Where the active credentials come from: 'env', or null when not set. */
 export async function credentialSource() {
-  if (credentialsFromEnv()) return 'env';
-  const snap = await getDb().doc('integrations/daraja').get();
-  return snap.exists && snap.data().consumerKeyEnc ? 'firestore' : null;
+  return credentialsFromEnv() ? 'env' : null;
 }
 
 /** Whether env credentials are active — the form must not offer to save then. */

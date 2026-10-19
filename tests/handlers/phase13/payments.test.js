@@ -170,19 +170,48 @@ describe('D3 reconciled payments and late callbacks (I2)', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('D4 credentials status for env-sourced keys (B8d server)', () => {
-  it('reports env as the source with the real callback URL, and refuses a save', async () => {
-    const status = await call('/api/daraja/credentials', { token: gold, body: { action: 'status' } });
+// M-Pesa credentials are operator-supplied environment variables (Cloudflare
+// variables in production). The endpoint is superadmin-only diagnostics and
+// refuses every save; the billing-page card that used it was removed.
+describe('Daraja credentials: environment only, no teacher access', () => {
+  const payload = { action: 'save', shortCode: '174379', shortCodeType: 'paybill', consumerKey: 'k'.repeat(12), consumerSecret: 's'.repeat(12), passkey: 'p'.repeat(12) };
+
+  it('a Gold teacher cannot read the status (it carries the callback secret) or save', async () => {
+    expect((await call('/api/daraja/credentials', { token: gold, body: { action: 'status' } })).status).toBe(403);
+    expect((await call('/api/daraja/credentials', { token: gold, body: payload })).status).toBe(403);
+  });
+
+  it('the superadmin sees env as the source and the real callback URL', async () => {
+    const admin = await userWithClaims('p13-pay-super', teacherClaims.superadmin);
+    const status = await call('/api/daraja/credentials', { token: admin, body: { action: 'status' } });
     expect(status.status).toBe(200);
     expect(status.body).toMatchObject({ configured: true, source: 'env', environment: 'sandbox' });
     expect(status.body.callbackUrl).toMatch(/\/api\/daraja\/callback\/[A-Za-z0-9_-]{22}$/);
+  });
 
-    const save = await call('/api/daraja/credentials', {
-      token: gold,
-      body: { action: 'save', shortCode: '174379', shortCodeType: 'paybill', consumerKey: 'k'.repeat(12), consumerSecret: 's'.repeat(12), passkey: 'p'.repeat(12) },
-    });
+  it('a save is refused even for the superadmin, and nothing is written', async () => {
+    const admin = await userWithClaims('p13-pay-super', teacherClaims.superadmin);
+    const save = await call('/api/daraja/credentials', { token: admin, body: payload });
     expect(save.status).toBe(409);
     expect(save.body.error.code).toBe('managed_by_environment');
+    const doc = (await db.doc('integrations/daraja').get()).data() ?? {};
+    expect(doc.consumerKeyEnc).toBeUndefined();
+  });
+
+  it('a stored (pre-change) Firestore credential set is ignored: environment only', async () => {
+    const { loadCredentials, credentialSource } = await import('../../../api/_lib/daraja.js');
+    const saved = {};
+    for (const k of ['DARAJA_SANDBOX_CONSUMER_KEY', 'DARAJA_SANDBOX_CONSUMER_SECRET', 'DARAJA_SANDBOX_PASSKEY', 'DARAJA_SANDBOX_SHORTCODE']) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    try {
+      await db.doc('integrations/daraja').set({ shortCode: '600000', consumerKeyEnc: 'v1.aaa.bbb.ccc', consumerSecretEnc: 'x', passkeyEnc: 'y' }, { merge: true });
+      expect(await credentialSource()).toBeNull();
+      await expect(loadCredentials()).rejects.toMatchObject({ code: 'daraja_not_configured' });
+    } finally {
+      Object.assign(process.env, saved);
+    }
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useBilling } from '@features/billing/context/BillingContext';
@@ -12,12 +12,8 @@ import {
   cancelDowngrade,
 } from '@services/api/billing';
 import logger from '@utils/logger';
-import TierGate from '@shared/components/TierGate';
-import { useFlag } from '@shared/config/FlagsContext';
 import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
 
-// Lazy: only Gold teachers with M-Pesa enabled ever render it.
-const DarajaSettingsCard = lazy(() => import('@features/payments/components/DarajaSettingsCard'));
 
 /**
  * Billing page — Phase 03 D3/D6/D8.
@@ -90,7 +86,6 @@ function formatDate(value) {
 export default function BillingPage() {
   const { subscription, status, tier, isLocked, loading, refresh } = useBilling();
   const { showError, showSuccess } = useToast();
-  const darajaEnabled = useFlag('payments.daraja');
 
   const [selectedTier, setSelectedTier] = useState(null);
   const [channel, setChannel] = useState('card');
@@ -519,16 +514,6 @@ export default function BillingPage() {
         })}
       </div>
 
-      {/* Phase 13 / 04 D4: M-Pesa settings, Gold (matches api/daraja/credentials.js). */}
-      {darajaEnabled && (
-        <div className="mt-5" style={{ maxWidth: 640 }}>
-          <TierGate tier="gold" feature="In-app M-Pesa payments" description="Let students pay fees with an M-Pesa prompt">
-            <Suspense fallback={<div className="card"><div className="card-body text-center py-3"><span className="spinner-border spinner-border-sm text-muted" /></div></div>}>
-              <DarajaSettingsCard />
-            </Suspense>
-          </TierGate>
-        </div>
-      )}
     </div>
   );
 }
