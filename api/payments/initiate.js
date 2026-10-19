@@ -6,7 +6,13 @@ import { badRequest, forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { accountRef } from '../_lib/ledger.js';
-import { loadCredentials, initiateStkPush, toDarajaPhone } from '../_lib/daraja.js';
+import {
+  loadCredentials,
+  initiateStkPush,
+  toDarajaPhone,
+  ensureCallbackSecret,
+  buildCallbackUrl,
+} from '../_lib/daraja.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
 /**
@@ -103,8 +109,11 @@ export default createHandler({
     const payer = toDarajaPhone(body.payerPhone ?? phone);
     if (!payer) throw badRequest('That phone number is not valid for M-Pesa.');
 
-    const callbackSecret = (await db.doc('integrations/daraja').get()).data()?.callbackSecret ?? '';
-    const callbackUrl = `${process.env.PUBLIC_BASE_URL ?? ''}/api/daraja/callback/${callbackSecret}`;
+    // Phase 13 / 04 D1: the secret is created on first use (it used to exist
+    // only if the credentials form had been submitted — with env credentials
+    // this built `…/callback/`, which no route matches), and the URL is checked
+    // against the rules Safaricom enforces before an STK push can go out.
+    const callbackUrl = buildCallbackUrl(process.env.PUBLIC_BASE_URL, await ensureCallbackSecret(db));
 
     // AccountReference is the attribution key (Q24) and is capped at 12
     // characters by Daraja (daraja_docs.txt:220). A Kenyan number without the

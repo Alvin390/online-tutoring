@@ -5,6 +5,9 @@ import Modal from '@components/ui/Modal';
 import { SkeletonTable } from '@components/ui/Skeleton';
 import { postLedgerEntry } from '@services/api/fees';
 import logger from '@utils/logger';
+import { useFlag } from '@shared/config/FlagsContext';
+import { useAuthState } from '@features/auth/context/AuthContext';
+import { TIER_RANK } from '@shared/constants/tiers';
 
 export default function StudentTable({
   session,
@@ -28,9 +31,21 @@ export default function StudentTable({
   const [blocking, setBlocking] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [blockReason, setBlockReason] = useState('');
+  /**
+   * Phase 13 / 04 D5. A fee block posts a ledger charge through /api/fees/post,
+   * which needs the fees feature ON and the Silver tier. It used to be the
+   * default for everyone — a Bronze teacher's block failed with 403, and with
+   * fees off a charge was still posted silently. Now the fee option is the
+   * default only when it can actually work; otherwise it is shown disabled.
+   */
+  const feesFlag = useFlag('fees.enabled');
+  const { tierRank, isSuperadmin } = useAuthState();
+  const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
+  const defaultBlockKind = feesUsable ? 'fees' : 'other';
+
   // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;
   // 'other' is the free-text block that existed before.
-  const [blockKind, setBlockKind] = useState('fees');
+  const [blockKind, setBlockKind] = useState(defaultBlockKind);
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
 
@@ -54,7 +69,7 @@ export default function StudentTable({
   const handleBlockClick = (student) => {
     setSelectedStudent(student);
     setBlockReason('');
-    setBlockKind('fees');
+    setBlockKind(defaultBlockKind);
     setBlockAmount('');
     setBlockError(null);
     setShowBlockModal(true);
@@ -107,7 +122,7 @@ export default function StudentTable({
 
     setBlockError(null);
 
-    if (blockKind === 'fees') {
+    if (blockKind === 'fees' && feesUsable) {
       const amount = Number(blockAmount);
       if (!Number.isInteger(amount) || amount < 1) {
         setBlockError('Enter the amount owed, in whole shillings.');
@@ -139,7 +154,7 @@ export default function StudentTable({
       session,
       selectedStudent.id,
       selectedStudent.studentName,
-      blockKind === 'fees' ? '' : blockReason
+      blockKind === 'fees' && feesUsable ? '' : blockReason
     );
 
     setBlocking(false);
@@ -381,11 +396,14 @@ export default function StudentTable({
                   type="button"
                   role="radio"
                   aria-checked={blockKind === 'fees'}
+                  aria-describedby={feesUsable ? undefined : 'block-fees-unavailable'}
                   className={`btn ${blockKind === 'fees' ? 'btn-primary' : 'btn-outline-primary'}`}
                   onClick={() => setBlockKind('fees')}
+                  disabled={!feesUsable}
                 >
                   <i className="bi bi-cash-coin me-1" aria-hidden="true" />
                   Unpaid fees
+                  {!feesUsable && <i className="bi bi-lock-fill ms-1" aria-hidden="true" />}
                 </button>
                 <button
                   type="button"
@@ -399,7 +417,15 @@ export default function StudentTable({
                 </button>
               </div>
 
-              {blockKind === 'fees' ? (
+              {!feesUsable && (
+                <div id="block-fees-unavailable" className="form-text mb-2">
+                  {feesFlag
+                    ? 'Blocking for unpaid fees records the amount owed, which needs the Silver plan.'
+                    : 'Turn on fee tracking to block for unpaid fees and let students pay by M-Pesa.'}
+                </div>
+              )}
+
+              {blockKind === 'fees' && feesUsable ? (
                 <>
                   <label className="form-label small fw-semibold" htmlFor="block-amount">
                     Amount owed (KES)
@@ -442,7 +468,7 @@ export default function StudentTable({
             <div className="alert alert-warning text-start">
               <i className="bi bi-exclamation-triangle me-2" />
               <small>
-                {blockKind === 'fees'
+                {blockKind === 'fees' && feesUsable
                   ? 'The student sees the balance owed and can clear it by M-Pesa to regain access.'
                   : 'The student will be blocked until you unblock them from this dashboard.'}
               </small>

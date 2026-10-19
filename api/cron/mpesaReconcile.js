@@ -199,6 +199,10 @@ export default async function handler(req, res) {
           amount: tx.expectedAmount,
           method: 'mpesa',
           reference: null,
+          // Phase 13 / 04 D3: the status query returns no receipt code. The
+          // entry is flagged so the teacher sees "receipt not received" and
+          // can add it; a late callback fills it in automatically.
+          receiptPending: true,
           note: 'Recovered by reconciliation — callback not received',
           recordedBy: 'system:daraja-reconcile',
           idempotencyKey: `mpesa_${tx.checkoutRequestId}`,

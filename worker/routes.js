@@ -24,6 +24,7 @@ import cronSubscriptionSweep from '../api/cron/subscriptionSweep.js';
 import darajaCallback from '../api/daraja/callback/[secret].js';
 import darajaCredentials from '../api/daraja/credentials.js';
 
+import feesAnnotate from '../api/fees/annotate.js';
 import feesApproveReceipt from '../api/fees/approveReceipt.js';
 import feesConfig from '../api/fees/config.js';
 import feesGenerateInvoices from '../api/fees/generateInvoices.js';
@@ -90,6 +91,7 @@ export const STATIC_ROUTES = {
 
   '/api/daraja/credentials': darajaCredentials,
 
+  '/api/fees/annotate': feesAnnotate,
   '/api/fees/approveReceipt': feesApproveReceipt,
   '/api/fees/config': feesConfig,
   '/api/fees/generateInvoices': feesGenerateInvoices,

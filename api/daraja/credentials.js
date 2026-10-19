@@ -2,8 +2,16 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z } from '../_lib/validate.js';
 import { encrypt, ENCRYPTION_KEY_VERSION } from '../_lib/crypto.js';
-import { getAccessToken, _resetTokenCache } from '../_lib/daraja.js';
-import { badRequest } from '../_lib/errors.js';
+import {
+  getAccessToken,
+  _resetTokenCache,
+  loadCredentials,
+  credentialSource,
+  hasEnvCredentials,
+  ensureCallbackSecret,
+  buildCallbackUrl,
+} from '../_lib/daraja.js';
+import { badRequest, ApiError } from '../_lib/errors.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
 /**
@@ -55,31 +63,51 @@ export default createHandler({
 
     // ------------------------------------------------------------- status
     if (body.action === 'status') {
+      // Phase 13 / 04 D4: env-sourced credentials are reported too (they used
+      // to read as "not configured"), and the callback URL is the real one —
+      // the secret is created on first use, so it is never blank.
+      const source = await credentialSource();
       const snap = await ref.get();
-      if (!snap.exists) {
-        return { ok: true, configured: false };
+      const data = snap.exists ? snap.data() : {};
+
+      let callbackUrl = null;
+      try {
+        callbackUrl = buildCallbackUrl(process.env.PUBLIC_BASE_URL, await ensureCallbackSecret(db));
+      } catch (err) {
+        log.warn('Callback URL unavailable', { reason: err?.message });
       }
 
-      const data = snap.data();
-      const baseUrl = process.env.PUBLIC_BASE_URL ?? '';
+      if (!source) return { ok: true, configured: false, source: null, callbackUrl };
 
+      const creds = await loadCredentials();
       return {
         ok: true,
         configured: true,
-        shortCode: data.shortCode ?? null,
-        shortCodeType: data.shortCodeType ?? null,
-        environment: data.environment ?? 'sandbox',
+        // 'env' = set by the operator as Worker secrets: read-only here.
+        source,
+        shortCode: creds.shortCode ?? null,
+        shortCodeType: creds.shortCodeType ?? null,
+        environment: creds.environment ?? 'sandbox',
         // Masked hints only. The plaintext is never returned, so a compromised
         // teacher session cannot exfiltrate the credentials.
-        consumerKeyHint: data.consumerKeyHint ?? '••••',
+        consumerKeyHint: source === 'env' ? null : (data.consumerKeyHint ?? '••••'),
         verifiedAt: data.verifiedAt?.toDate?.()?.toISOString() ?? null,
+        lastTestError: data.lastTestError ?? null,
         // What the teacher pastes into the Safaricom portal.
-        callbackUrl: `${baseUrl}/api/daraja/callback/${data.callbackSecret ?? ''}`,
+        callbackUrl,
       };
     }
 
     // --------------------------------------------------------------- save
     if (body.action === 'save') {
+      if (hasEnvCredentials()) {
+        throw new ApiError(
+          409,
+          'managed_by_environment',
+          'M-Pesa credentials are managed by the server configuration and cannot be changed here.'
+        );
+      }
+
       const required = ['shortCode', 'shortCodeType', 'consumerKey', 'consumerSecret', 'passkey'];
       for (const field of required) {
         if (!body[field]) throw badRequest(`${field} is required.`);
@@ -91,8 +119,7 @@ export default createHandler({
       // behind the IP allowlist. Regenerated only on first save, so re-saving
       // credentials does not invalidate a URL already registered with
       // Safaricom — which would silently break every in-flight payment.
-      const callbackSecret = before?.callbackSecret
-        ?? (await import('../_lib/crypto.js')).randomToken(16);
+      const callbackSecret = await ensureCallbackSecret(db);
 
       await ref.set(
         {
@@ -134,11 +161,10 @@ export default createHandler({
         log
       );
 
-      const baseUrl = process.env.PUBLIC_BASE_URL ?? '';
       return {
         ok: true,
         configured: true,
-        callbackUrl: `${baseUrl}/api/daraja/callback/${callbackSecret}`,
+        callbackUrl: buildCallbackUrl(process.env.PUBLIC_BASE_URL, callbackSecret),
         note: 'Register this callback URL in the Safaricom portal, then run Test connection.',
       };
     }
@@ -148,8 +174,6 @@ export default createHandler({
     // Catches misconfiguration at entry rather than at the first student
     // payment, which is the difference between a teacher fixing a typo now and
     // a parent's payment vanishing next week.
-    const { loadCredentials } = await import('../_lib/daraja.js');
-
     try {
       const credentials = await loadCredentials();
       await getAccessToken(credentials);

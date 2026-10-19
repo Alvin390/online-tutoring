@@ -63,6 +63,8 @@ export const counterRef = (db, name) => db.doc(`fees/counters/items/${name}`);
  * @param {string} [opts.sourceReceiptId]
  * @param {string} [opts.idempotencyKey] entry ID; a replay collides and is dropped
  * @param {number} [opts.deltaOverride] signed delta, for reversals only
+ * @param {boolean} [opts.receiptPending] Phase 13 / 04 D3: posted without the
+ *        receipt that will follow (reconciled M-Pesa payments)
  */
 export async function postEntry(opts) {
   const db = getDb();
@@ -81,6 +83,7 @@ export async function postEntry(opts) {
     sourceReceiptId = null,
     idempotencyKey = null,
     deltaOverride = null,
+    receiptPending = false,
   } = opts;
 
   if (!ENTRY_TYPES.includes(type)) throw badRequest(`Unknown entry type: ${type}`);
@@ -141,6 +144,7 @@ export async function postEntry(opts) {
       sourceReceiptId,
       session,
       phone,
+      ...(receiptPending ? { receiptPending: true } : {}),
     });
 
     // ---- 2. The authoritative balance.
@@ -188,6 +192,44 @@ export async function postEntry(opts) {
     );
 
     return { duplicate: false, entryId: entry.id, balance: balanceAfter, previousBalance };
+  });
+}
+
+/**
+ * Fills in a ledger entry's missing reference — Phase 13 / 04 D3.
+ *
+ * The ONE permitted change to a posted entry, and only in one direction:
+ * `reference` from null to a value. Amount, type, dates and balance are never
+ * touched, so the append-only guarantee holds for every money field. Used when
+ * a payment was recovered by the reconcile cron (Daraja's status query returns
+ * no receipt code) and the receipt arrives later — from a late Safaricom
+ * callback, or typed in by the teacher.
+ *
+ * Transactional: two fillers racing cannot both win.
+ *
+ * @returns {Promise<{filled: boolean, reason?: 'missing'|'already_set'}>}
+ */
+export async function fillMissingReference({ phone, entryId, reference, addedBy, notMpesa = false }) {
+  const db = getDb();
+  const ref = ledgerRef(db, phone).doc(entryId);
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { filled: false, reason: 'missing' };
+    if (snap.data().reference) return { filled: false, reason: 'already_set' };
+
+    tx.set(
+      ref,
+      {
+        reference,
+        receiptPending: false,
+        referenceAddedBy: addedBy,
+        referenceAddedAt: new Date(),
+        ...(notMpesa ? { referenceIsNotMpesa: true } : {}),
+      },
+      { merge: true }
+    );
+    return { filled: true };
   });
 }
 

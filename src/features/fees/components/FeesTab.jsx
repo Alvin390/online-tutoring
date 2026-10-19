@@ -33,8 +33,84 @@ function formatDate(iso) {
   });
 }
 
+/**
+ * The M-Pesa receipt code as a chip with a copy button — Phase 13 / 04 D2.
+ * Monospace so 0/O and 1/I are distinguishable when read out to a parent.
+ */
+function ReceiptChip({ reference }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="d-inline-flex align-items-center gap-1">
+      <code className="bg-light border rounded px-2 py-0 text-dark" style={{ fontSize: '0.85rem' }}>{reference}</code>
+      <button
+        type="button"
+        className="btn btn-link btn-sm p-0"
+        onClick={() => {
+          navigator.clipboard?.writeText(reference);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        aria-label={`Copy receipt ${reference}`}
+      >
+        <i className={`bi ${copied ? 'bi-clipboard-check' : 'bi-clipboard'}`} aria-hidden="true" />
+      </button>
+    </span>
+  );
+}
+
+/** Inline form for a reconciled payment whose receipt never arrived. */
+function AddReceipt({ entryId, onAdd, saving }) {
+  const [value, setValue] = useState('');
+  const [notMpesa, setNotMpesa] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <div className="alert alert-warning py-2 px-2 small mb-0 mt-1" data-testid={`receipt-pending-${entryId}`}>
+      <div className="mb-1">
+        <i className="bi bi-hourglass-split me-1" aria-hidden="true" />
+        Receipt not received from M-Pesa — add it from your M-Pesa statement.
+      </div>
+      <div className="d-flex gap-1">
+        <input
+          className="form-control form-control-sm"
+          value={value}
+          onChange={(e) => setValue(notMpesa ? e.target.value : e.target.value.toUpperCase())}
+          placeholder={notMpesa ? 'e.g. Cash at school' : 'e.g. TJK9XYZ8QP'}
+          maxLength={40}
+          aria-label="Receipt code"
+        />
+        <button
+          type="button"
+          className="btn btn-sm btn-warning"
+          disabled={saving || !value.trim()}
+          onClick={async () => {
+            setError('');
+            const result = await onAdd(entryId, value.trim(), notMpesa);
+            if (!result.success) setError(result.message ?? 'Could not add it.');
+          }}
+        >
+          Add
+        </button>
+      </div>
+      <div className="form-check mt-1">
+        <input
+          className="form-check-input"
+          type="checkbox"
+          id={`not-mpesa-${entryId}`}
+          checked={notMpesa}
+          onChange={(e) => setNotMpesa(e.target.checked)}
+        />
+        <label className="form-check-label" htmlFor={`not-mpesa-${entryId}`}>Not an M-Pesa receipt</label>
+      </div>
+      {error && <div className="text-danger mt-1" role="alert">{error}</div>}
+    </div>
+  );
+}
+
 export default function FeesTab({ session, phone, active }) {
-  const { summary, entries, feesEnabled, loading, saving, pay, reverse } = useStudentFees({
+  const {
+    summary, entries, hasMore, loadOlder, feesEnabled, loading, saving, announcement,
+    pay, reverse, addReference,
+  } = useStudentFees({
     session,
     phone,
     enabled: active,
@@ -83,6 +159,9 @@ export default function FeesTab({ session, phone, active }) {
 
   return (
     <div>
+      {/* Screen readers hear a payment arrive while the statement is open. */}
+      <div className="visually-hidden" aria-live="polite" role="status">{announcement}</div>
+
       {/* Balance. Icon and label alongside colour — never colour alone. */}
       <div className={`border rounded p-3 mb-3 ${owes ? 'border-danger' : 'border-success'}`}>
         <div className="d-flex justify-content-between align-items-center">
@@ -231,12 +310,22 @@ export default function FeesTab({ session, phone, active }) {
                   {meta.label}
                   {isReversed && <span className="badge text-bg-light text-muted ms-2">Reversed</span>}
                 </span>
-                <div className="small text-muted">
-                  {formatDate(entry.occurredAt)}
-                  {entry.method && ` · ${entry.method}`}
-                  {entry.reference && ` · ${entry.reference}`}
+                <div className="small text-muted d-flex flex-wrap align-items-center gap-1">
+                  <span>{formatDate(entry.occurredAt)}</span>
+                  {entry.method && <span>· {entry.method === 'mpesa' ? 'M-Pesa' : entry.method}</span>}
+                  {entry.reference && (
+                    <>
+                      <span>·</span>
+                      {entry.method === 'mpesa' && !entry.referenceIsNotMpesa
+                        ? <ReceiptChip reference={entry.reference} />
+                        : <span>{entry.reference}</span>}
+                    </>
+                  )}
                 </div>
                 {entry.note && <div className="small">{entry.note}</div>}
+                {entry.receiptPending && !entry.reference && (
+                  <AddReceipt entryId={entry.id} onAdd={addReference} saving={saving} />
+                )}
               </div>
 
               <div className="text-end">
@@ -297,6 +386,14 @@ export default function FeesTab({ session, phone, active }) {
           </div>
         );
       })}
+
+      {hasMore && (
+        <div className="text-center">
+          <button type="button" className="btn btn-link btn-sm" onClick={loadOlder}>
+            Show older entries
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,42 +1,149 @@
-import { useState, useEffect, useCallback } from 'react';
-import { getFeeSummary, recordPayment, reverseLedgerEntry } from '@services/api/fees';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  collection,
+  doc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  startAfter,
+} from 'firebase/firestore';
+import { db } from '@services/firebase/config';
+import { getFeeSummary, recordPayment, reverseLedgerEntry, annotateLedgerEntry } from '@services/api/fees';
 import { useToast } from '@/context/ToastContext';
+import { formatKes } from '@utils/blockReason';
 import logger from '@utils/logger';
 
 /**
- * One student's fee state — Phase 06.
+ * One student's fee state — Phase 06; LIVE since Phase 13 / 04 D2.
  *
- * Loaded only when the drawer's Fees tab is opened, like notes. Ledger entries
- * are never part of the dashboard's initial payload.
+ * Loaded only when the drawer's Fees tab is opened. Two listeners, both scoped
+ * to this one student and torn down when the tab closes:
+ *
+ *   - the ledger, newest first, 50 at a time ("Show older" pages back with a
+ *     cursor) — so an M-Pesa payment confirmed by Safaricom appears on the open
+ *     statement within a second, receipt code included, with no reload;
+ *   - the account document, for the live balance.
+ *
+ * The summary endpoint is still read once, for `feesEnabled` and the due date.
+ * Teachers may read the ledger directly (firestore.rules); every WRITE still
+ * goes through the API.
  */
+
+const PAGE = 50;
+
+const toIso = (value) => value?.toDate?.()?.toISOString?.() ?? (typeof value === 'string' ? value : null);
+
+function fromDoc(d) {
+  const data = d.data();
+  return {
+    id: d.id,
+    ...data,
+    occurredAt: toIso(data.occurredAt),
+    recordedAt: toIso(data.recordedAt),
+  };
+}
+
 export const useStudentFees = ({ session, phone, enabled = false }) => {
   const [summary, setSummary] = useState(null);
-  const [entries, setEntries] = useState([]);
+  const [account, setAccount] = useState(null);
+  const [firstPage, setFirstPage] = useState([]);
+  const [olderPages, setOlderPages] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
   const [feesEnabled, setFeesEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
   const { showSuccess, showError } = useToast();
+  const lastDocRef = useRef(null);
 
-  const load = useCallback(async () => {
+  // The once-off summary: whether fees are on, and the due date.
+  const loadSummary = useCallback(async () => {
     if (!enabled || !session || !phone) return;
-
-    setLoading(true);
     try {
       const result = await getFeeSummary(session, phone);
       setFeesEnabled(result.feesEnabled);
       setSummary(result.summary);
-      setEntries(result.entries ?? []);
     } catch (error) {
       logger.error('Fee summary load failed', error);
       showError(error?.message ?? 'Could not load fees.');
-    } finally {
-      setLoading(false);
     }
   }, [enabled, session, phone, showError]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadSummary();
+  }, [loadSummary]);
+
+  // Live ledger + live account.
+  useEffect(() => {
+    if (!enabled || !phone) return undefined;
+
+    setLoading(true);
+    setOlderPages([]);
+    let initial = true;
+
+    const ledgerQuery = query(
+      collection(db, 'fees', 'accounts', 'items', phone, 'ledger'),
+      orderBy('occurredAt', 'desc'),
+      limit(PAGE)
+    );
+
+    const unsubscribeLedger = onSnapshot(
+      ledgerQuery,
+      (snap) => {
+        setFirstPage(snap.docs.map(fromDoc));
+        lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+        setHasMore(snap.docs.length === PAGE);
+        setLoading(false);
+
+        // Announce payments that arrive while the statement is open — not the
+        // ones that were already there when it opened.
+        if (!initial) {
+          for (const change of snap.docChanges()) {
+            if (change.type !== 'added') continue;
+            const entry = fromDoc(change.doc);
+            if (entry.type !== 'payment') continue;
+            const message = `Payment of ${formatKes(Math.abs(entry.amount))} received${
+              entry.reference ? `, receipt ${entry.reference}` : ''
+            }.`;
+            setAnnouncement(message);
+          }
+        }
+        initial = false;
+      },
+      (error) => {
+        logger.error('Ledger listener failed', error);
+        setLoading(false);
+      }
+    );
+
+    const unsubscribeAccount = onSnapshot(
+      doc(db, 'fees', 'accounts', 'items', phone),
+      (snap) => setAccount(snap.exists() ? snap.data() : null),
+      (error) => logger.error('Account listener failed', error)
+    );
+
+    return () => {
+      unsubscribeLedger();
+      unsubscribeAccount();
+    };
+  }, [enabled, phone]);
+
+  const loadOlder = useCallback(async () => {
+    if (!lastDocRef.current || !phone) return;
+    const snap = await getDocs(
+      query(
+        collection(db, 'fees', 'accounts', 'items', phone, 'ledger'),
+        orderBy('occurredAt', 'desc'),
+        startAfter(lastDocRef.current),
+        limit(PAGE)
+      )
+    );
+    setOlderPages((prev) => [...prev, ...snap.docs.map(fromDoc)]);
+    lastDocRef.current = snap.docs[snap.docs.length - 1] ?? lastDocRef.current;
+    setHasMore(snap.docs.length === PAGE);
+  }, [phone]);
 
   const pay = useCallback(
     async (payload) => {
@@ -56,8 +163,7 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
         } else {
           showSuccess('Payment recorded.');
         }
-
-        await load();
+        // No reload: the listeners deliver the new entry and balance.
         return { success: true, result };
       } catch (error) {
         logger.error('Record payment failed', error);
@@ -67,7 +173,7 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
         setSaving(false);
       }
     },
-    [session, phone, load, showSuccess, showError]
+    [session, phone, showSuccess, showError]
   );
 
   const reverse = useCallback(
@@ -76,7 +182,6 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
       try {
         await reverseLedgerEntry({ session, phone, entryId, note });
         showSuccess('Entry reversed. Both the original and the correction stay on the statement.');
-        await load();
         return { success: true };
       } catch (error) {
         logger.error('Reverse entry failed', error);
@@ -86,8 +191,54 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
         setSaving(false);
       }
     },
-    [session, phone, load, showSuccess, showError]
+    [session, phone, showSuccess, showError]
   );
 
-  return { summary, entries, feesEnabled, loading, saving, reload: load, pay, reverse };
+  /** Phase 13 / 04 D3: fill in a missing receipt code on a reconciled payment. */
+  const addReference = useCallback(
+    async (entryId, reference, notMpesa = false) => {
+      setSaving(true);
+      try {
+        await annotateLedgerEntry({ session, phone, entryId, reference, notMpesa });
+        showSuccess('Receipt code added.');
+        return { success: true };
+      } catch (error) {
+        logger.error('Add reference failed', error);
+        showError(error?.message ?? 'Could not add that receipt code.');
+        return { success: false, message: error?.message };
+      } finally {
+        setSaving(false);
+      }
+    },
+    [session, phone, showSuccess, showError]
+  );
+
+  // Live balance wins over the once-off summary.
+  const liveSummary = summary
+    ? {
+        ...summary,
+        ...(account
+          ? {
+              balance: account.balance ?? summary.balance,
+              lastPaymentAt: toIso(account.lastPaymentAt) ?? summary.lastPaymentAt,
+              lastPaymentAmount: account.lastPaymentAmount ?? summary.lastPaymentAmount,
+            }
+          : {}),
+      }
+    : null;
+
+  return {
+    summary: liveSummary,
+    entries: [...firstPage, ...olderPages],
+    hasMore,
+    loadOlder,
+    feesEnabled,
+    loading,
+    saving,
+    announcement,
+    reload: loadSummary,
+    pay,
+    reverse,
+    addReference,
+  };
 };

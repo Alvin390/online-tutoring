@@ -31,3 +31,10 @@ export const approveReceiptWithPayment = (payload) =>
 
 export const generateInvoices = (payload = {}) =>
   apiPost('/api/fees/generateInvoices', payload);
+
+/**
+ * Fill in a ledger entry's missing receipt code — Phase 13 / 04 D3. Only while
+ * the entry has none; amount and dates are never changed.
+ */
+export const annotateLedgerEntry = ({ session, phone, entryId, reference, notMpesa = false }) =>
+  apiPost('/api/fees/annotate', { session, phone, entryId, reference, ...(notMpesa ? { notMpesa: true } : {}) });

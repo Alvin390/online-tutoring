@@ -70,6 +70,18 @@ export const useDashboard = () => {
 
   const unsubscribers = useRef(new Map());
 
+  /**
+   * Payment notifications — Phase 13 / 04 D2. Uses the student listeners the
+   * dashboard already holds: a student's `lastPaymentAt` moving forward means
+   * money just landed (an M-Pesa callback, or a payment recorded elsewhere).
+   * The first snapshot of each session only records the baseline, so opening
+   * the dashboard never replays old payments. No extra listeners.
+   */
+  const lastPaymentSeen = useRef(new Map());
+  const notifyPayment = useRef(null);
+  notifyPayment.current = (name) => showSuccess(`Payment received for ${name}.`, 'Fees');
+
+
   useEffect(() => {
     const ids = sessionKey ? sessionKey.split(',') : [];
     const live = unsubscribers.current;
@@ -93,6 +105,18 @@ export const useDashboard = () => {
       live.set(
         id,
         subscribeToStudents(id, (students) => {
+          const seen = lastPaymentSeen.current;
+          const baseline = !seen.has(id);
+          if (baseline) seen.set(id, new Map());
+          const bySession = seen.get(id);
+          for (const student of students) {
+            const at = student.lastPaymentAt?.toMillis?.() ?? null;
+            const before = bySession.get(student.id);
+            if (!baseline && at && bySession.has(student.id) && (before == null || at > before)) {
+              notifyPayment.current?.(student.studentName ?? 'a student');
+            }
+            bySession.set(student.id, at);
+          }
           setStudentsBySession((prev) => ({ ...prev, [id]: students }));
           setLoading(false);
         })

@@ -1,5 +1,5 @@
 import { getDb } from './firebaseAdmin.js';
-import { decrypt } from './crypto.js';
+import { decrypt, randomToken } from './crypto.js';
 import { ApiError } from './errors.js';
 import { darajaMode, darajaEnvironment, darajaVar } from './mode.js';
 
@@ -217,6 +217,98 @@ export async function loadCredentials() {
       { expose: true, cause: err }
     );
   }
+}
+
+/** Where the active credentials come from: 'env', 'firestore', or null. */
+export async function credentialSource() {
+  if (credentialsFromEnv()) return 'env';
+  const snap = await getDb().doc('integrations/daraja').get();
+  return snap.exists && snap.data().consumerKeyEnc ? 'firestore' : null;
+}
+
+/** Whether env credentials are active — the form must not offer to save then. */
+export function hasEnvCredentials() {
+  return Boolean(credentialsFromEnv());
+}
+
+// ---------------------------------------------------------------------------
+// Callback secret — Phase 13 / 04 D1
+// ---------------------------------------------------------------------------
+
+let cachedCallbackSecret = null;
+
+export function __resetCallbackSecretCache() {
+  cachedCallbackSecret = null;
+}
+
+/**
+ * The secret path segment of the STK callback URL, CREATING it if missing.
+ *
+ * Before Phase 13 the secret was generated only by the credentials form. With
+ * credentials in env (no form ever submitted) there was none, so every STK
+ * push carried `…/api/daraja/callback/` — a URL no route matches. Safaricom's
+ * callback 404'd, the payment was only recovered by the reconcile cron, and the
+ * M-Pesa receipt code was lost (validated). Now:
+ *
+ *  - `DARAJA_CALLBACK_SECRET` (a Worker secret) wins, for operators who want a
+ *    fixed URL they can register anywhere;
+ *  - otherwise the stored `integrations/daraja.callbackSecret`, created in a
+ *    TRANSACTION on first use so concurrent first payments agree on one.
+ *
+ * Cached per isolate: the secret never changes once set.
+ */
+export async function ensureCallbackSecret(db = getDb()) {
+  const fromEnv = process.env.DARAJA_CALLBACK_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  if (cachedCallbackSecret) return cachedCallbackSecret;
+
+  const ref = db.doc('integrations/daraja');
+  const secret = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const existing = snap.exists ? snap.data().callbackSecret : null;
+    if (existing) return existing;
+    const created = randomToken(16);
+    tx.set(ref, { callbackSecret: created, callbackSecretCreatedAt: new Date() }, { merge: true });
+    return created;
+  });
+
+  cachedCallbackSecret = secret;
+  return secret;
+}
+
+/**
+ * The secret a callback must carry. Never creates one: an incoming callback
+ * that arrives before any payment was initiated has nothing to match.
+ */
+export async function expectedCallbackSecret(db = getDb()) {
+  const fromEnv = process.env.DARAJA_CALLBACK_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  if (cachedCallbackSecret) return cachedCallbackSecret;
+  const snap = await db.doc('integrations/daraja').get();
+  const stored = snap.exists ? snap.data().callbackSecret ?? null : null;
+  if (stored) cachedCallbackSecret = stored;
+  return stored;
+}
+
+/**
+ * Builds the STK `CallBackURL` and refuses one Safaricom would drop.
+ *
+ * Rules (daraja_docs.txt and the operator notes in upgrade/fix.txt):
+ *  - HTTPS only;
+ *  - a non-empty secret segment (the 404 bug above);
+ *  - the URL must not contain "mpesa", "m-pesa" or "safaricom" in any case —
+ *    Safaricom filters those and silently never calls back.
+ */
+export function buildCallbackUrl(baseUrl, secret) {
+  const url = `${String(baseUrl ?? '').replace(/\/$/, '')}/api/daraja/callback/${secret ?? ''}`;
+  if (!/^https:\/\//i.test(url)) throw new Error('Daraja CallBackURL must be HTTPS — check PUBLIC_BASE_URL.');
+  if (!secret || !/^[A-Za-z0-9_-]{8,}$/.test(String(secret))) {
+    throw new Error('Daraja CallBackURL has no valid secret segment.');
+  }
+  if (/m-?pesa|safaricom/i.test(url)) {
+    throw new Error('Daraja CallBackURL must not contain "mpesa", "m-pesa" or "safaricom" — Safaricom drops those callbacks.');
+  }
+  return url;
 }
 
 // ---------------------------------------------------------------------------

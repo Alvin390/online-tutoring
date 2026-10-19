@@ -18,8 +18,22 @@ import logger from '@utils/logger';
  * five-minute fix and a week of confusion.
  */
 
-const POLL_INTERVAL_MS = 3000;
-const TIMEOUT_MS = 60_000;
+/**
+ * Status polling with backoff — Phase 13 / 04 D2.
+ *
+ * Was every 3 s for 60 s (up to 20 requests). Most prompts are answered in the
+ * first ~15 s, so polling starts quick and slows down: 2, 3, 5, 8, then every
+ * 10 s, stopping at the first terminal status or after 90 s in total. Fewer
+ * requests for the same latency where it matters, and a longer window for a
+ * parent who is slow to find their phone.
+ */
+export const POLL_SCHEDULE_MS = [2000, 3000, 5000, 8000];
+export const POLL_STEADY_MS = 10_000;
+export const POLL_TOTAL_MS = 90_000;
+
+export function nextPollDelay(attempt) {
+  return POLL_SCHEDULE_MS[attempt] ?? POLL_STEADY_MS;
+}
 
 const STAGE_COPY = {
   idle: null,
@@ -38,12 +52,13 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
   const [message, setMessage] = useState('');
   const [environment, setEnvironment] = useState(null);
   const [, setCheckoutId] = useState(null);
+  const [receipt, setReceipt] = useState(null);
 
   const pollTimer = useRef(null);
   const timeoutTimer = useRef(null);
 
   const stopPolling = useCallback(() => {
-    if (pollTimer.current) clearInterval(pollTimer.current);
+    if (pollTimer.current) clearTimeout(pollTimer.current);
     if (timeoutTimer.current) clearTimeout(timeoutTimer.current);
     pollTimer.current = null;
     timeoutTimer.current = null;
@@ -65,13 +80,19 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
         if (result.status === 'success') {
           stopPolling();
           setStage('success');
+          // Phase 13 / 04 D2: the M-Pesa receipt code, so the parent can match
+          // it against the SMS from Safaricom.
+          const paid = result.receivedAmount ?? result.amount;
+          setReceipt(result.mpesaReceipt ?? null);
           setMessage(
-            result.balanceAfter > 0
-              ? `Payment received. ${formatKes(result.balanceAfter)} still outstanding.`
-              : 'Payment received in full. Your access has been restored.'
+            `${paid ? `Paid ${formatKes(paid)}. ` : 'Payment received. '}${
+              result.balanceAfter > 0
+                ? `${formatKes(result.balanceAfter)} still outstanding.`
+                : 'Your access has been restored.'
+            }`
           );
           onPaid?.(result);
-          return;
+          return true;
         }
 
         if (['cancelled', 'timeout', 'failed', 'insufficient_funds', 'wrong_pin', 'abandoned']
@@ -79,10 +100,12 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
           stopPolling();
           setStage(result.status === 'cancelled' ? 'cancelled' : 'failed');
           setMessage(result.message ?? STAGE_COPY.failed);
+          return true;
         }
       } catch (error) {
         logger.warn('Payment status poll failed', { code: error?.code });
       }
+      return false;
     },
     [phone, stopPolling, onPaid]
   );
@@ -117,12 +140,20 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
       setStage('prompted');
       setMessage(result.customerMessage);
 
-      pollTimer.current = setInterval(() => poll(result.checkoutRequestId), POLL_INTERVAL_MS);
+      let attempt = 0;
+      const schedule = () => {
+        pollTimer.current = setTimeout(async () => {
+          const done = await poll(result.checkoutRequestId);
+          attempt += 1;
+          if (!done && timeoutTimer.current) schedule();
+        }, nextPollDelay(attempt));
+      };
       timeoutTimer.current = setTimeout(() => {
         stopPolling();
         setStage('timeout');
         setMessage(STAGE_COPY.timeout);
-      }, TIMEOUT_MS);
+      }, POLL_TOTAL_MS);
+      schedule();
     } catch (error) {
       logger.error('Payment initiation failed', error);
       setStage('failed');
@@ -154,6 +185,12 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
         <div className="alert alert-success mb-0" role="status">
           <i className="bi bi-check-circle-fill me-2" aria-hidden="true" />
           {message}
+          {receipt && (
+            <div className="mt-2">
+              M-Pesa ref{' '}
+              <code className="bg-white border rounded px-2 text-dark" data-testid="mpesa-receipt">{receipt}</code>
+            </div>
+          )}
         </div>
       ) : (
         <>
