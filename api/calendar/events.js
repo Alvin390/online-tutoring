@@ -4,6 +4,7 @@ import { z, sessionSchema, phoneSchema } from '../_lib/validate.js';
 import { authenticate } from '../_lib/auth.js';
 import { forbidden, badRequest } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
+import { effectiveApprovalStatus } from '../_lib/studentState.js';
 
 /**
  * Calendar event reads — Phase 07 D4.
@@ -86,7 +87,7 @@ export default createHandler({
       if (!found) throw forbidden('No registration found for that number.', 'not_registered');
 
       // Students only see the calendar once the teacher has approved them.
-      if ((found.data.approvalStatus ?? 'approved') !== 'approved') {
+      if (effectiveApprovalStatus(found.data) !== 'approved') {
         throw forbidden('Your registration is still awaiting approval.', 'approval_pending');
       }
 

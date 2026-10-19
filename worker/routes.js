@@ -39,6 +39,7 @@ import studentApprove from '../api/student/approve.js';
 import studentCheckin from '../api/student/checkin.js';
 import studentReceipt from '../api/student/receipt.js';
 import studentRemove from '../api/student/remove.js';
+import studentUpdate from '../api/student/update.js';
 import studentRequestCode from '../api/student/requestCode.js';
 import studentResubmit from '../api/student/resubmit.js';
 import studentVerifyCode from '../api/student/verifyCode.js';
@@ -104,6 +105,7 @@ export const STATIC_ROUTES = {
   '/api/student/checkin': studentCheckin,
   '/api/student/receipt': studentReceipt,
   '/api/student/remove': studentRemove,
+  '/api/student/update': studentUpdate,
   '/api/student/requestCode': studentRequestCode,
   '/api/student/resubmit': studentResubmit,
   '/api/student/verifyCode': studentVerifyCode,

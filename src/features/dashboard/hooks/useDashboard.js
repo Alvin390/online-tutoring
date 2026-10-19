@@ -2,16 +2,15 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   subscribeToStudents,
   subscribeToPendingApprovals,
-  deleteStudent as deleteStudentService,
   getZoomLinks,
   subscribeToClassLink,
-  registerStudent as updateStudentService,
   blockStudent as blockStudentService,
   unblockStudent as unblockStudentService,
   approveReceipt as approveReceiptService,
   declineReceipt as declineReceiptService,
 } from '@services/firebase/firestore';
 import { setClassLink, decideApproval } from '@services/api/teacher';
+import { removeStudent, updateStudentRecord } from '@services/api/sessions';
 import { approveReceiptWithPayment } from '@services/api/fees';
 import { useSessions } from '@features/sessions/hooks/useSessions';
 import { FALLBACK_SESSIONS } from '@shared/constants/sessions';
@@ -234,9 +233,14 @@ export const useDashboard = () => {
     }
   }, [showSuccess, showError]);
 
+  /**
+   * Deletes through /api/student/remove (Phase 13 / 03 D2), which also deletes
+   * the student's private notes — a direct deleteDoc left them behind,
+   * orphaned. The fee record is kept, marked deleted.
+   */
   const deleteStudent = useCallback(async (session, phoneNumber, studentName) => {
     try {
-      await deleteStudentService(session, phoneNumber);
+      await removeStudent(session, phoneNumber);
       trackStudentDelete(session);
       showSuccess(`${studentName} deleted successfully`);
       return { success: true };
@@ -247,19 +251,35 @@ export const useDashboard = () => {
     }
   }, [showSuccess, showError]);
 
+  /**
+   * Edits through /api/student/update — Phase 13 / 03 D1.
+   *
+   * This used to call the open registration create, which the rules refuse for
+   * an existing student (every edit failed), and a phone change deleted the
+   * record and re-registered it as pending, unblocked, with balance 0. Now only
+   * the four editable fields are sent, and a phone change MOVES the record with
+   * its notes and fee history. A large move can stop at the server's
+   * per-request budget and report `partial`; it is resumed automatically.
+   */
   const updateStudent = useCallback(async (session, phoneNumber, studentData, originalPhone) => {
-    try {
-      // If phone number changed, we need to delete old and create new
-      if (originalPhone && originalPhone !== phoneNumber) {
-        await deleteStudentService(session, originalPhone);
-      }
+    const changes = {};
+    for (const field of ['studentName', 'class', 'subjects', 'receiptMessage']) {
+      if (typeof studentData?.[field] === 'string') changes[field] = studentData[field].trim();
+    }
+    const from = originalPhone ?? phoneNumber;
+    const to = String(phoneNumber ?? '').replace(/[\s-]/g, '');
 
-      await updateStudentService(session, phoneNumber, studentData);
-      showSuccess('Student updated successfully');
+    try {
+      let result = await updateStudentRecord(session, from, changes, to);
+      for (let attempt = 0; result?.partial && attempt < 5; attempt += 1) {
+        result = await updateStudentRecord(session, from, changes, to);
+      }
+      if (result?.partial) throw new Error('The move is taking longer than usual. Please press Save again to finish it.');
+      showSuccess(to !== from ? 'Student updated — notes and fee history moved to the new number.' : 'Student updated successfully');
       return { success: true };
     } catch (error) {
       logger.error('Update student failed', error);
-      showError('Failed to update student. Please try again.');
+      showError(error?.message ?? 'Failed to update student. Please try again.');
       return { success: false };
     }
   }, [showSuccess, showError]);

@@ -118,7 +118,11 @@ service cloud.firestore {
       return phone is string
              && phone.size() >= 10
              && phone.size() <= 20
-             && phone.matches('^\\+[0-9]+$');
+             && phone.matches('^\\+[0-9]+$')
+             // Phase 13 / 03 D4: no national trunk "0" after these country
+             // codes (a typed "0712…" used to be stored as +254071…). Same list
+             // as TRUNK_ZERO_CODES in api/_lib/validate.js.
+             && !phone.matches('^\\+(254|255|256|250|234|233|27|44|61|91|49|33|31)0.*');
     }
 
     // A registration create is open to unauthenticated callers — a student has

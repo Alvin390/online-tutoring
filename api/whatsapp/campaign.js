@@ -4,6 +4,7 @@ import { z, sessionSchema, phoneSchema } from '../_lib/validate.js';
 import { badRequest, notFound, forbidden } from '../_lib/errors.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { isEnabled } from '../_lib/flags.js';
+import { effectiveApprovalStatus } from '../_lib/studentState.js';
 
 /**
  * WhatsApp campaigns — Phase 08 D2/D4/D6.
@@ -359,7 +360,7 @@ async function resolveRecipients(db, filter, onlySkippedFrom) {
       const phone = studentDoc.id;
 
       if (student.whatsappOptOut === true) continue;
-      if ((student.approvalStatus ?? 'approved') !== 'approved') continue;
+      if (effectiveApprovalStatus(student) !== 'approved') continue;
       if (allowedPhones && !allowedPhones.has(phone)) continue;
 
       if (filter.type === 'class' && !(filter.values ?? []).includes(student.class)) continue;

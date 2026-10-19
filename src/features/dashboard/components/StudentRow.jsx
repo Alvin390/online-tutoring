@@ -2,16 +2,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 
-const escapeHtml = (text) => {
-  if (!text) return '';
-  return text
-    .toString()
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-};
+// No escapeHtml (removed in Phase 13 / 03 D6). React escapes every text node
+// already; escaping again here displayed "O'Brien" as "O&#039;Brien" and
+// "Maths & Science" as "Maths &amp; Science".
 
 function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline }) {
   const [showPopup, setShowPopup] = useState(false);
@@ -98,7 +91,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
           </div>
           <div>
             <div className="d-flex align-items-center gap-2">
-              <strong>{escapeHtml(student.studentName)}</strong>
+              <strong>{student.studentName}</strong>
               {isBlocked && <span className="badge bg-danger">Blocked</span>}
               {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
             </div>
@@ -107,17 +100,17 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
       </td>
       <td>
         <code className="bg-light px-2 py-1 rounded">
-          {escapeHtml(student.parentPhone)}
+          {student.parentPhone}
         </code>
       </td>
       <td>
         <span className="badge bg-primary">
-          {escapeHtml(student.class)}
+          {student.class}
         </span>
       </td>
       <td>
         <small className="text-muted">
-          {escapeHtml(student.subjects)}
+          {student.subjects}
         </small>
       </td>
       <td>
@@ -132,7 +125,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
           }}
           title={student.receiptMessage}
         >
-          {escapeHtml(student.receiptMessage)}
+          {student.receiptMessage}
         </small>
       </td>
       <td>
@@ -228,7 +221,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 {student.studentName?.charAt(0)?.toUpperCase() ?? '?'}
               </div>
               <div className="flex-grow-1">
-                <h6 className="student-info-name mb-1">{escapeHtml(student.studentName)}</h6>
+                <h6 className="student-info-name mb-1">{student.studentName}</h6>
                 {isBlocked && (
                   <span className="badge bg-danger" style={{ fontSize: '0.7rem' }}>
                     <i className="bi bi-slash-circle me-1" />
@@ -249,7 +242,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 <i className="bi bi-telephone student-info-icon" />
                 <div className="student-info-content">
                   <div className="student-info-label">Parent Phone</div>
-                  <div className="student-info-value">{escapeHtml(student.parentPhone)}</div>
+                  <div className="student-info-value">{student.parentPhone}</div>
                 </div>
               </div>
 
@@ -257,7 +250,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 <i className="bi bi-book student-info-icon" />
                 <div className="student-info-content">
                   <div className="student-info-label">Class</div>
-                  <div className="student-info-badge">{escapeHtml(student.class)}</div>
+                  <div className="student-info-badge">{student.class}</div>
                 </div>
               </div>
 
@@ -265,7 +258,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 <i className="bi bi-journal-text student-info-icon" />
                 <div className="student-info-content">
                   <div className="student-info-label">Subjects</div>
-                  <div className="student-info-value">{escapeHtml(student.subjects)}</div>
+                  <div className="student-info-value">{student.subjects}</div>
                 </div>
               </div>
 
@@ -281,7 +274,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                     )}
                   </div>
                   <div className="student-info-receipt">
-                    <small>{escapeHtml(student.receiptMessage)}</small>
+                    <small>{student.receiptMessage}</small>
                   </div>
 
                   {hasPendingReceipt && (
@@ -291,7 +284,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                         New Payment Receipt (Pending)
                       </div>
                       <div className="student-info-receipt" style={{ borderLeft: '3px solid #ffc107' }}>
-                        <small>{escapeHtml(student.pendingReceipt)}</small>
+                        <small>{student.pendingReceipt}</small>
                       </div>
                       <div className="mt-2 d-flex gap-2">
                         <button
@@ -327,7 +320,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                         Block Reason
                       </div>
                       <div className="alert alert-danger py-2 mb-0" style={{ fontSize: '0.85rem' }}>
-                        {escapeHtml(student.blockReason)}
+                        {student.blockReason}
                       </div>
                     </div>
                   )}

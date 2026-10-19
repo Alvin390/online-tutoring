@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFlag } from '@shared/config/FlagsContext';
 import TierGate from '@shared/components/TierGate';
+import { effectiveApprovalStatus } from '@utils/studentState';
 
 // Lazy: the notes tab carries a composer and tag UI the dashboard should not
 // pay for on first paint, and most dashboard sessions never open it.
@@ -168,7 +169,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
 
                     <dt className="col-5 text-muted fw-normal">Approval</dt>
                     <dd className="col-7 text-capitalize">
-                      {student.approvalStatus ?? 'approved'}
+                      {effectiveApprovalStatus(student)}
                     </dd>
 
                     <dt className="col-5 text-muted fw-normal">Access</dt>

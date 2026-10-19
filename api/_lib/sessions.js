@@ -57,19 +57,52 @@ export function validateSlug(raw) {
  * fallback for environments where the bulk writer is unavailable.
  */
 export async function deleteRecursively(db, ref) {
-  if (typeof db.recursiveDelete === 'function') {
-    await db.recursiveDelete(ref);
-    return;
+  // Phase 13 / 03 D2 — BATCHED, and deliberately NOT `db.recursiveDelete`:
+  // the REST shim's version deletes one document per request, which is exactly
+  // the subrequest cost this avoids. This used to delete one document per request
+  // (and list each document's subcollections with another), so removing a
+  // student with 600 notes needed ~1,200 subrequests against a budget of 45.
+  // Now: one query per known subcollection, then deletes in commits of up to
+  // 450 writes. Children are deleted before their parents.
+  const refs = [];
+  await collectTree(ref, refs);
+  for (let i = 0; i < refs.length; i += 450) {
+    const batch = db.batch();
+    refs.slice(i, i + 450).forEach((r) => batch.delete(r));
+    // eslint-disable-next-line no-await-in-loop
+    await batch.commit();
   }
+  return { deleted: refs.length };
+}
 
-  const subcollections = await ref.listCollections();
-  for (const collection of subcollections) {
+/**
+ * The app's document tree, so a delete need not ask Firestore which
+ * subcollections exist (one `listCollections` call per document). Keyed by the
+ * id of the collection a document lives in. Anything not listed falls back to
+ * `listCollections`.
+ */
+const KNOWN_SUBCOLLECTIONS = Object.freeze({
+  sessions: ['students', 'private'],
+  students: ['notes'],
+  notes: [],
+  private: [],
+});
+
+async function collectTree(ref, out) {
+  const segments = ref.path.split('/');
+  const parentCollection = segments[segments.length - 2];
+  const known = KNOWN_SUBCOLLECTIONS[parentCollection];
+  const subIds = known ?? (await ref.listCollections()).map((c) => c.id);
+
+  for (const sub of subIds) {
     // eslint-disable-next-line no-await-in-loop
-    const docs = await collection.listDocuments();
-    // eslint-disable-next-line no-await-in-loop
-    await Promise.all(docs.map((doc) => deleteRecursively(db, doc)));
+    const snap = await ref.collection(sub).get();
+    for (const child of snap.docs) {
+      // eslint-disable-next-line no-await-in-loop
+      await collectTree(child.ref, out);
+    }
   }
-  await ref.delete();
+  out.push(ref);
 }
 
 // ---------------------------------------------------------------------------

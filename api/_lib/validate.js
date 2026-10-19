@@ -25,11 +25,39 @@ export function validate(schema, data) {
 // Shared primitives
 // ---------------------------------------------------------------------------
 
+/**
+ * Country codes whose national numbers are dialled with a trunk "0" at home
+ * but NEVER carry it after the country code — Phase 13 / 03 D4.
+ *
+ * A parent typing "0712 345 678" next to a +254 prefix produced +254071234567,
+ * a different (and invalid) number that every validator accepted. Italy (+39)
+ * is deliberately absent: Italian landlines keep their leading 0 in E.164.
+ * Keep in step with TRUNK_ZERO_CODES in firestore.rules and with
+ * `trunkPrefix` in src/shared/constants/countries.js.
+ */
+export const TRUNK_ZERO_CODES = Object.freeze([
+  '254', '255', '256', '250', '234', '233', '27', '44', '61', '91', '49', '33', '31',
+]);
+
+/** The country code a number wrongly keeps a trunk 0 after, or null. */
+export function trunkZeroCode(phone) {
+  return TRUNK_ZERO_CODES.find((cc) => String(phone).startsWith(`+${cc}0`)) ?? null;
+}
+
 /** E.164, matching the format enforced by firestore.rules. */
 export const phoneSchema = z
   .string()
   .trim()
-  .regex(/^\+[1-9]\d{7,18}$/, 'must be a valid international phone number, e.g. +254712345678');
+  .regex(/^\+[1-9]\d{7,18}$/, 'must be a valid international phone number, e.g. +254712345678')
+  .superRefine((phone, ctx) => {
+    const cc = trunkZeroCode(phone);
+    if (cc) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Remove the leading 0 after +${cc} — e.g. +${cc}7… not +${cc}07…`,
+      });
+    }
+  });
 
 /**
  * A session slug — Phase 13 / 02 D6.
@@ -45,6 +73,19 @@ export const sessionSchema = z
   .trim()
   .regex(SLUG_PATTERN, 'must be a valid session address')
   .refine((slug) => !RESERVED_SLUGS.includes(slug), 'is reserved by the app');
+
+/**
+ * A student's name — Phase 13 / 03 D5. Same rule as the client
+ * (registrationSchema): letters from any script, plus spaces, apostrophes
+ * (straight and curly), hyphens and full stops. "Sean O'Brien", "Mary-Jane",
+ * "Zoë" and "N’Golo" were all refused before. Whitespace is trimmed and runs of
+ * spaces collapsed.
+ */
+export const STUDENT_NAME_PATTERN = /^\p{L}[\p{L}\p{M} '’.-]{1,99}$/u;
+export const studentNameSchema = z
+  .string()
+  .transform((s) => s.trim().replace(/\s+/g, ' '))
+  .pipe(z.string().min(2).max(100).regex(STUDENT_NAME_PATTERN, 'may contain letters, spaces, apostrophes, hyphens and full stops'));
 
 export const tierSchema = z.enum(['bronze', 'silver', 'gold']);
 

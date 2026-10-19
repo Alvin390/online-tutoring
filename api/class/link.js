@@ -6,6 +6,7 @@ import { forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { assertSessionExists } from '../_lib/sessions.js';
+import { effectiveApprovalStatus } from '../_lib/studentState.js';
 
 /**
  * Class link issuance — Phase 01 D1, completing the lockdown of
@@ -103,7 +104,8 @@ export default createHandler({
       // unchanged, but the check lives here rather than in the page component
       // so that enabling approval is a flag flip, not a re-architecture.
       if (await isEnabled('registration.requireApproval')) {
-        const approval = data.approvalStatus ?? 'pending';
+        // Phase 13 / 03 D3: missing means approved (pre-approval registrations).
+        const approval = effectiveApprovalStatus(data);
         if (approval !== 'approved') {
           throw forbidden(
             approval === 'rejected'

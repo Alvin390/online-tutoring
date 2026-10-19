@@ -1,3 +1,4 @@
+import { effectiveApprovalStatus } from './studentState';
 /**
  * Student check-in gate — Phase 04 Part A.
  *
@@ -52,7 +53,8 @@ export function resolveStudentGate(student, { requireApproval = false } = {}) {
   // retroactively pushing every one of them into the approval queue would be a
   // migration disguised as a feature flag. New registrations always carry an
   // explicit 'pending', enforced by firestore.rules.
-  const approval = student.approvalStatus ?? 'approved';
+  // Same rule as the server (Phase 13 / 03 D3): missing means approved.
+  const approval = effectiveApprovalStatus(student);
 
   if (requireApproval) {
     if (approval === 'pending') {

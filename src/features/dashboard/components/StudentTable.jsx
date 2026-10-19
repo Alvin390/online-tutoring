@@ -74,8 +74,10 @@ export default function StudentTable({
     if (!selectedStudent) return;
 
     setSaving(true);
-    await onEdit(session, editForm.parentPhone, editForm, selectedStudent.id);
+    const result = await onEdit(session, editForm.parentPhone, editForm, selectedStudent.id);
     setSaving(false);
+    // Keep the form open on failure, so the teacher's typing is not lost.
+    if (result?.success === false) return;
     setShowEditModal(false);
     setSelectedStudent(null);
   };
@@ -247,13 +249,14 @@ export default function StudentTable({
               <i className="bi bi-exclamation-triangle" />
             </div>
             <p className="mb-3">
-              Are you sure you want to delete <strong>{selectedStudent.studentName}</strong> from {session} session?
+              Are you sure you want to delete <strong>{selectedStudent.studentName}</strong>?
             </p>
             <p className="text-muted mb-3">
               <small>Parent Phone: {selectedStudent.id}</small>
             </p>
             <div className="alert alert-warning text-start">
-              This action cannot be undone. The student will need to register again to rejoin the class.
+              This cannot be undone. Their <strong>private notes are deleted too</strong>, and they will
+              need to register again to rejoin. Their fee history is kept for your records.
             </div>
           </div>
         </Modal>
@@ -287,13 +290,17 @@ export default function StudentTable({
               Parent Phone
             </label>
             <input
-              type="text"
+              type="tel"
+              inputMode="tel"
               className="form-control"
               value={editForm.parentPhone || ''}
               onChange={(e) => setEditForm({ ...editForm, parentPhone: e.target.value })}
-              placeholder="+1234567890"
+              placeholder="+254712345678"
             />
-            <small className="text-muted">Format: +[country code][number]</small>
+            <small className="text-muted">
+              International format without the leading 0, e.g. +254712345678. Changing it moves the
+              student&apos;s notes and fee history to the new number.
+            </small>
           </div>
 
           <div className="mb-3">

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { validatePhoneNumber } from '@/shared/constants/countries';
+import { validatePhoneNumber, normaliseNationalNumber } from '@/shared/constants/countries';
 
 export const usePhoneValidation = () => {
   const [selectedCountry, setSelectedCountry] = useState(null);
@@ -15,8 +15,9 @@ export const usePhoneValidation = () => {
   const handlePhoneChange = useCallback((value) => {
     if (!selectedCountry) return;
 
-    // Remove non-digits
-    const cleaned = value.replace(/\D/g, '');
+    // Digits only, minus a typed trunk "0" (Phase 13 / 03 D4) — BEFORE the
+    // length cap, which used to cut "0712345678" to "071234567".
+    const cleaned = normaliseNationalNumber(selectedCountry, value);
 
     // Limit to country length
     const limited = cleaned.slice(0, selectedCountry.length);

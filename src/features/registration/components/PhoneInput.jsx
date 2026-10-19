@@ -1,3 +1,5 @@
+import { hasTrunkZero } from '@/shared/constants/countries';
+
 export default function PhoneInput({
   country,
   value,
@@ -17,18 +19,23 @@ export default function PhoneInput({
         </span>
         <input
           type="tel"
+          inputMode="tel"
+          autoComplete="tel-national"
           className={`form-control ${isValid ? 'is-valid' : error ? 'is-invalid' : ''}`}
           placeholder={country?.format.replace(/X/g, '•') || 'Select country first'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={!country}
-          maxLength={country?.length}
+          // +1 so a trunk "0" can be typed; it is stripped before validation.
+          maxLength={country ? country.length + (hasTrunkZero(country) ? 1 : 0) : undefined}
         />
       </div>
 
       {country && (
         <div className="form-text">
-          Enter {country.length}-digit phone number
+          {hasTrunkZero(country)
+            ? `Enter the ${country.length}-digit number — a leading 0 is fine, it is removed for you`
+            : `Enter ${country.length}-digit phone number`}
         </div>
       )}
       {error && <div className="invalid-feedback d-block">{error}</div>}

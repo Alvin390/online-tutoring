@@ -18,3 +18,17 @@ export const manageSession = (payload) => apiPost('/api/sessions/manage', payloa
  */
 export const removeStudent = (session, phone) =>
   apiPost('/api/student/remove', { session, phone });
+
+/**
+ * Edits a student — Phase 13 / 03 D1. `changes` may hold studentName, class,
+ * subjects and receiptMessage; `newPhone` moves the whole record (notes and fee
+ * ledger included) to a new number. The server may answer `{ partial: true }`
+ * when a large move hits the per-request budget; repeating the call resumes it.
+ */
+export const updateStudentRecord = (session, phone, changes, newPhone) =>
+  apiPost('/api/student/update', {
+    session,
+    phone,
+    changes,
+    ...(newPhone && newPhone !== phone ? { newPhone } : {}),
+  });

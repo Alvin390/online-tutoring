@@ -97,5 +97,31 @@ export function validatePhoneNumber(country, number) {
   return cleaned.length === country.length;
 }
 
+/**
+ * Dialling codes whose national numbers are written with a trunk "0" at home
+ * that is NEVER part of the international number — Phase 13 / 03 D4.
+ * Same list as TRUNK_ZERO_CODES in api/_lib/validate.js and in firestore.rules.
+ * Italy (+39) is deliberately absent: its landlines keep the 0.
+ */
+export const TRUNK_ZERO_DIALS = Object.freeze([
+  '+254', '+255', '+256', '+250', '+234', '+233', '+27', '+44', '+61', '+91', '+49', '+33', '+31',
+]);
+
+export function hasTrunkZero(country) {
+  return Boolean(country && TRUNK_ZERO_DIALS.includes(country.dial));
+}
+
+/**
+ * Digits only, with a leading trunk "0" removed for the countries that use one.
+ * A Kenyan parent typing "0712 345 678" gets 712345678 — the number that goes
+ * after +254 — instead of the old behaviour, which cut it to 071234567 and
+ * stored +254071234567, a different and invalid number.
+ */
+export function normaliseNationalNumber(country, input) {
+  const digits = String(input ?? '').replace(/\D/g, '');
+  if (hasTrunkZero(country) && digits.startsWith('0')) return digits.replace(/^0+/, '');
+  return digits;
+}
+
 // Export default for compatibility
 export default countries;

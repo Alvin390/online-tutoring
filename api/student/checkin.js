@@ -5,6 +5,7 @@ import { authenticate } from '../_lib/auth.js';
 import { forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { clientIp } from '../_lib/rateLimit.js';
+import { effectiveApprovalStatus } from '../_lib/studentState.js';
 
 /**
  * Student check-in — Phase 01 D1/D4.
@@ -54,7 +55,8 @@ function projectStudent(data) {
     // SAFE value, not the convenient one.
     blocked: data.blocked === true,
     blockReason: data.blocked === true ? (data.blockReason ?? '') : '',
-    approvalStatus: data.approvalStatus ?? 'pending',
+    // Phase 13 / 03 D3: missing means approved (pre-approval registrations).
+    approvalStatus: effectiveApprovalStatus(data),
     rejectionReason: data.approvalStatus === 'rejected' ? (data.rejectionReason ?? '') : null,
     receiptStatus: data.receiptStatus ?? 'pending',
     hasPendingReceipt: Boolean(data.pendingReceipt),
@@ -127,7 +129,7 @@ export default createHandler({
     log.info('Student check-in', {
       session,
       blocked: data.blocked === true,
-      approvalStatus: data.approvalStatus ?? 'pending',
+      approvalStatus: effectiveApprovalStatus(data),
       ip: clientIp(req),
     });
 

@@ -47,12 +47,22 @@ export default createHandler({
     if (!snap.exists) throw notFound('That student no longer exists.');
 
     const data = snap.data();
-    const notesSnap = await ref.collection('notes').get();
-    const noteCount = notesSnap.size;
 
-    await deleteRecursively(db, ref);
+    // Batched since Phase 13 / 03 — counts every document it removed, the
+    // student included, so notes = total − 1.
+    const { deleted } = await deleteRecursively(db, ref);
+    const noteCount = deleted == null ? null : Math.max(0, deleted - 1);
 
-    log.info('Student deleted', { session, notesRemoved: noteCount });
+    // The fee record is RETAINED (Phase 13 / 03 D2): the ledger is a financial
+    // record, append-only by design. It is marked so fee views can tell the
+    // student is gone.
+    const account = db.doc(`fees/accounts/items/${phone}`);
+    const accountSnap = await account.get();
+    if (accountSnap.exists) {
+      await account.set({ studentDeletedAt: new Date(), studentDeletedBy: user.uid }, { merge: true });
+    }
+
+    log.info('Student deleted', { session, notesRemoved: noteCount, feeRecordRetained: accountSnap.exists });
 
     await tryWriteAudit(
       {
@@ -64,6 +74,7 @@ export default createHandler({
           class: data.class ?? null,
           approvalStatus: data.approvalStatus ?? null,
           notesRemoved: noteCount,
+          feeRecordRetained: accountSnap.exists,
         },
         context: { requestId: log.requestId },
       },

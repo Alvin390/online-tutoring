@@ -2,7 +2,6 @@ import {
   doc,
   getDoc,
   setDoc,
-  deleteDoc,
   collection,
   collectionGroup,
   getDocs,
@@ -93,17 +92,9 @@ export const registerStudent = async (session, phoneNumber, data) => {
   }
 };
 
-export const deleteStudent = async (session, phoneNumber) => {
-  try {
-    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
-    await deleteDoc(docRef);
-    logger.info('deleteStudent success', { session });
-    return { success: true };
-  } catch (error) {
-    logger.error('deleteStudent failed', error);
-    throw error;
-  }
-};
+// deleteStudent (a direct deleteDoc) was removed in Phase 13 / 03: Firestore
+// does not cascade, so it left the student's private notes behind. Deletes go
+// through /api/student/remove (removeStudent in src/services/api/sessions.js).
 
 export const blockStudent = async (session, phoneNumber, blockReason = '') => {
   try {
