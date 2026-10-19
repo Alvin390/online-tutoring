@@ -1,4 +1,4 @@
-import { motion, useReducedMotion } from 'framer-motion';
+import { m, useReducedMotion } from 'framer-motion';
 import { memo, useMemo } from 'react';
 
 /**
@@ -71,7 +71,7 @@ function StatsCards({ studentsBySession, sessions, totalCount, linksConfigured, 
     <div className="row g-4 mb-4">
       {stats.map((stat, index) => (
         <div key={stat.title} className="col-md-6 col-lg-3">
-          <motion.div
+          <m.div
             initial={reduceMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={reduceMotion ? { duration: 0 } : { delay: index * 0.1 }}
@@ -90,7 +90,7 @@ function StatsCards({ studentsBySession, sessions, totalCount, linksConfigured, 
             <small className="text-muted">
               {stat.note ?? 'Active registrations'}
             </small>
-          </motion.div>
+          </m.div>
         </div>
       ))}
     </div>

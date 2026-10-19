@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useFlag } from '@shared/config/FlagsContext';
 import TierGate from '@shared/components/TierGate';
 import { effectiveApprovalStatus } from '@utils/studentState';
@@ -97,7 +97,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
     <AnimatePresence>
       {open && (
         <>
-          <motion.div
+          <m.div
             className="position-fixed top-0 start-0 w-100 h-100"
             style={{ background: 'rgba(0,0,0,0.4)', zIndex: 1045 }}
             initial={{ opacity: 0 }}
@@ -107,7 +107,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
             aria-hidden="true"
           />
 
-          <motion.div
+          <m.div
             ref={panelRef}
             tabIndex={-1}
             role="dialog"
@@ -256,7 +256,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
                 </div>
               )}
             </div>
-          </motion.div>
+          </m.div>
         </>
       )}
     </AnimatePresence>

@@ -761,7 +761,52 @@ describe('listing and recursive delete', () => {
 // Subrequest budget
 // ---------------------------------------------------------------------------
 
+describe('incrementAndGet (Phase 13 / 08 C2)', () => {
+  it('creates, increments and returns the new value in one call; concurrent calls never repeat a value', async () => {
+    const ref = restDb.doc(`${PREFIX}/counters/items/c${Date.now()}`);
+    expect(await ref.incrementAndGet('count', 1, { bucket: 'x' })).toBe(1);
+    expect(await ref.incrementAndGet('count', 1, { bucket: 'x' })).toBe(2);
+    const values = await Promise.all(Array.from({ length: 20 }, () => ref.incrementAndGet('count', 1, { bucket: 'x' })));
+    expect([...values].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 3));
+    const snap = await adminDb.doc(ref.path).get();
+    expect(snap.data()).toMatchObject({ count: 22, bucket: 'x' });
+  });
+
+  it('costs exactly one subrequest', async () => {
+    const rest = await import('../../api/_lib/firestoreRest.js');
+    const ref = restDb.doc(`${PREFIX}/counters/items/one${Date.now()}`);
+    const spent = await rest.runWithSubrequestBudget(10, async () => {
+      await ref.incrementAndGet('count', 1, { bucket: 'y' });
+      return rest.subrequestsSpent();
+    });
+    expect(spent).toBe(1);
+  });
+});
+
 describe('subrequest budget', () => {
+  // Phase 13 / 08 C9. The counter was module-scoped: a second request in the
+  // same isolate re-armed it, and the first ran past its own limit.
+  it('two interleaved invocations each stop at their OWN limit', async () => {
+    const rest = await import('../../api/_lib/firestoreRest.js');
+    const tick = () => new Promise((r) => setTimeout(r, 5));
+    const run = (label) => rest.runWithSubrequestBudget(3, async () => {
+      let done = 0;
+      try {
+        for (let i = 0; i < 6; i += 1) {
+          await restDb.doc(`${PREFIX}/budget/${label}/${i}`).get();
+          done += 1;
+          await tick();
+        }
+      } catch (err) {
+        if (!(err instanceof rest.SubrequestBudgetExceeded)) throw err;
+      }
+      return { done, spent: rest.subrequestsSpent() };
+    });
+    const [a, b] = await Promise.all([run('a'), run('b')]);
+    expect(a).toEqual({ done: 3, spent: 4 });
+    expect(b).toEqual({ done: 3, spent: 4 });
+  });
+
   it('stops cleanly instead of being killed by the platform', async () => {
     const rest = await import('../../api/_lib/firestoreRest.js');
     const path = freshPath();

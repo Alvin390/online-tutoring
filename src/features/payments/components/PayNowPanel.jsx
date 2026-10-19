@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { initiatePayment, getPaymentStatus } from '@services/api/payments';
 import { formatKes } from '@utils/blockReason';
 import logger from '@utils/logger';
@@ -164,7 +164,7 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
   const busy = stage === 'initiating' || stage === 'prompted';
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className="border rounded p-3 text-start mb-4"
@@ -267,6 +267,6 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
           </button>
         </>
       )}
-    </motion.div>
+    </m.div>
   );
 }

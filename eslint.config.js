@@ -28,7 +28,7 @@ export default [
     plugins: { 'react-hooks': reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'no-unused-vars': ['error', { varsIgnorePattern: '^([A-Z_]|motion$)', argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      'no-unused-vars': ['error', { varsIgnorePattern: '^([A-Z_]|motion$|m$)', argsIgnorePattern: '^_', caughtErrors: 'none' }],
     },
   },
 ];

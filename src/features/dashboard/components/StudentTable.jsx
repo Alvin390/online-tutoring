@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useLayoutEffect } from 'react';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
+import { m, AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
 import Modal from '@components/ui/Modal';
 import { SkeletonTable } from '@components/ui/Skeleton';
@@ -8,6 +9,12 @@ import logger from '@utils/logger';
 import { useFlag } from '@shared/config/FlagsContext';
 import { useAuthState } from '@features/auth/context/AuthContext';
 import { TIER_RANK } from '@shared/constants/tiers';
+
+const VIRTUALIZE_ABOVE = 50;
+const OVERSCAN = 8;
+// Measured in Chromium: 91 px on desktop, ~141 px on a phone. Each row is
+// measured once rendered; the estimate only sizes rows not yet seen.
+const ROW_ESTIMATE_PX = 90;
 
 export default function StudentTable({
   session,
@@ -46,6 +53,38 @@ export default function StudentTable({
   // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;
   // 'other' is the free-text block that existed before.
   const [blockKind, setBlockKind] = useState(defaultBlockKind);
+
+  // Row virtualisation — Phase 13 / 08 B2. Above VIRTUALIZE_ABOVE rows only
+  // the rows near the viewport are in the DOM (plus OVERSCAN either side);
+  // spacer rows keep the scrollbar honest and the table a real <table>. Below
+  // it the plain table renders: for a small class virtualisation costs more
+  // than it saves. The table scrolls with the page, hence the WINDOW variant.
+  const tbodyRef = useRef(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const virtual = students.length > VIRTUALIZE_ABOVE;
+  // Where the table starts on the page. Content above it (stats, links, the
+  // calendar) loads late and changes height, so this is re-measured whenever
+  // the page resizes — a stale offset renders the wrong rows for the scroll.
+  useLayoutEffect(() => {
+    if (!virtual || !tbodyRef.current) return undefined;
+    const measure = () => {
+      if (!tbodyRef.current) return;
+      const top = Math.round(tbodyRef.current.getBoundingClientRect().top + window.scrollY);
+      setScrollMargin((prev) => (prev === top ? prev : top));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, [virtual]);
+  const virtualizer = useWindowVirtualizer({
+    count: virtual ? students.length : 0,
+    estimateSize: () => ROW_ESTIMATE_PX,
+    overscan: OVERSCAN,
+    scrollMargin,
+    getItemKey: (i) => students[i]?.id ?? i,
+  });
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
 
@@ -214,24 +253,57 @@ export default function StudentTable({
               <th style={{ width: '100px' }}>Action</th>
             </tr>
           </thead>
-          <tbody>
-            <AnimatePresence>
-              {students.map((student, index) => (
-                <StudentRow
-                  key={student.id}
-                  student={student}
-                  index={index}
-                  session={session}
-                  onDelete={() => handleDeleteClick(student)}
-                  onEdit={() => handleEditClick(student)}
-                  onView={onView ? () => onView(student) : undefined}
-                  onBlock={() => handleBlockClick(student)}
-                  onUnblock={onUnblock}
-                  onApprove={onApprove}
-                  onDecline={onDecline}
-                />
-              ))}
-            </AnimatePresence>
+          <tbody ref={tbodyRef}>
+            {virtual ? (() => {
+              const items = virtualizer.getVirtualItems();
+              const top = items.length ? items[0].start - scrollMargin : 0;
+              const bottom = items.length ? virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin) : 0;
+              return (
+                <>
+                  {top > 0 && <tr aria-hidden="true" style={{ height: top }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
+                  {items.map((item) => {
+                    const student = students[item.index];
+                    return (
+                      <StudentRow
+                        key={student.id}
+                        student={student}
+                        index={item.index}
+                        session={session}
+                        animated={false}
+                        measureRef={virtualizer.measureElement}
+                        dataIndex={item.index}
+                        onDelete={() => handleDeleteClick(student)}
+                        onEdit={() => handleEditClick(student)}
+                        onView={onView ? () => onView(student) : undefined}
+                        onBlock={() => handleBlockClick(student)}
+                        onUnblock={onUnblock}
+                        onApprove={onApprove}
+                        onDecline={onDecline}
+                      />
+                    );
+                  })}
+                  {bottom > 0 && <tr aria-hidden="true" style={{ height: bottom }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
+                </>
+              );
+            })() : (
+              <AnimatePresence>
+                {students.map((student, index) => (
+                  <StudentRow
+                    key={student.id}
+                    student={student}
+                    index={index}
+                    session={session}
+                    onDelete={() => handleDeleteClick(student)}
+                    onEdit={() => handleEditClick(student)}
+                    onView={onView ? () => onView(student) : undefined}
+                    onBlock={() => handleBlockClick(student)}
+                    onUnblock={onUnblock}
+                    onApprove={onApprove}
+                    onDecline={onDecline}
+                  />
+                ))}
+              </AnimatePresence>
+            )}
           </tbody>
         </table>
       </div>

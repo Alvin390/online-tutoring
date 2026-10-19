@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { buildWaLink, maskForDisplay, estimateDuration } from '@utils/waLink';
 import { renderTemplate, appendAttachments } from '@utils/messageTemplate';
 
@@ -187,7 +187,7 @@ export default function SendQueue({
 
       {/* Shown after the link is clicked: the teacher confirms it actually sent. */}
       {current.status === 'opened' && (
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           className="alert alert-info mt-3 mb-0 d-flex align-items-center gap-2 flex-wrap"
@@ -207,7 +207,7 @@ export default function SendQueue({
           >
             Try again
           </button>
-        </motion.div>
+        </m.div>
       )}
 
       {skipping && (

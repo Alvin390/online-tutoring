@@ -22,7 +22,10 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const assetsDir = join(projectRoot, 'dist', 'assets');
+// BUNDLE_DIST lets a check run against a build in another folder, e.g. while
+// `wrangler dev` is serving dist/ and must not have it rebuilt underneath it.
+const distDir = process.env.BUNDLE_DIST ? resolve(projectRoot, process.env.BUNDLE_DIST) : join(projectRoot, 'dist');
+const assetsDir = join(distDir, 'assets');
 
 /**
  * Budgets in KB, gzipped.
@@ -50,6 +53,42 @@ const BUDGETS = {
   largestRouteChunk: 140,
   totalCss: 60,
 };
+
+/**
+ * Per-route budgets — Phase 13 / 08 D1. What a first visit to each route
+ * downloads: the boot set plus the transitive STATIC imports of the route's
+ * lazy page chunks, read from the built files themselves (Rollup writes
+ * `import … from"./chunk.js"`), so no manifest needs publishing.
+ *
+ * Since A1 the public routes carry no Firebase at all, which is also checked
+ * below as a hard rule, not just a number.
+ */
+const ROUTES = [
+  { route: '/', chunks: ['LandingPage'], budget: 120, publicRoute: true },
+  { route: '/:slug', chunks: ['SessionRoutePage'], budget: 120, publicRoute: true },
+  { route: '/login', chunks: ['StaffShell', 'LoginPage'], budget: 260 },
+  { route: '/dashboard', chunks: ['StaffShell', 'staffRoutes'], budget: 260 },
+];
+const FIREBASE_CHUNK = /^vendor-firebase/;
+
+function staticImports(name) {
+  const code = readFileSync(join(assetsDir, name), 'utf8');
+  // Static ES imports only — `import("./x.js")` (dynamic) is deliberately not
+  // matched: those load later, on demand.
+  return [...code.matchAll(/(?:\bfrom|\bimport)\s*"\.\/([^"]+\.js)"/g)].map((m) => m[1]);
+}
+
+function closure(starts) {
+  const seen = new Set();
+  const stack = [...starts];
+  while (stack.length) {
+    const name = stack.pop();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    for (const dep of staticImports(name)) stack.push(dep);
+  }
+  return seen;
+}
 
 /**
  * Loaded only when the user does something that needs them, so they are exempt
@@ -119,7 +158,7 @@ function main() {
   // actual change to what the browser fetches. The entry script and its
   // modulepreload links ARE the boot set, by definition, so measuring them is
   // both correct and immune to naming coincidence.
-  const html = readFileSync(join(projectRoot, 'dist', 'index.html'), 'utf8');
+  const html = readFileSync(join(distDir, 'index.html'), 'utf8');
   const booted = new Set(
     [...html.matchAll(/(?:src|href)="\/assets\/([^"]+\.js)"/g)].map((m) => m[1])
   );
@@ -155,6 +194,25 @@ function main() {
       );
     }
   }
+
+  console.log('\n  Per route (first visit):');
+  const sizeOf = new Map(measured.map((f) => [f.name, f.kb]));
+  for (const { route, chunks, budget, publicRoute } of ROUTES) {
+    const entries = chunks.map((prefix) => jsFiles.find((f) => f.startsWith(`${prefix}-`)));
+    if (entries.some((e) => !e)) {
+      failures.push(`Route ${route}: chunk(s) ${chunks.join(', ')} not found in dist/assets`);
+      continue;
+    }
+    const files = closure([...booted, ...entries]);
+    const kb = [...files].reduce((sum, f) => sum + (sizeOf.get(f) ?? 0), 0);
+    console.log(`    ${route.padEnd(11)} ${kb.toFixed(1).padStart(7)} KB  / ${budget} KB`);
+    if (kb > budget) failures.push(`Route ${route} is ${kb.toFixed(1)} KB, over its ${budget} KB budget`);
+    if (publicRoute) {
+      const firebase = [...files].filter((f) => FIREBASE_CHUNK.test(f));
+      if (firebase.length) failures.push(`Public route ${route} loads Firebase (${firebase.join(', ')})`);
+    }
+  }
+  console.log('');
 
   console.log(`  Total CSS           ${cssKb.toFixed(1).padStart(7)} KB  / ${BUDGETS.totalCss} KB`);
   if (cssKb > BUDGETS.totalCss) {

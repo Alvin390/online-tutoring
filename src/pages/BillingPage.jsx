@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useBilling } from '@features/billing/context/BillingContext';
 import { useToast } from '@/context/ToastContext';
 import { TIERS, TIER_ORDER, TIER_RANK, formatKes } from '@shared/constants/tiers';
@@ -244,7 +244,7 @@ export default function BillingPage() {
 
       {/* Current status */}
       {!loading && statusCopy && (
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           className="card mb-4"
@@ -313,7 +313,7 @@ export default function BillingPage() {
               </button>
             </div>
           )}
-        </motion.div>
+        </m.div>
       )}
 
       {/* Cancel confirmation — states the exact date, per Q8. */}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { nairobiParts, fromNairobi, formatDayLong, WEEKDAY_LABELS } from '@utils/dates';
 
 /**
@@ -146,7 +146,7 @@ export default function EventForm({
         aria-hidden="true"
       />
 
-      <motion.div
+      <m.div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
@@ -384,7 +384,7 @@ export default function EventForm({
             )}
           </div>
         </form>
-      </motion.div>
+      </m.div>
     </>
   );
 }

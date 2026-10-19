@@ -1,6 +1,7 @@
 import { parseClassLink } from './classLink.js';
 import { notFound, badRequest } from './errors.js';
 import { tryWriteAudit, AuditAction } from './audit.js';
+import { invalidateBootstrap } from './publicBootstrap.js';
 
 /**
  * Session slug rules — server copy. Phase 05 Part A.
@@ -72,7 +73,15 @@ export async function deleteRecursively(db, ref) {
     // eslint-disable-next-line no-await-in-loop
     await batch.commit();
   }
-  return { deleted: refs.length };
+  // Per collection id, so a caller can report "notes removed" without
+  // counting other subcollections (meta/activity, Phase 13 / 08 B3).
+  const byCollection = {};
+  for (const r of refs) {
+    const parts = r.path.split('/');
+    const collectionId = parts[parts.length - 2];
+    byCollection[collectionId] = (byCollection[collectionId] ?? 0) + 1;
+  }
+  return { deleted: refs.length, byCollection };
 }
 
 /**
@@ -83,8 +92,9 @@ export async function deleteRecursively(db, ref) {
  */
 const KNOWN_SUBCOLLECTIONS = Object.freeze({
   sessions: ['students', 'private'],
-  students: ['notes'],
+  students: ['notes', 'meta'],
   notes: [],
+  meta: [],
   private: [],
 });
 
@@ -311,6 +321,7 @@ export function __resetSessionCache() {
 
 /** Drops one slug, after a write that changes its existence or `active`. */
 export function invalidateSession(slug) {
+  invalidateBootstrap(); // the public session list (Phase 13 / 08 A1)
   sessionCache.delete(slug);
 }
 

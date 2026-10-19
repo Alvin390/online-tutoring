@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { parseClassLink, PROVIDER_META } from '@utils/classLink';
 import { DEFAULT_SESSION_ICON, DEFAULT_SESSION_GRADIENT } from '@shared/constants/sessions';
 import '@/styles/landing.css';
@@ -145,7 +145,7 @@ export default function ClassLinkManager({ sessions = [], classLinks = {}, onUpd
   );
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center">
         <h5 className="mb-0">
           <i className="bi bi-link-45deg me-2" aria-hidden="true" />
@@ -218,6 +218,6 @@ export default function ClassLinkManager({ sessions = [], classLinks = {}, onUpd
           </div>
         )}
       </div>
-    </motion.div>
+    </m.div>
   );
 }

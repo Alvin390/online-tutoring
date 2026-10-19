@@ -1,9 +1,16 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
 import { Profiler } from 'react';
 import { render, act } from '@testing-library/react';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import StudentTable from '@features/dashboard/components/StudentTable';
+
+// Phase 13 / 04 made StudentTable read the fees flag and the tier (block-kind
+// default); this benchmark mounts it outside the providers.
+vi.mock('@features/auth/context/AuthContext', () => ({
+  useAuthState: () => ({ tierRank: 3, isSuperadmin: false }),
+}));
+vi.mock('@shared/config/FlagsContext', () => ({ useFlag: () => true }));
 
 /**
  * Render-cost benchmark — Phase 13 / 01 D3 ("React render cost").
@@ -45,6 +52,17 @@ function Harness({ students, onRender }) {
   );
 }
 
+// jsdom does no layout: every element measures 0 px, so a virtualised list
+// would believe any number of rows fit the window. Give rows the height they
+// have in a browser (64 px, the table's estimate) — Phase 13 / 08 B2. The
+// real-browser row count is checked by tests/layout as well.
+const realRect = Element.prototype.getBoundingClientRect;
+Element.prototype.getBoundingClientRect = function rect() {
+  if (this.tagName === 'TR') return { x: 0, y: 0, top: 0, left: 0, right: 1200, bottom: 64, width: 1200, height: 64, toJSON() {} };
+  return realRect.call(this);
+};
+afterAll(() => { Element.prototype.getBoundingClientRect = realRect; });
+
 describe('StudentTable render cost (recorded, not asserted)', () => {
   it('mount and single-row update at 500 rows', () => {
     const mounts = [];
@@ -54,10 +72,14 @@ describe('StudentTable render cost (recorded, not asserted)', () => {
     for (let run = 0; run < 5; run += 1) {
       const students = makeStudents(500);
       let phaseLog = [];
-      const { rerender, unmount, container } = render(
-        <Harness students={students} onRender={(p, d) => phaseLog.push([p, d])} />
-      );
-      mounts.push(phaseLog.filter(([p]) => p === 'mount').reduce((s, [, d]) => s + d, 0));
+      let view;
+      // Every commit until the table settles counts as "mount" — a
+      // virtualised table re-renders once after measuring its rows.
+      act(() => {
+        view = render(<Harness students={students} onRender={(p, d) => phaseLog.push([p, d])} />);
+      });
+      const { rerender, unmount, container } = view;
+      mounts.push(phaseLog.reduce((s, [, d]) => s + d, 0));
       rowCount = container.querySelectorAll('tbody tr').length;
 
       phaseLog = [];

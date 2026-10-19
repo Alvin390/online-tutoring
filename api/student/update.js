@@ -137,6 +137,9 @@ async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log
       ? [(batch) => batch.set(oldAccount, { phoneChanged: newPhone, movedAt: new Date(), session })]
       : []),
     ...notes.docs.map((n) => (batch) => batch.delete(n.ref)),
+    // The old number's "last seen" marker (Phase 13 / 08 B3); the new number
+    // starts its own on the next check-in.
+    (batch) => batch.delete(oldRef.collection('meta').doc('activity')),
     (batch) => batch.delete(oldRef),
   ]);
 

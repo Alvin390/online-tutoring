@@ -1,6 +1,6 @@
 import { useState, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
 import IdleWarningModal from '@features/auth/components/IdleWarningModal';
 import useIdleTimeout from '@hooks/useIdleTimeout';
@@ -59,10 +59,11 @@ export default function DashboardLayout() {
 
   const [refreshing, setRefreshing] = useState(false);
 
+  // Sign-out wipes the offline cache and reloads (Phase 13 / 08 B5), so the
+  // destination is passed in rather than navigated to afterwards.
   const handleLogout = useCallback(async () => {
-    await signOut();
-    navigate('/');
-  }, [signOut, navigate]);
+    await signOut({ redirectTo: '/' });
+  }, [signOut]);
 
   /**
    * Idle timeout — Phase 02 D3. The dashboard shows every student's name,
@@ -87,7 +88,7 @@ export default function DashboardLayout() {
   const currentStudents = activeTab ? (studentsBySession[activeTab] ?? []) : [];
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="dashboard-container"
@@ -312,6 +313,6 @@ export default function DashboardLayout() {
           </div>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

@@ -1,4 +1,4 @@
-import { motion, useReducedMotion } from 'framer-motion';
+import { m, useReducedMotion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -44,8 +44,7 @@ const Toast = ({ type = 'info', title, message, duration = 5000, action, onClose
   };
 
   return (
-    <motion.div
-      layout={!reduceMotion}
+    <m.div
       initial={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
@@ -87,7 +86,7 @@ const Toast = ({ type = 'info', title, message, duration = 5000, action, onClose
           aria-label={`Dismiss ${title ?? 'notification'}`}
         />
       </div>
-    </motion.div>
+    </m.div>
   );
 };
 

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 
 /**
  * 403 — Phase 02 D5.
@@ -20,7 +20,7 @@ export default function ForbiddenPage() {
       <div className="container position-relative">
         <div className="row min-vh-100 align-items-center justify-content-center">
           <div className="col-md-6 col-lg-5">
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="glass-card text-center"
@@ -47,7 +47,7 @@ export default function ForbiddenPage() {
                   Back to home
                 </Link>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         </div>
       </div>

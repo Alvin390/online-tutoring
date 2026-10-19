@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getDb, FieldValue } from './firebaseAdmin.js';
+import { getDb } from './firebaseAdmin.js';
 import { tooManyRequests } from './errors.js';
 
 /**
@@ -53,27 +53,19 @@ export async function checkRateLimit({ key, bucket, limit, windowSeconds }) {
     const docId = `${bucket}_${hashKey(key)}_${windowStart}`;
     const ref = db.collection(COLLECTION).doc(docId);
 
-    const count = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const current = snap.exists ? (snap.data().count ?? 0) : 0;
-      const next = current + 1;
-
-      if (next > limit) return next;
-
-      tx.set(
-        ref,
-        {
-          count: FieldValue.increment(1),
-          bucket,
-          windowStart: new Date(windowStart),
-          // Firestore TTL policy on `expiresAt` reaps these. Configure the
-          // policy once per project — see appendix C.
-          expiresAt: new Date(windowStart + windowMs * 2),
-        },
-        { merge: true }
-      );
-
-      return next;
+    // Phase 13 / 08 C2: ONE round trip. This was a transaction — begin, get,
+    // commit: three sequential calls to Google before every rate-limited
+    // request did any work. An atomic increment whose commit reports the new
+    // value is just as exact (global, not per-location like Cloudflare's
+    // rate-limit binding, whose 10/60 s windows cannot express these
+    // hourly/daily limits). Requests past the limit still count, which only
+    // matters to the counter, never to the outcome.
+    const count = await ref.incrementAndGet('count', 1, {
+      bucket,
+      windowStart: new Date(windowStart),
+      // Firestore TTL policy on `expiresAt` reaps these. Configure the
+      // policy once per project — see appendix C.
+      expiresAt: new Date(windowStart + windowMs * 2),
     });
 
     const retryAfter = Math.max(1, Math.ceil((windowStart + windowMs - now) / 1000));

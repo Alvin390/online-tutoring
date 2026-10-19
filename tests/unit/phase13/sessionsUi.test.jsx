@@ -101,35 +101,44 @@ describe('D5 SessionCard', () => {
 describe('D5 usePublicSessions', () => {
   beforeEach(() => vi.resetModules());
 
-  it('returns active sessions sorted by order', async () => {
-    vi.doMock('firebase/firestore', () => ({
-      collection: vi.fn(), query: vi.fn(), where: vi.fn(),
-      getDocs: vi.fn().mockResolvedValue({
-        docs: [
-          { id: 'weekend', data: () => ({ name: 'Weekend', order: 2, active: true }) },
-          { id: 'morning', data: () => ({ name: 'Morning', order: 0, active: true }) },
-        ],
+  // Phase 13 / 08 A1: the list comes from /api/public/bootstrap (the server
+  // filters to active sessions and sorts by order) — no Firestore SDK here.
+  it('returns the server’s active sessions in order, without touching Firestore', async () => {
+    const firestore = vi.fn();
+    vi.doMock('firebase/firestore', () => ({ getDocs: firestore, collection: firestore }));
+    vi.doMock('@services/api/public', () => ({
+      getPublicBootstrap: vi.fn().mockResolvedValue({
+        flags: {},
+        sessions: [{ slug: 'morning', name: 'Morning', order: 0 }, { slug: 'weekend', name: 'Weekend', order: 2 }],
       }),
     }));
-    vi.doMock('@services/firebase/config', () => ({ db: {} }));
     const { usePublicSessions } = await import('@/features/sessions/hooks/usePublicSessions.js');
     const { result } = renderHook(() => usePublicSessions());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.sessions.map((s) => s.id)).toEqual(['morning', 'weekend']);
     expect(result.current.fallback).toBe(false);
+    expect(firestore).not.toHaveBeenCalled();
   });
 
   it('falls back to morning + evening on a failed read', async () => {
-    vi.doMock('firebase/firestore', () => ({
-      collection: vi.fn(), query: vi.fn(), where: vi.fn(),
-      getDocs: vi.fn().mockRejectedValue(Object.assign(new Error('offline'), { code: 'unavailable' })),
+    vi.doMock('@services/api/public', () => ({
+      getPublicBootstrap: vi.fn().mockRejectedValue(Object.assign(new Error('offline'), { code: 'network_error' })),
     }));
-    vi.doMock('@services/firebase/config', () => ({ db: {} }));
     const { usePublicSessions } = await import('@/features/sessions/hooks/usePublicSessions.js');
     const { result } = renderHook(() => usePublicSessions());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.sessions.map((s) => s.id)).toEqual(['morning', 'evening']);
     expect(result.current.fallback).toBe(true);
+  });
+
+  it('falls back when no session documents exist yet (production today)', async () => {
+    vi.doMock('@services/api/public', () => ({
+      getPublicBootstrap: vi.fn().mockResolvedValue({ flags: {}, sessions: [] }),
+    }));
+    const { usePublicSessions } = await import('@/features/sessions/hooks/usePublicSessions.js');
+    const { result } = renderHook(() => usePublicSessions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.sessions.map((s) => s.id)).toEqual(['morning', 'evening']);
   });
 });
 

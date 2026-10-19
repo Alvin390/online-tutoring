@@ -69,6 +69,26 @@
   "fieldOverrides": [
     {
       "collectionGroup": "notes",
+      "fieldPath": "body",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "audit",
+      "fieldPath": "context",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "audit",
+      "fieldPath": "before",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "audit",
+      "fieldPath": "after",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "notes",
       "fieldPath": "deletedAt",
       "indexes": [
         { "order": "ASCENDING", "queryScope": "COLLECTION" },

@@ -90,7 +90,7 @@ function waitForCode(server, expectedState) {
     const timer = setTimeout(() => reject(new Error('Timed out after 5 minutes waiting for Google.')), 5 * 60_000);
     server.on('request', (req, res) => {
       const url = new URL(req.url, 'http://127.0.0.1');
-      if (url.pathname !== '/callback') { res.writeHead(404).end(); return; }
+      if (url.pathname !== '/') { res.writeHead(404).end(); return; }
       const error = url.searchParams.get('error');
       const code = url.searchParams.get('code');
       const ok = !error && code && url.searchParams.get('state') === expectedState;
@@ -122,7 +122,7 @@ async function main() {
 
   const server = createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const redirectUri = `http://127.0.0.1:${server.address().port}/callback`;
+  const redirectUri = `http://127.0.0.1:${server.address().port}`;
   const { verifier, challenge } = makePkce();
   const state = base64url(randomBytes(16));
   const consentUrl = buildConsentUrl({ clientId, redirectUri, challenge, state });

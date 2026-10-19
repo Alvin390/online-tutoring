@@ -1,8 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import CheckinCard from './CheckinCard';
-import RegistrationForm from './RegistrationForm';
 import WelcomeBackCard from './WelcomeBackCard';
 import BlockedStudentScreen from './BlockedStudentScreen';
 import PendingApprovalScreen from './PendingApprovalScreen';
@@ -13,6 +12,13 @@ import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
 import { providerLabel } from '@utils/classLink';
 import { formatSchedule } from '@utils/formatSchedule';
+
+// Phase 13 / 08: the registration form (react-hook-form + zod, ~20 KB gz) is
+// only needed by a first-time student, after the phone lookup. Loaded on
+// demand, and prefetched as soon as a number is submitted (A5), so it is
+// normally ready before the lookup answers.
+const loadRegistrationForm = () => import('./RegistrationForm');
+const RegistrationForm = lazy(loadRegistrationForm);
 import '@/styles/landing.css';
 
 /**
@@ -59,6 +65,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
 
   const handleCheckin = async (phone) => {
     setPhoneNumber(phone);
+    loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
     const { exists, data } = await checkStudent(phone);
 
     if (!exists) {
@@ -127,7 +134,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
       <div className="container position-relative">
         <div className="row min-vh-100 align-items-center justify-content-center py-5">
           <div className="col-lg-6 col-md-8">
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               className="mb-4 text-center"
@@ -136,7 +143,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                 <i className="bi bi-arrow-left me-2" aria-hidden="true" />
                 Back to Home
               </Link>
-            </motion.div>
+            </m.div>
 
             <div className="text-center mb-4 animate-fade-in-up">
               <div className="session-badge" style={{ '--card-gradient': gradient }}>
@@ -168,14 +175,24 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
               )}
 
               {step === GATE.REGISTER && (
-                <RegistrationForm
+                <Suspense
                   key="register"
-                  session={session}
-                  phoneNumber={phoneNumber}
-                  onSubmit={handleRegistration}
-                  onBack={handleBack}
-                  loading={loading}
-                />
+                  fallback={(
+                    <div className="text-center py-4">
+                      <span className="spinner-border spinner-border-sm text-primary" role="status">
+                        <span className="visually-hidden">Loading the registration form…</span>
+                      </span>
+                    </div>
+                  )}
+                >
+                  <RegistrationForm
+                    session={session}
+                    phoneNumber={phoneNumber}
+                    onSubmit={handleRegistration}
+                    onBack={handleBack}
+                    loading={loading}
+                  />
+                </Suspense>
               )}
 
               {step === GATE.PENDING && (

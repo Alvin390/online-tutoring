@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { providerLabel } from '@utils/classLink';
 
 /**
@@ -24,13 +24,13 @@ export default function SuccessScreen({
   const label = providerLabel(provider);
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       className="glass-card"
     >
       <div className="text-center py-5">
-        <motion.div
+        <m.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', delay: 0.2 }}
@@ -52,7 +52,7 @@ export default function SuccessScreen({
           >
             ✓
           </div>
-        </motion.div>
+        </m.div>
 
         <h3 className="fw-bold text-success mb-3">{title}</h3>
         <p className="text-muted mb-4">{message}</p>
@@ -90,6 +90,6 @@ export default function SuccessScreen({
           </div>
         )}
       </div>
-    </motion.div>
+    </m.div>
   );
 }

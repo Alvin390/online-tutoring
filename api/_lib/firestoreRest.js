@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { firestoreAuthHeader, firestoreEmulatorHost, getProjectId } from './googleAuth.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
  * Firestore over the REST API — Phase 12 D2.
@@ -159,8 +160,39 @@ export class SubrequestBudgetExceeded extends Error {
 // Subrequest budget
 // ---------------------------------------------------------------------------
 
-let subrequestBudget = Infinity;
-let subrequestsUsed = 0;
+/**
+ * Phase 13 / 08 C9: the budget is PER INVOCATION. It used to be two module
+ * variables, so a second request arriving in the same isolate re-armed them
+ * mid-flight and the first request kept spending past its own limit
+ * (validated: 5 calls against a budget of 3). Each fetch()/scheduled() now
+ * runs inside its own AsyncLocalStorage context (`runWithSubrequestBudget`);
+ * background work registered with waitUntil inherits it, which is right —
+ * Cloudflare counts it against the same invocation.
+ *
+ * Outside any context (scripts, tests calling the shim directly) the
+ * module-level fallback below is used, armed by `armSubrequestBudget`.
+ */
+const budgetStore = new AsyncLocalStorage();
+const fallbackBudget = { budget: Infinity, used: 0 };
+const currentBudget = () => budgetStore.getStore() ?? fallbackBudget;
+const normaliseBudget = (budget) => (Number.isFinite(budget) && budget > 0 ? budget : Infinity);
+
+/** Runs `fn` with its own subrequest budget — one per Worker invocation. */
+export function runWithSubrequestBudget(budget, fn) {
+  return budgetStore.run({ budget: normaliseBudget(budget), used: 0 }, fn);
+}
+
+/**
+ * Local-latency harness — Phase 13 / 08. Adds `SIMULATED_RTT_MS` before every
+ * Google-bound call (Firestore, Auth, OAuth) so the effect of removing a round
+ * trip is measurable on localhost, where the emulators answer in ~1 ms.
+ * Honoured ONLY when an emulator host is set: production cannot be slowed.
+ */
+export async function simulatedGoogleRtt() {
+  const ms = Number(process.env.SIMULATED_RTT_MS);
+  if (!(ms > 0) || !(process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST)) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Arms the budget for one invocation. Called by the Worker entry point on every
@@ -171,16 +203,18 @@ let subrequestsUsed = 0;
  * trip a limit that only applies to Workers.
  */
 export function armSubrequestBudget(budget) {
-  subrequestBudget = Number.isFinite(budget) && budget > 0 ? budget : Infinity;
-  subrequestsUsed = 0;
+  const target = currentBudget();
+  target.budget = normaliseBudget(budget);
+  target.used = 0;
 }
 
 export function subrequestsRemaining() {
-  return subrequestBudget === Infinity ? Infinity : Math.max(0, subrequestBudget - subrequestsUsed);
+  const b = currentBudget();
+  return b.budget === Infinity ? Infinity : Math.max(0, b.budget - b.used);
 }
 
 export function subrequestsSpent() {
-  return subrequestsUsed;
+  return currentBudget().used;
 }
 
 /**
@@ -197,13 +231,14 @@ export function subrequestsSpent() {
  * next budget check sees the true figure.
  */
 export function countExternalSubrequest() {
-  subrequestsUsed += 1;
+  currentBudget().used += 1;
 }
 
 function spendSubrequest() {
-  subrequestsUsed += 1;
-  if (subrequestsUsed > subrequestBudget) {
-    throw new SubrequestBudgetExceeded(subrequestsUsed, subrequestBudget);
+  const b = currentBudget();
+  b.used += 1;
+  if (b.used > b.budget) {
+    throw new SubrequestBudgetExceeded(b.used, b.budget);
   }
 }
 
@@ -222,12 +257,13 @@ function spendSubrequest() {
  * ordinary work still stops.
  */
 export async function withSubrequestAllowance(extra, fn) {
-  const previous = subrequestBudget;
-  if (previous !== Infinity) subrequestBudget = subrequestsUsed + extra;
+  const b = currentBudget();
+  const previous = b.budget;
+  if (previous !== Infinity) b.budget = b.used + extra;
   try {
     return await fn();
   } finally {
-    subrequestBudget = previous;
+    b.budget = previous;
   }
 }
 
@@ -711,6 +747,25 @@ export class DocumentReference {
   }
 
   /**
+   * Atomically adds `delta` to `field` (creating the document if needed),
+   * merges `extra`, and returns the NEW value — in ONE round trip.
+   * Phase 13 / 08 C2. Firestore's commit reports each transform's result, so
+   * a counter needs no transaction (begin + get + commit = 3 round trips).
+   * Shim-only: firebase-admin has no equivalent.
+   */
+  async incrementAndGet(field, delta = 1, extra = {}) {
+    const write = buildWrite(this, extra, { merge: true });
+    write.updateMask = { fieldPaths: collectMergePaths(extra) };
+    write.updateTransforms = [
+      ...(write.updateTransforms ?? []),
+      { fieldPath: queryFieldPath(field), increment: encodeValue(delta) },
+    ];
+    const [result] = await this._firestore._commit([write]);
+    const value = result?.transformResults?.at(-1);
+    return typeof value === 'number' ? value : Number(value);
+  }
+
+  /**
    * Fails if the document already exists.
    *
    * The thrown error carries gRPC code 6 because that is what the two call
@@ -1063,6 +1118,7 @@ export class Firestore {
 
   async _request(path, { method = 'GET', body, query } = {}) {
     spendSubrequest();
+    await simulatedGoogleRtt();
 
     const url = new URL(`${this._baseUrl()}/${path}`);
     if (query) {
@@ -1324,6 +1380,7 @@ export class Firestore {
 
     return (result?.writeResults ?? []).map((wr) => ({
       writeTime: wr.updateTime ? Timestamp.fromISO(wr.updateTime) : null,
+      transformResults: (wr.transformResults ?? []).map((v) => decodeValue(v)),
     }));
   }
 

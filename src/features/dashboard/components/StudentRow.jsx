@@ -1,4 +1,4 @@
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -6,7 +6,18 @@ import { createPortal } from 'react-dom';
 // already; escaping again here displayed "O'Brien" as "O&#039;Brien" and
 // "Maths & Science" as "Maths &amp; Science".
 
-function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline }) {
+/**
+ * Entrance stagger cap — Phase 13 / 08 B2. Each row waited `index * 0.05 s`,
+ * so on a 500-student class the last row appeared 25 seconds after mount.
+ * Only the first rows are staggered now; virtualised rows (above 50) do not
+ * animate at all, since they mount and unmount as the teacher scrolls.
+ */
+const STAGGER_ROWS = 10;
+
+function StudentRow({
+  student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline,
+  animated = true, measureRef, dataIndex,
+}) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -87,13 +98,17 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
 
   return (
     <>
-      <motion.tr
-        ref={rowRef}
+      <m.tr
+        ref={(el) => {
+          rowRef.current = el;
+          measureRef?.(el);
+        }}
+        data-index={dataIndex}
         tabIndex={-1}
-        initial={{ opacity: 0, x: -20 }}
+        initial={animated ? { opacity: 0, x: -20 } : false}
         animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 20 }}
-        transition={{ delay: index * 0.05 }}
+        exit={animated ? { opacity: 0, x: 20 } : undefined}
+        transition={{ delay: animated && index < STAGGER_ROWS ? index * 0.05 : 0 }}
         className="student-row-wrapper"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -205,14 +220,14 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
         </div>
       </td>
 
-      </motion.tr>
+      </m.tr>
 
       {/* Hover Popup Portal */}
       {showPopup && createPortal(
         <AnimatePresence>
           {/* Backdrop for mobile only - click to close */}
           {isTouchDevice && (
-            <motion.div
+            <m.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -226,7 +241,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
               left the card's left edge at mid-screen — off-screen on phones.
               The layer centres with grid; the card only fades and scales. */}
           <div className="student-info-layer" key="layer">
-          <motion.div
+          <m.div
             ref={cardRef}
             tabIndex={-1}
             role="dialog"
@@ -383,7 +398,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 </div>
               )}
             </div>
-          </motion.div>
+          </m.div>
           </div>
         </AnimatePresence>,
         document.body

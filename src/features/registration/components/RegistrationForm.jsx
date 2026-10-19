@@ -1,6 +1,6 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { registrationSchema } from '../schemas/registrationSchema';
 
 const CLASSES = ['Form One', 'Form Two', 'Form Three', 'Form Four'];
@@ -22,7 +22,7 @@ export default function RegistrationForm({
   });
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       className="glass-card"
@@ -152,6 +152,6 @@ export default function RegistrationForm({
           Use different phone number
         </button>
       </form>
-    </motion.div>
+    </m.div>
   );
 }

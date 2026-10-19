@@ -1,6 +1,7 @@
 import { toNodeRequest, createNodeResponse } from './nodeCompat.js';
 import { resolveRoute, CRON_HANDLERS } from './routes.js';
-import { armSubrequestBudget } from '../api/_lib/firestoreRest.js';
+import { runWithSubrequestBudget } from '../api/_lib/firestoreRest.js';
+import { runInRequestContext } from '../api/_lib/requestContext.js';
 
 /**
  * Cloudflare Worker entry point — Phase 12 D6.
@@ -89,104 +90,119 @@ function jsonError(status, code, message) {
 }
 
 export default {
-  async fetch(request, env, ctx) {
-    armSubrequestBudget(budget());
-
-    const url = new URL(request.url);
-
-    // Belt and braces. With run_worker_first scoped to /api/*, a non-API
-    // request should never arrive — but if the config is ever loosened, this
-    // hands it back to the asset server rather than 404ing the whole site.
-    if (!url.pathname.startsWith('/api/')) {
-      if (env.ASSETS) return env.ASSETS.fetch(request);
-      return jsonError(404, 'not_found', 'Not found.');
-    }
-
-    const route = resolveRoute(url.pathname);
-    if (!route) return jsonError(404, 'not_found', 'Not found.');
-
-    try {
-      const req = await toNodeRequest(request, route.params);
-
-      // Phase 13 / 06 D5: background work (email, audit, heartbeats) must be
-      // registered with the runtime, or Cloudflare may cancel it once the
-      // response has been sent.
-      if (!req.tooLarge && ctx && typeof ctx.waitUntil === 'function') {
-        req.waitUntil = (promise) => ctx.waitUntil(promise);
-      }
-
-      if (req.tooLarge) {
-        return jsonError(413, 'payload_too_large', 'Request body too large.');
-      }
-
-      const res = createNodeResponse();
-      await route.handler(req, res);
-
-      if (!res.writableEnded) {
-        // A handler that returned without answering. Better a clean 500 than a
-        // hung request.
-        return jsonError(500, 'internal_error', 'Something went wrong. Please try again.');
-      }
-
-      return applySecurityHeaders(res.toResponse());
-    } catch (err) {
-      // The handlers own their error shapes; anything reaching here escaped
-      // that. Log it in full server-side, return nothing revealing.
-      console.error(JSON.stringify({
-        level: 'error',
-        msg: 'Unhandled error in worker fetch',
-        path: url.pathname,
-        error: String(err?.stack ?? err),
-      }));
-      return jsonError(500, 'internal_error', 'Something went wrong. Please try again.');
-    }
+  // Each invocation runs in its OWN subrequest budget context (Phase 13 / 08
+  // C9) — the counter used to be module-scoped and shared across requests.
+  fetch(request, env, ctx) {
+    return runWithSubrequestBudget(budget(), () =>
+      runInRequestContext(contextFor(ctx), () => handleFetch(request, env, ctx)));
   },
 
-  /**
-   * Cron triggers.
-   *
-   * The three sweeps keep their HTTP routes and their CRON_SECRET check, so a
-   * teacher or an operator can still run one by hand and the Phase 11
-   * monitoring is unchanged. Rather than duplicate each sweep's body, this
-   * synthesises the request those handlers already expect — one code path,
-   * exercised identically whether it fires from cron or from curl.
-   *
-   * `controller.cron` is the exact expression string from wrangler.jsonc, so
-   * the mapping below must stay in step with the `triggers.crons` array.
-   */
-  async scheduled(controller, env, ctx) {
-    armSubrequestBudget(budget());
-
-    const names = [CRON_SCHEDULE_TO_SWEEP[controller.cron] ?? []].flat();
-    if (names.length === 0) {
-      console.error(JSON.stringify({
-        level: 'error',
-        msg: 'Cron fired with no matching sweep — check wrangler.jsonc triggers',
-        cron: controller.cron,
-      }));
-      return;
-    }
-
-    const secret = process.env.CRON_SECRET;
-
-    if (!secret) {
-      // The sweeps refuse to run without it, and silently doing nothing every
-      // hour is exactly the failure nobody notices.
-      console.error(JSON.stringify({
-        level: 'error',
-        msg: 'CRON_SECRET is not set — scheduled sweep cannot authorise itself',
-        sweep: names.join(','),
-      }));
-      return;
-    }
-
-    // Sweeps sharing a trigger run in order, in ONE invocation, so they share
-    // the subrequest budget armed above — each checks what is left.
-    for (const name of names) {
-      await runSweep(name, secret);
-    }
+  // One context around every sweep on a trigger: they share the invocation's
+  // budget (Phase 13 / 06), and each checks what is left.
+  scheduled(controller, env, ctx) {
+    return runWithSubrequestBudget(budget(), () =>
+      runInRequestContext(contextFor(ctx), () => handleScheduled(controller, env, ctx)));
   },
 };
+
+/** What background work needs from the invocation (Phase 13 / 08 C3). */
+function contextFor(ctx) {
+  return { waitUntil: typeof ctx?.waitUntil === 'function' ? (p) => ctx.waitUntil(p) : null };
+}
+
+async function handleFetch(request, env, ctx) {
+  const url = new URL(request.url);
+
+  // Belt and braces. With run_worker_first scoped to /api/*, a non-API
+  // request should never arrive — but if the config is ever loosened, this
+  // hands it back to the asset server rather than 404ing the whole site.
+  if (!url.pathname.startsWith('/api/')) {
+    if (env.ASSETS) return env.ASSETS.fetch(request);
+    return jsonError(404, 'not_found', 'Not found.');
+  }
+
+  const route = resolveRoute(url.pathname);
+  if (!route) return jsonError(404, 'not_found', 'Not found.');
+
+  try {
+    const req = await toNodeRequest(request, route.params);
+
+    // Phase 13 / 06 D5: background work (email, audit, heartbeats) must be
+    // registered with the runtime, or Cloudflare may cancel it once the
+    // response has been sent.
+    if (!req.tooLarge && ctx && typeof ctx.waitUntil === 'function') {
+      req.waitUntil = (promise) => ctx.waitUntil(promise);
+    }
+
+    if (req.tooLarge) {
+      return jsonError(413, 'payload_too_large', 'Request body too large.');
+    }
+
+    const res = createNodeResponse();
+    await route.handler(req, res);
+
+    if (!res.writableEnded) {
+      // A handler that returned without answering. Better a clean 500 than a
+      // hung request.
+      return jsonError(500, 'internal_error', 'Something went wrong. Please try again.');
+    }
+
+    return applySecurityHeaders(res.toResponse());
+  } catch (err) {
+    // The handlers own their error shapes; anything reaching here escaped
+    // that. Log it in full server-side, return nothing revealing.
+    console.error(JSON.stringify({
+      level: 'error',
+      msg: 'Unhandled error in worker fetch',
+      path: url.pathname,
+      error: String(err?.stack ?? err),
+    }));
+    return jsonError(500, 'internal_error', 'Something went wrong. Please try again.');
+  }
+}
+
+/**
+ * Cron triggers.
+ *
+ * The three sweeps keep their HTTP routes and their CRON_SECRET check, so a
+ * teacher or an operator can still run one by hand and the Phase 11
+ * monitoring is unchanged. Rather than duplicate each sweep's body, this
+ * synthesises the request those handlers already expect — one code path,
+ * exercised identically whether it fires from cron or from curl.
+ *
+ * `controller.cron` is the exact expression string from wrangler.jsonc, so
+ * the mapping below must stay in step with the `triggers.crons` array.
+ */
+async function handleScheduled(controller, env, ctx) {
+  const names = [CRON_SCHEDULE_TO_SWEEP[controller.cron] ?? []].flat();
+  if (names.length === 0) {
+    console.error(JSON.stringify({
+      level: 'error',
+      msg: 'Cron fired with no matching sweep — check wrangler.jsonc triggers',
+      cron: controller.cron,
+    }));
+    return;
+  }
+
+  const secret = process.env.CRON_SECRET;
+
+  if (!secret) {
+    // The sweeps refuse to run without it, and silently doing nothing every
+    // hour is exactly the failure nobody notices.
+    console.error(JSON.stringify({
+      level: 'error',
+      msg: 'CRON_SECRET is not set — scheduled sweep cannot authorise itself',
+      sweep: names.join(','),
+    }));
+    return;
+  }
+
+  // Sweeps sharing a trigger run in order, in ONE invocation, so they share
+  // the subrequest budget armed above — each checks what is left.
+  for (const name of names) {
+    await runSweep(name, secret);
+  }
+}
 
 /** Runs one sweep through its HTTP handler with a synthesised request. */
 async function runSweep(name, secret) {

@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useEffect, useRef, useId } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -101,14 +101,14 @@ export default function Modal({
 
   return createPortal(
     <AnimatePresence>
-      <motion.div
+      <m.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="modal-overlay"
         onClick={onClose}
       >
-        <motion.div
+        <m.div
           ref={dialogRef}
           tabIndex={-1}
           role="dialog"
@@ -160,8 +160,8 @@ export default function Modal({
             </button>
           </div>
           )}
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
     </AnimatePresence>,
     document.body
   );

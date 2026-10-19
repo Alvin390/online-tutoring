@@ -341,6 +341,14 @@ service cloud.firestore {
       allow read, write: if isTeacher();
     }
 
+    // Phase 13 / 08 B3: the check-in heartbeat (`meta/activity`), kept off the
+    // student document so dashboard listeners do not fire on every visit.
+    // Written only by the server; teachers may read it.
+    match /sessions/{session}/students/{phone}/meta/{docId} {
+      allow read: if isTeacher();
+      allow write: if false;
+    }
+
     // Collection-group reads (Phase 04 approvals panel, Phase 06 overdue sweep,
     // Phase 08 class filter) are evaluated against a wildcard path and are NOT
     // covered by the nested match above. Both halves are required: this block

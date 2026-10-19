@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAuthActions } from '@features/auth/context/AuthContext';
 
 export default function LoginPage() {
@@ -55,7 +55,7 @@ export default function LoginPage() {
       <div className="container position-relative">
         <div className="row min-vh-100 align-items-center justify-content-center">
           <div className="col-md-5 col-lg-4">
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="glass-card"
@@ -118,7 +118,7 @@ export default function LoginPage() {
                 {/* Error. role="alert" so a screen reader announces the
                     failure rather than leaving the user waiting silently. */}
                 {error && (
-                  <motion.div
+                  <m.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="alert alert-danger"
@@ -126,7 +126,7 @@ export default function LoginPage() {
                     aria-live="assertive"
                   >
                     {error}
-                  </motion.div>
+                  </m.div>
                 )}
 
                 {/* Submit */}
@@ -156,7 +156,7 @@ export default function LoginPage() {
                   </Link>
                 </div>
               </form>
-            </motion.div>
+            </m.div>
           </div>
         </div>
       </div>

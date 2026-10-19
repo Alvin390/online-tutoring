@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import SessionCard from '@features/sessions/components/SessionCard';
 import { usePublicSessions } from '@features/sessions/hooks/usePublicSessions';
 import '@/styles/landing.css';
+import { prefetchStaff } from '@/routes/prefetch';
 
 export default function LandingPage() {
   const { sessions, loading } = usePublicSessions();
@@ -20,33 +21,33 @@ export default function LandingPage() {
           <div className="row min-vh-100 align-items-center justify-content-center">
             <div className="col-lg-10 text-center">
               {/* Animated Logo */}
-              <motion.div
+              <m.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', duration: 0.8 }}
                 className="hero-icon mb-4 animate-float"
               >
                 <i className="bi bi-mortarboard-fill" />
-              </motion.div>
+              </m.div>
 
               {/* Main Heading */}
-              <motion.h1
+              <m.h1
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
                 className="hero-title mb-3"
               >
                 Welcome to Online Tutoring
-              </motion.h1>
+              </m.h1>
 
-              <motion.p
+              <m.p
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
                 className="hero-subtitle mb-5"
               >
                 Join our interactive Zoom classes and excel in your studies
-              </motion.p>
+              </m.p>
 
               {/* Session cards — Phase 13 / 02 D5. One per ACTIVE session, in the
                   teacher's order, every detail from the session document. The
@@ -60,7 +61,7 @@ export default function LandingPage() {
                       </div>
                     ))
                   : sessions.map((session, index) => (
-                      <motion.div
+                      <m.div
                         key={session.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -68,22 +69,28 @@ export default function LandingPage() {
                         className={sessions.length > 2 ? 'col-md-6 col-lg-4' : 'col-md-6 col-lg-5'}
                       >
                         <SessionCard session={session} />
-                      </motion.div>
+                      </m.div>
                     ))}
               </div>
 
               {/* Teacher Portal Link */}
-              <motion.div
+              <m.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 }}
                 className="mt-5"
               >
-                <Link to="/dashboard" className="teacher-portal-link">
+                <Link
+                  to="/dashboard"
+                  className="teacher-portal-link"
+                  onMouseEnter={prefetchStaff}
+                  onFocus={prefetchStaff}
+                  onTouchStart={prefetchStaff}
+                >
                   <i className="bi bi-person-circle me-2" />
                   Teacher Dashboard
                 </Link>
-              </motion.div>
+              </m.div>
             </div>
           </div>
         </div>

@@ -53,10 +53,26 @@ export const serverError = (cause) =>
  * unexpected and collapsed to a generic 500 — an unrecognised error is exactly
  * the case where we cannot vouch for what its message contains.
  */
-export function sendError(res, err, log) {
-  const apiError = err instanceof ApiError ? err : serverError(err);
+/**
+ * Firestore ABORTED (gRPC 10) that outlived the transaction retries: another
+ * write held the same document (two fee postings for one student at the same
+ * moment). Transient, and nothing was half-written — so a clear "try again"
+ * with Retry-After, not an opaque 500. Phase 13 / 08 D3.
+ */
+function contentionError(err) {
+  if (err?.name !== 'FirestoreError' || err.code !== 10) return null;
+  const busy = new ApiError(503, 'busy', 'That record is being updated right now. Please try again in a moment.', { cause: err });
+  busy.retryAfter = 1;
+  busy.transient = true;
+  return busy;
+}
 
-  if (apiError.status >= 500) {
+export function sendError(res, err, log) {
+  const apiError = err instanceof ApiError ? err : (contentionError(err) ?? serverError(err));
+
+  if (apiError.transient) {
+    log?.warn('Request hit write contention; client asked to retry', { code: apiError.code });
+  } else if (apiError.status >= 500) {
     log?.error('Unhandled error in API handler', apiError.cause ?? apiError);
   } else {
     log?.warn(`Request rejected: ${apiError.code}`, { status: apiError.status });

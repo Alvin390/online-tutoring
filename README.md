@@ -78,6 +78,18 @@ npm run dev
 
 The app will be available at `http://localhost:5173`
 
+`npm run dev` starts **two** processes: the API (the Cloudflare Worker under
+`wrangler dev` on port 8787, configured by `.dev.vars`) and the Vite dev server,
+which forwards every `/api/*` request to it. Both stop with Ctrl+C. Without the
+API running, pages load but every request fails with a 404.
+
+- `npm run dev:quiet` — Vite only (when the API is running elsewhere; set
+  `DEV_API_URL` to point the proxy at it)
+- `npm run dev:api` — the Worker only
+
+Note: `.dev.vars` points the local API at whichever Firebase project it names.
+If that is the production project, local testing reads and writes real data.
+
 ## 🧪 Testing
 
 ```bash
@@ -264,7 +276,7 @@ Firestore Collections:
 ## 🧰 Available Scripts
 
 ```bash
-npm run dev          # Start development server
+npm run dev          # Start the API (wrangler dev :8787) and Vite (:5173) together
 npm run build        # Build for production
 npm run preview      # Preview production build
 npm run test         # Run all tests

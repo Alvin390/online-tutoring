@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useStudentNotes, RECOVERY_WINDOW_DAYS } from '../hooks/useStudentNotes';
 import { highlight } from '@utils/highlight';
 
@@ -209,7 +209,7 @@ export default function NotesTab({ session, phone, studentName, active }) {
 
       <AnimatePresence initial={false}>
         {filtered.map((note) => (
-          <motion.div
+          <m.div
             key={note.id}
             layout
             initial={{ opacity: 0, y: 6 }}
@@ -308,7 +308,7 @@ export default function NotesTab({ session, phone, studentName, active }) {
                 )}
               </>
             )}
-          </motion.div>
+          </m.div>
         ))}
       </AnimatePresence>
 

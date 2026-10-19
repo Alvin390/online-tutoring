@@ -66,12 +66,33 @@ export default createHandler({
 
     const db = getDb();
 
+    // Phase 13 / 08 C4: everything this request needs comes back in ONE
+    // batchGet — subscription, student, class link — instead of three
+    // sequential round trips. The gates below still run in the same order
+    // with the same answers; the link is only ever returned if all pass.
+    const [billingOn, sessionError, requireApproval] = await Promise.all([
+      isEnabled('billing.enabled'),
+      // Captured, not thrown: a locked subscription must still be reported
+      // first (gate 1), exactly as when these ran one after another.
+      isStaff ? null : assertSessionExists(db, session, { requireActive: true }).then(() => null, (err) => err),
+      isStaff ? false : isEnabled('registration.requireApproval'),
+    ]);
+    const refs = {
+      subscription: billingOn ? db.doc('subscription/current') : null,
+      student: isStaff ? null : db.doc(`sessions/${session}/students/${phone}`),
+      link: db.doc(`sessions/${session}/private/classLink`),
+    };
+    const wanted = Object.entries(refs).filter(([, ref]) => ref);
+    const snaps = Object.fromEntries(
+      (await db.getAll(...wanted.map(([, ref]) => ref))).map((snap, i) => [wanted[i][0], snap])
+    );
+
     // --- Gate 1: subscription. Checked before anything student-specific, so a
     // locked deployment never issues a link to anyone. The student-facing
     // wording never says the teacher did not pay — that would damage the
     // teacher in front of their own customers.
-    if (await isEnabled('billing.enabled')) {
-      const subSnap = await db.doc('subscription/current').get();
+    if (billingOn) {
+      const subSnap = snaps.subscription;
       const status = subSnap.exists ? subSnap.data().status : null;
       if (status === 'locked' || status === 'expired') {
         throw forbidden(
@@ -84,11 +105,10 @@ export default createHandler({
     // --- Gate 2: the student's own state.
     if (!isStaff) {
       // createHandler checked the session exists ('any', so staff can preview
-      // a hidden session). Students also need it to be shown — cached, so this
-      // costs nothing extra on the hot path.
-      await assertSessionExists(db, session, { requireActive: true });
-
-      const snap = await db.doc(`sessions/${session}/students/${phone}`).get();
+      // a hidden session). Students also need it to be shown — cached, and
+      // checked above alongside the flags.
+      if (sessionError) throw sessionError;
+      const snap = snaps.student;
       if (!snap.exists) throw notFound('No registration found for that number.');
 
       const data = snap.data();
@@ -103,7 +123,7 @@ export default createHandler({
       // Phase 04 turns this on. Until then the flag is off and the behaviour is
       // unchanged, but the check lives here rather than in the page component
       // so that enabling approval is a flag flip, not a re-architecture.
-      if (await isEnabled('registration.requireApproval')) {
+      if (requireApproval) {
         // Phase 13 / 03 D3: missing means approved (pre-approval registrations).
         const approval = effectiveApprovalStatus(data);
         if (approval !== 'approved') {
@@ -130,7 +150,7 @@ export default createHandler({
     let url = null;
     let provider = null;
 
-    const privateSnap = await db.doc(`sessions/${session}/private/classLink`).get();
+    const privateSnap = snaps.link;
     if (privateSnap.exists) {
       url = privateSnap.data().url ?? null;
       provider = privateSnap.data().provider ?? null;

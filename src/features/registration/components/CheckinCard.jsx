@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import CountrySelector from './CountrySelector';
 import PhoneInput from './PhoneInput';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
@@ -40,7 +40,7 @@ export default function CheckinCard({ onSubmit, loading }) {
   };
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="glass-card"
@@ -83,6 +83,6 @@ export default function CheckinCard({ onSubmit, loading }) {
           )}
         </button>
       </form>
-    </motion.div>
+    </m.div>
   );
 }

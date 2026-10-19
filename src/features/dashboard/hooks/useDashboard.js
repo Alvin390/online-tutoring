@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, startTransition } from 'react';
 import {
   subscribeToStudents,
   subscribeToPendingApprovals,
@@ -152,7 +152,9 @@ export const useDashboard = () => {
   const currentTab = tabs.some((t) => t.id === activeTab) ? activeTab : (tabs[0]?.id ?? null);
 
   const setActiveTab = useCallback((id) => {
-    setActiveTabState(id);
+    // Phase 13 / 08 B2: a transition, so rendering a large class's table
+    // never blocks the click that asked for it (the tab responds at once).
+    startTransition(() => setActiveTabState(id));
     try { sessionStorage.setItem('dashboard.activeTab', id); } catch { /* storage unavailable */ }
   }, []);
 

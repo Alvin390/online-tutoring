@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
 
 const AuditLogViewer = lazy(() => import('@features/audit/components/AuditLogViewer'));
@@ -110,7 +110,7 @@ export default function SuperadminPage() {
         <div className="container position-relative">
           <div className="row min-vh-100 align-items-center justify-content-center">
             <div className="col-md-5 col-lg-4">
-              <motion.div
+              <m.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="glass-card"
@@ -172,7 +172,7 @@ export default function SuperadminPage() {
                     )}
                   </button>
                 </form>
-              </motion.div>
+              </m.div>
             </div>
           </div>
         </div>
@@ -193,7 +193,7 @@ export default function SuperadminPage() {
             superadmin session.
           </p>
           <div className="d-flex gap-2">
-            <button className="btn btn-outline-danger btn-sm" onClick={signOut}>
+            <button className="btn btn-outline-danger btn-sm" onClick={() => signOut()}>
               Sign out
             </button>
             <Link to="/dashboard" className="btn btn-outline-secondary btn-sm">
@@ -222,7 +222,7 @@ export default function SuperadminPage() {
           <Link to="/dashboard" className="btn btn-outline-secondary btn-sm">
             Dashboard
           </Link>
-          <button className="btn btn-outline-dark btn-sm" onClick={signOut}>
+          <button className="btn btn-outline-dark btn-sm" onClick={() => signOut()}>
             Sign out
           </button>
         </div>

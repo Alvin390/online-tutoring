@@ -41,12 +41,14 @@ describe('Worker harness', () => {
     expect(timing).toMatch(/subreq;desc="\d+"/);
   });
 
-  it('omits Server-Timing when PERF_TIMING is not set', async () => {
+  // Phase 13 / 08 D2: `total` is always sent (production too); the internal
+  // breakdown only with PERF_TIMING.
+  it('without PERF_TIMING sends only the total — no internals', async () => {
     delete process.env.PERF_TIMING;
     const res = await call('/api/student/checkin', {
       body: { session: 'morning', phone: '+254700000998' },
     });
-    expect(res.headers.get('server-timing')).toBeNull();
+    expect(res.headers.get('server-timing')).toMatch(/^total;dur=\d+(\.\d+)?$/);
     process.env.PERF_TIMING = '1';
   });
 });

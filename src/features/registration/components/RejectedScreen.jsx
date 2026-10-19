@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 
 /**
  * Shown to a student whose registration was rejected — Phase 04 Part A.
@@ -36,7 +36,7 @@ export default function RejectedScreen({ studentData, onResubmit, onBack, loadin
   };
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="glass-card"
@@ -163,6 +163,6 @@ export default function RejectedScreen({ studentData, onResubmit, onBack, loadin
           </button>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

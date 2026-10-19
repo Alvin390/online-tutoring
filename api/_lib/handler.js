@@ -40,12 +40,20 @@ function perfTimingEnabled() {
   return process.env.PERF_TIMING === '1';
 }
 
+/**
+ * Phase 13 / 08 D2: `total` is sent on EVERY response, in production too, so
+ * real-user tooling (Sentry, DevTools) can tell server time from network
+ * time. Nothing internal is exposed by it. The breakdown (`auth`, `subreq`)
+ * stays behind PERF_TIMING.
+ */
 function writeServerTiming(res, perf) {
   if (!perf || res.headersSent) return;
   const total = performance.now() - perf.start;
   const parts = [`total;dur=${total.toFixed(1)}`];
-  if (perf.auth != null) parts.push(`auth;dur=${perf.auth.toFixed(1)}`);
-  parts.push(`subreq;desc="${subrequestsSpent() - perf.subreqStart}"`);
+  if (perf.detailed) {
+    if (perf.auth != null) parts.push(`auth;dur=${perf.auth.toFixed(1)}`);
+    parts.push(`subreq;desc="${subrequestsSpent() - perf.subreqStart}"`);
+  }
   res.setHeader('Server-Timing', parts.join(', '));
 }
 
@@ -157,9 +165,8 @@ export function createHandler(opts) {
   async function vercelHandler(req, res) {
     const requestId = randomUUID();
     const log = createLogger(requestId);
-    const perf = perfTimingEnabled()
-      ? { start: performance.now(), subreqStart: subrequestsSpent(), auth: null }
-      : null;
+    const detailed = perfTimingEnabled();
+    const perf = { start: performance.now(), subreqStart: subrequestsSpent(), auth: null, detailed };
     res.setHeader('X-Request-Id', requestId);
 
     // These endpoints are same-origin only. No CORS headers are emitted at all,
@@ -214,9 +221,9 @@ export function createHandler(opts) {
       // 5. Auth
       let user = null;
       if (auth) {
-        const authStart = perf ? performance.now() : 0;
+        const authStart = perf.detailed ? performance.now() : 0;
         user = await authenticate(req);
-        if (perf) perf.auth = performance.now() - authStart;
+        if (perf.detailed) perf.auth = performance.now() - authStart;
         if (role) requireRole(user, role);
         if (tier) requireTier(user, tier);
       }

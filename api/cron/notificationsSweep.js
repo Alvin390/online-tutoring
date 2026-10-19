@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger } from '../_lib/log.js';
 import { getDb, getStorage } from '../_lib/firebaseAdmin.js';
 import { safeCompare } from '../_lib/crypto.js';
-import { subrequestsRemaining, SubrequestBudgetExceeded } from '../_lib/firestoreRest.js';
+import { subrequestsRemaining, subrequestsSpent, SubrequestBudgetExceeded } from '../_lib/firestoreRest.js';
 import { gmailConfigured, getGmailAccessToken, GmailError } from '../_lib/gmail.js';
 import { MAX_EMAIL_ATTEMPTS, sendReportEmail } from '../_lib/reports.js';
 
@@ -163,5 +163,6 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(200).json({ ok: true, ...result });
+  // The invocation's subrequest spend, for the logs and the budget test.
+  return res.status(200).json({ ok: true, ...result, subrequests: subrequestsSpent() });
 }

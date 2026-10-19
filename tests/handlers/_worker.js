@@ -218,9 +218,14 @@ export async function drainWaitUntil() {
 
 /**
  * One request through the Worker, as Cloudflare would deliver it.
+ *
+ * Background work (waitUntil — audit writes since Phase 13 / 08 C3, emails,
+ * heartbeats) is drained before returning by default, so a test can assert on
+ * what the request wrote. `drain: false` returns at the moment the response
+ * is ready, to prove something was NOT on the response path.
  * @returns {Promise<{status:number, body:any, headers:Headers}>}
  */
-export async function call(path, { method = 'POST', body, token, ip, headers = {} } = {}) {
+export async function call(path, { method = 'POST', body, token, ip, headers = {}, drain = true } = {}) {
   const w = await loadWorker();
   const h = new Headers({ 'cf-connecting-ip': ip ?? nextIp(), ...headers });
   if (body !== undefined && !h.has('content-type')) h.set('content-type', 'application/json');
@@ -239,6 +244,7 @@ export async function call(path, { method = 'POST', body, token, ip, headers = {
 
   const response = await w.fetch(request, {}, ctx);
   const text = await response.text();
+  if (drain) await drainWaitUntil();
   let parsed = text;
   try { parsed = JSON.parse(text); } catch { /* keep text */ }
   return { status: response.status, body: parsed, headers: response.headers };

@@ -1,4 +1,5 @@
 import { getDb, FieldValue } from './firebaseAdmin.js';
+import { deferToBackground } from './requestContext.js';
 
 /**
  * Append-only audit trail — Phase 01 D4.
@@ -72,9 +73,14 @@ export async function writeAudit(entry) {
  * rolling back a completed payment because we could not log it is worse.
  */
 export async function tryWriteAudit(entry, log) {
-  try {
-    await writeAudit(entry);
-  } catch (err) {
+  const write = writeAudit(entry).catch((err) => {
     log?.error('Audit write failed', err);
-  }
+  });
+  // Phase 13 / 08 C3: inside a Worker invocation the write is handed to
+  // waitUntil and this returns at once — the response no longer waits a
+  // Google round trip for the audit line, and the runtime still finishes it.
+  // (Audit entries that ARE the guarantee — the ledger's — are written inside
+  // their transaction by ledger.js, not through here.)
+  if (deferToBackground(write)) return;
+  await write;
 }

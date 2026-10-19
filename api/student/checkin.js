@@ -1,4 +1,5 @@
 import { createHandler } from '../_lib/handler.js';
+import { projectStudent } from '../_lib/studentProjection.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { authenticate } from '../_lib/auth.js';
@@ -42,28 +43,9 @@ const schema = z
   })
   .strict();
 
-/** Only these fields ever cross the wire. Everything else stays server-side. */
-function projectStudent(data) {
-  return {
-    studentName: data.studentName ?? null,
-    class: data.class ?? null,
-    subjects: data.subjects ?? null,
-    session: data.session ?? null,
-    // Explicit coercion: a legacy document written before Phase 01 has no
-    // `blocked` field at all, and `undefined` is falsy — which is precisely the
-    // bug that let unapproved registrations walk into class. Default to the
-    // SAFE value, not the convenient one.
-    blocked: data.blocked === true,
-    blockReason: data.blocked === true ? (data.blockReason ?? '') : '',
-    // Phase 13 / 03 D3: missing means approved (pre-approval registrations).
-    approvalStatus: effectiveApprovalStatus(data),
-    rejectionReason: data.approvalStatus === 'rejected' ? (data.rejectionReason ?? '') : null,
-    receiptStatus: data.receiptStatus ?? 'pending',
-    hasPendingReceipt: Boolean(data.pendingReceipt),
-    feeBalance: typeof data.feeBalance === 'number' ? data.feeBalance : 0,
-    registeredAt: data.registeredAt?.toDate?.()?.toISOString() ?? null,
-  };
-}
+/** Heartbeat granularity: "last seen" does not need to be finer than this. */
+export const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000;
+
 
 export default createHandler({
   // Phase 13 / 02 D6: every session slug in the body must exist and be shown to students.
@@ -96,19 +78,24 @@ export default createHandler({
     // A second limiter keyed on the phone itself. The IP limit above is
     // spoofable behind a proxy; this one bounds how hard any single number can
     // be probed regardless of where the requests appear to come from.
-    if (!authorized) {
-      const { enforceRateLimit } = await import('../_lib/rateLimit.js');
-      await enforceRateLimit({
+    //
+    // Phase 13 / 08 C4: it runs IN PARALLEL with the reads, and the student
+    // document and its activity marker come back in ONE batchGet — one Google
+    // round trip after the IP limiter instead of four. Nothing is returned
+    // until the limiter has passed, so a limited caller still learns nothing.
+    const phoneLimit = authorized
+      ? Promise.resolve()
+      : import('../_lib/rateLimit.js').then(({ enforceRateLimit }) => enforceRateLimit({
         key: phone,
         bucket: 'student_checkin_phone',
         limit: 20,
         windowSeconds: 3600,
-      });
-    }
+      }));
 
     const db = getDb();
     const ref = db.doc(`sessions/${session}/students/${phone}`);
-    const snap = await ref.get();
+    const activityRef = db.doc(`sessions/${session}/students/${phone}/meta/activity`);
+    const [[snap, activity]] = await Promise.all([db.getAll(ref, activityRef), phoneLimit]);
 
     if (!snap.exists) {
       // Deliberately identical in shape to the found case — no timing or
@@ -118,11 +105,16 @@ export default createHandler({
 
     const data = snap.data();
 
-    // Heartbeat. Fire-and-forget: a failed timestamp write must not fail a
-    // check-in. Skipped while blocked, matching the previous behaviour.
-    if (data.blocked !== true) {
+    // Heartbeat — Phase 13 / 08 B3. Written to a SEPARATE document
+    // (meta/activity), not the student document: every teacher dashboard
+    // listens to the student documents, so each visit used to push the whole
+    // row to every open dashboard. And at most once per 10 minutes per
+    // student, judged from the marker read above. In waitUntil, so it never
+    // delays the response; skipped while blocked, as before.
+    const lastMs = activity.exists ? activity.data().lastAccessed?.toMillis?.() ?? 0 : 0;
+    if (data.blocked !== true && Date.now() - lastMs >= HEARTBEAT_INTERVAL_MS) {
       waitUntil(
-        ref.set({ lastAccessed: FieldValue.serverTimestamp() }, { merge: true }).catch((err) => {
+        activityRef.set({ lastAccessed: FieldValue.serverTimestamp() }, { merge: true }).catch((err) => {
           log.warn('lastAccessed update failed', { code: err?.code });
         })
       );

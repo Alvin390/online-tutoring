@@ -1,5 +1,5 @@
 import { useState, useMemo, lazy, Suspense } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { resolveBlockReason, formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
 
@@ -40,14 +40,14 @@ export default function BlockedStudentScreen({
   };
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="glass-card"
     >
       <div className="text-center py-4">
         {/* Blocked Icon */}
-        <motion.div
+        <m.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.2, type: 'spring' }}
@@ -69,10 +69,10 @@ export default function BlockedStudentScreen({
           >
             <i className="bi bi-slash-circle" />
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Message */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
@@ -83,7 +83,7 @@ export default function BlockedStudentScreen({
           <p className="text-muted mb-4">
             Hi <strong>{studentData.studentName}</strong>, your account has been temporarily blocked.
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Reason — DERIVED, not stored (Phase 06 D5).
             When a balance is outstanding the first line reads
@@ -228,6 +228,6 @@ export default function BlockedStudentScreen({
           </button>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

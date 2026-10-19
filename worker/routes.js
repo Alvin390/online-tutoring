@@ -53,6 +53,8 @@ import whatsappUpload from '../api/whatsapp/upload.js';
 import reportsAttachment from '../api/reports/attachment.js';
 import reportsMine from '../api/reports/mine.js';
 import reportsSubmit from '../api/reports/submit.js';
+import publicBootstrap from '../api/public/bootstrap.js';
+import studentRegister from '../api/student/register.js';
 
 /**
  * The route table — Phase 12 D6.
@@ -101,6 +103,7 @@ export const STATIC_ROUTES = {
   '/api/daraja/credentials': darajaCredentials,
 
   '/api/fees/annotate': feesAnnotate,
+  '/api/public/bootstrap': publicBootstrap,
   '/api/reports/attachment': reportsAttachment,
   '/api/reports/mine': reportsMine,
   '/api/reports/submit': reportsSubmit,
@@ -116,6 +119,7 @@ export const STATIC_ROUTES = {
   '/api/sessions/manage': sessionsManage,
 
   '/api/student/approve': studentApprove,
+  '/api/student/register': studentRegister,
   '/api/student/checkin': studentCheckin,
   '/api/student/receipt': studentReceipt,
   '/api/student/remove': studentRemove,

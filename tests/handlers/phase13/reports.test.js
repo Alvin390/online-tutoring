@@ -95,7 +95,7 @@ describe('D3 submitting a report', () => {
     let release;
     fakes.gmail.hold = new Promise((r) => { release = r; });
     const body = bug();
-    const res = await submit(body);
+    const res = await call('/api/reports/submit', { token: teacher, body, drain: false });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toMatchObject({ ok: true, id: body.reportId, number: 'BUG-0001' });
 
@@ -261,7 +261,6 @@ describe('D4 delivery: failures, retries, keep-alive', () => {
   });
 
   it('stops before the subrequest budget runs out, counting Gmail calls too', async () => {
-    const { subrequestsSpent } = await import('../../../api/_lib/firestoreRest.js');
     const old = new Date(Date.now() - 10 * 60_000);
     for (let i = 0; i < 3; i += 1) {
       await db.doc(`reports/${randomUUID()}`).set({
@@ -280,7 +279,8 @@ describe('D4 delivery: failures, retries, keep-alive', () => {
       const res = await sweep();
       expect(res.body.sent).toBe(2);
       expect(res.body.deferred).toBe(1);
-      expect(subrequestsSpent()).toBeLessThanOrEqual(21);
+      // Per-invocation since Phase 13 / 08 C9, so read from the response.
+      expect(res.body.subrequests).toBeLessThanOrEqual(21);
     } finally {
       process.env.SUBREQUEST_BUDGET = previous;
     }

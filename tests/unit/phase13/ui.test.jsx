@@ -98,7 +98,8 @@ describe('D1 student popup is centred on every screen (I5)', () => {
     const offenders = [];
     for (const file of walk(path.join(ROOT, 'src'), ['.jsx'])) {
       const src = readFileSync(file, 'utf8');
-      for (const [tag] of src.matchAll(/<motion\.[a-z]+\b[^>]*>/gs)) {
+      // `m.*` since Phase 13 / 08 A4 (LazyMotion); `motion.*` checked too.
+      for (const [tag] of src.matchAll(/<(?:motion|m)\.[a-z]+\b[^>]*>/gs)) {
         const cls = /className="([^"]+)"/.exec(tag)?.[1]?.split(/\s+/) ?? [];
         for (const c of cls) if (centred.has(c)) offenders.push(`${path.relative(ROOT, file)}: .${c}`);
       }

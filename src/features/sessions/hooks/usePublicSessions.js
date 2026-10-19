@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@services/firebase/config';
+import { getPublicBootstrap } from '@services/api/public';
 import { FALLBACK_SESSIONS } from '@shared/constants/sessions';
 import logger from '@utils/logger';
 
@@ -17,8 +16,9 @@ import logger from '@utils/logger';
  * The empty-list fallback is TRANSITIONAL and goes with the matching server and
  * rules clauses in Phase 13 / 09.
  *
- * Phase 08 swaps the data source for the edge-cached /api/public/bootstrap; the
- * component only depends on this hook's return shape.
+ * Phase 13 / 08 A1: the data comes from /api/public/bootstrap (sorted and
+ * filtered to active sessions by the server) — no Firestore SDK on this page.
+ * The component only depends on this hook's return shape.
  *
  * @returns {{ sessions: object[], loading: boolean, fallback: boolean }}
  */
@@ -28,12 +28,10 @@ export function usePublicSessions() {
   useEffect(() => {
     let cancelled = false;
 
-    getDocs(query(collection(db, 'sessions'), where('active', '==', true)))
-      .then((snap) => {
+    getPublicBootstrap()
+      .then((data) => {
         if (cancelled) return;
-        const list = snap.docs
-          .map((d) => ({ id: d.id, slug: d.id, ...d.data() }))
-          .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+        const list = (data?.sessions ?? []).map((s) => ({ id: s.slug, ...s }));
         setState(
           list.length > 0
             ? { sessions: list, loading: false, fallback: false }

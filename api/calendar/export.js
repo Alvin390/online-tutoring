@@ -99,9 +99,27 @@ export default async function handler(req, res) {
       recurrenceExceptions: (event.recurrenceExceptions ?? []).map((v) => v?.toDate?.() ?? v),
     }));
 
+  const calendarName = isStaffFeed ? 'Class Calendar' : `Class Calendar — ${scope ?? 'all'}`;
+
+  // Phase 13 / 08 C6: ETag over the CONTENT (the events and the name), not
+  // the body — the body carries a fresh DTSTAMP on every request, so it would
+  // never match. A calendar app re-polling an unchanged feed gets a 304 and
+  // no body.
+  const etag = `W/"${sha256(JSON.stringify({ calendarName, events })).slice(0, 32)}"`;
+  res.setHeader('ETag', etag);
+  // Calendar apps poll aggressively; an hour of cache is plenty and keeps the
+  // function invocation count sane.
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+
+  const ifNoneMatch = req.headers['if-none-match'];
+  if (typeof ifNoneMatch === 'string' && ifNoneMatch.split(',').map((t) => t.trim()).includes(etag)) {
+    log.info('Calendar feed not modified', { events: events.length, staff: isStaffFeed });
+    return res.status(304).end();
+  }
+
   const ics = buildIcs({
     events,
-    calendarName: isStaffFeed ? 'Class Calendar' : `Class Calendar — ${scope ?? 'all'}`,
+    calendarName,
     domain: process.env.PUBLIC_BASE_URL?.replace(/^https?:\/\//, '') || 'online-tutoring',
   });
 
@@ -109,9 +127,6 @@ export default async function handler(req, res) {
 
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   res.setHeader('Content-Disposition', 'inline; filename="class-calendar.ics"');
-  // Calendar apps poll aggressively; an hour of cache is plenty and keeps the
-  // function invocation count sane.
-  res.setHeader('Cache-Control', 'private, max-age=3600');
   return res.status(200).send(ics);
 }
 

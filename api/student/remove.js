@@ -48,10 +48,10 @@ export default createHandler({
 
     const data = snap.data();
 
-    // Batched since Phase 13 / 03 — counts every document it removed, the
-    // student included, so notes = total − 1.
-    const { deleted } = await deleteRecursively(db, ref);
-    const noteCount = deleted == null ? null : Math.max(0, deleted - 1);
+    // Batched since Phase 13 / 03. Counted by collection: the student also
+    // has a meta/activity marker since Phase 13 / 08 B3.
+    const { byCollection } = await deleteRecursively(db, ref);
+    const noteCount = byCollection?.notes ?? 0;
 
     // The fee record is RETAINED (Phase 13 / 03 D2): the ledger is a financial
     // record, append-only by design. It is marked so fee views can tell the
