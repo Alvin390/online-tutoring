@@ -218,14 +218,15 @@ describe('D3 S-ics: recurring feed events keep their Nairobi weekday', () => {
     expect(ics).toContain('DTEND;TZID=Africa/Nairobi:20261005T020000');
     expect(ics).not.toMatch(/DTSTART:20261004T220000Z/);
 
-    // Expand what a client would: DTSTART in its TZID + the RRULE.
+    // Expand what a client would: the RRULE applied to the WALL-CLOCK DTSTART
+    // in its TZID. Expanded as a floating time (no TZID, no Z), rrule keeps the
+    // wall clock in the Date's UTC fields whatever the machine's time zone.
+    // (With TZID=, rrule's output depends on the host zone: CI runs in UTC.)
     const dtstart = /DTSTART;TZID=Africa\/Nairobi:(\d{8}T\d{6})/.exec(ics)[1];
     const rule = /RRULE:(.*)/.exec(ics)[1].trim();
-    const set = rrulestr(`DTSTART;TZID=Africa/Nairobi:${dtstart}\nRRULE:${rule};COUNT=6`);
+    const set = rrulestr(`DTSTART:${dtstart}\nRRULE:${rule};COUNT=6`);
     const dates = set.all();
     expect(dates).toHaveLength(6);
-    // With a TZID, rrule returns the zone's WALL-CLOCK time in the Date's UTC
-    // fields (its documented convention), so read them back as UTC.
     for (const d of dates) {
       const local = new Intl.DateTimeFormat('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(d);
       expect(local).toBe('Mon 01:00');
