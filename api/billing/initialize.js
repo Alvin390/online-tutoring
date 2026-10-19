@@ -86,6 +86,15 @@ export default createHandler({
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    // Phase 13 / 05 D4: remember whose subscription this is, so renewal
+    // webhooks (which carry no metadata) can still sync the owner's claims.
+    // Only onto an existing record — a first purchase gets it from the
+    // charge.success webhook's metadata instead.
+    const currentRef = db.doc('subscription/current');
+    if ((await currentRef.get()).exists) {
+      await currentRef.set({ ownerUid: user.uid }, { merge: true });
+    }
+
     const transaction = await initializeTransaction({
       email: user.email,
       reference,

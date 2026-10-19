@@ -593,6 +593,23 @@ describe('queries', () => {
 
   const ids = (snap) => snap.docs.map((d) => d.id);
 
+  // Phase 13 / 05: a dotted string path is a NESTED field in firebase-admin;
+  // the shim used to escape it as one literal field name and match nothing.
+  it('treats a dotted where()/orderBy() path as a nested field, like admin', async () => {
+    const nested = `${PREFIX}/nestedQuery/items`;
+    await Promise.all([
+      adminDb.doc(`${nested}/x`).set({ context: { flag: true, rank: 2 } }),
+      adminDb.doc(`${nested}/y`).set({ context: { flag: false, rank: 1 } }),
+      adminDb.doc(`${nested}/z`).set({ context: { flag: true, rank: 1 } }),
+    ]);
+    const [a, r] = await Promise.all([
+      adminDb.collection(nested).where('context.flag', '==', true).orderBy('context.rank').get(),
+      restDb.collection(nested).where('context.flag', '==', true).orderBy('context.rank').get(),
+    ]);
+    expect(ids(r)).toEqual(ids(a));
+    expect(ids(r)).toEqual(['z', 'x']);
+  });
+
   it('filters on equality identically to admin', async () => {
     const [a, r] = await Promise.all([
       adminDb.collection(collection).where('status', '==', 'pending').get(),

@@ -438,6 +438,17 @@ function escapeSegment(segment) {
   return `\`${segment.replace(/\\/g, '\\\\').replace(/`/g, '\\`')}\``;
 }
 
+/**
+ * A query field path: dots separate nested fields, exactly as firebase-admin
+ * reads a string field path in where()/orderBy(). Each segment is escaped on
+ * its own. (Phase 13 / 05: this used to escape the WHOLE string as one
+ * segment, so where('context.flag', …) silently matched a top-level field
+ * literally named "context.flag" — never anything.)
+ */
+function queryFieldPath(fieldPath) {
+  return String(fieldPath).split('.').map(escapeSegment).join('.');
+}
+
 function joinPath(prefix, segment) {
   const escaped = escapeSegment(segment);
   return prefix ? `${prefix}.${escaped}` : escaped;
@@ -1131,7 +1142,7 @@ export class Firestore {
 
     const filters = query._parts.filters.map(({ fieldPath, op, value }) => ({
       fieldFilter: {
-        field: { fieldPath: escapeSegment(fieldPath) },
+        field: { fieldPath: queryFieldPath(fieldPath) },
         op: QUERY_OPERATORS[op] ?? assertUnknownOperator(op),
         value: encodeValue(value),
       },
@@ -1144,7 +1155,7 @@ export class Firestore {
 
     if (query._parts.orders.length > 0) {
       structuredQuery.orderBy = query._parts.orders.map(({ fieldPath, direction }) => ({
-        field: { fieldPath: escapeSegment(fieldPath) },
+        field: { fieldPath: queryFieldPath(fieldPath) },
         direction: String(direction).toLowerCase() === 'desc' ? 'DESCENDING' : 'ASCENDING',
       }));
     }

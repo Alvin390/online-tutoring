@@ -11,6 +11,49 @@ import {
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { isEnabled } from '../_lib/flags.js';
 import { ensureDefaultSessions } from '../_lib/sessions.js';
+import { getAdminAuth } from '../_lib/firebaseAdmin.js';
+import { setUserClaims } from '../_lib/claims.js';
+
+/**
+ * Claims self-heal — Phase 13 / 05 D4.
+ *
+ * The owner's custom claims (tier, subActive) are the fast path the rules and
+ * the UI gate on; `subscription/current` is the authority. Renewal webhooks
+ * carry no `metadata.uid`, and the fallback field (`uid`) was never written, so
+ * claims could drift (validated: document Silver, claim Gold). Every hour the
+ * sweep compares and repairs.
+ *
+ * `ownerUid` is backfilled from the users collection when exactly one teacher
+ * exists (this deployment's shape); with more than one it does nothing and
+ * records why — guessing an owner would hand one teacher another's plan.
+ */
+async function healOwnerClaims({ db, ref, sub, status, log, requestId }) {
+  let owner = sub.ownerUid ?? null;
+
+  if (!owner) {
+    const teachers = await db.collection('users').where('role', '==', 'teacher').get();
+    if (teachers.size === 1) {
+      owner = teachers.docs[0].id;
+      await ref.set({ ownerUid: owner }, { merge: true });
+      log.info('Subscription owner backfilled');
+    } else {
+      await tryWriteAudit(
+        { action: 'billing.owner_backfill_skipped', actor: 'system:cron', target: 'subscription/current',
+          after: { teachers: teachers.size }, context: { requestId } },
+        log
+      );
+      return { healed: false, reason: `teachers=${teachers.size}` };
+    }
+  }
+
+  const claims = (await getAdminAuth().getUser(owner)).customClaims ?? {};
+  const subActive = status === 'active' || status === 'trialing';
+  if (claims.tier === sub.tier && claims.subActive === subActive) return { healed: false };
+
+  await setUserClaims(owner, { tier: sub.tier ?? null, subActive });
+  log.info('Owner claims re-synced from the subscription', { tier: sub.tier, subActive });
+  return { healed: true };
+}
 
 /**
  * Hourly subscription sweep — Phase 03 D5.
@@ -120,6 +163,16 @@ export default async function handler(req, res) {
         },
         log
       );
+    }
+
+    // --- 1b. Claims follow the subscription (Phase 13 / 05 D4). Never fails
+    //         the sweep.
+    try {
+      result.claims = await healOwnerClaims({
+        db, ref, sub, status: resolved.changed ? resolved.status : sub.status, log, requestId,
+      });
+    } catch (err) {
+      log.error('Claims self-heal failed', err);
     }
 
     // --- 2. Reminders (manual renewal only — see dueReminders)

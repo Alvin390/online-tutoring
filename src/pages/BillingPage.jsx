@@ -9,6 +9,7 @@ import {
   cancelSubscription,
   resumeSubscription,
   scheduleDowngrade,
+  cancelDowngrade,
 } from '@services/api/billing';
 import logger from '@utils/logger';
 import TierGate from '@shared/components/TierGate';
@@ -161,6 +162,25 @@ export default function BillingPage() {
     }
   };
 
+  /** Phase 13 / 05 D3: keep the current plan instead of the scheduled downgrade. */
+  const handleKeepPlan = async () => {
+    setBusy(true);
+    try {
+      const result = await cancelDowngrade();
+      if (result.manualRenewalNeeded) {
+        showError(result.note ?? 'Your plan stays as it is, but please renew manually at the end of this period.');
+      } else {
+        showSuccess(`You stay on ${TIERS[tier]?.name ?? 'your current plan'}. The scheduled change is cancelled.`);
+      }
+      await refresh();
+    } catch (err) {
+      logger.error('Cancel downgrade failed', err);
+      showError(err?.message ?? 'Could not cancel the scheduled change.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleCancel = async () => {
     setBusy(true);
     try {
@@ -279,11 +299,17 @@ export default function BillingPage() {
           </div>
 
           {subscription?.scheduledTierChange?.tier && (
-            <div className="card-footer bg-light small">
-              <i className="bi bi-info-circle me-2" aria-hidden="true" />
-              Changing to <strong>{TIERS[subscription.scheduledTierChange.tier]?.name}</strong> on{' '}
-              {formatDate(subscription.currentPeriodEnd)}. Your data from this plan is kept
-              and comes back if you upgrade again.
+            <div className="card-footer bg-light small d-flex flex-wrap align-items-center gap-2" data-testid="scheduled-change">
+              <span className="flex-grow-1">
+                <i className="bi bi-info-circle me-2" aria-hidden="true" />
+                Downgrade to <strong>{TIERS[subscription.scheduledTierChange.tier]?.name}</strong> scheduled for{' '}
+                {formatDate(subscription.scheduledTierChange.effectiveAt ?? subscription.currentPeriodEnd)}
+                {' '}({formatKes(TIERS[subscription.scheduledTierChange.tier]?.priceKes ?? 0)}/month from then).
+                Your data from this plan is kept and comes back if you upgrade again.
+              </span>
+              <button type="button" className="btn btn-outline-primary btn-sm" onClick={handleKeepPlan} disabled={busy}>
+                Keep {TIERS[tier]?.name ?? 'my plan'} instead
+              </button>
             </div>
           )}
         </motion.div>

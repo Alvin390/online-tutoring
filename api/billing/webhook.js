@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { createLogger } from '../_lib/log.js';
 import { readRawBody } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
-import { verifyWebhookSignature, isPaystackIp, disableSubscription } from '../_lib/paystack.js';
+import {
+  verifyWebhookSignature,
+  isPaystackIp,
+  disableSubscription,
+  tierForPlanCode,
+  TIER_PRICE_KES,
+} from '../_lib/paystack.js';
+import { TIER_RANK } from '../_lib/auth.js';
 import { clientIp } from '../_lib/rateLimit.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
@@ -220,7 +227,11 @@ async function processEvent({ db, event, log, requestId }) {
   switch (event.event) {
     case 'charge.success': {
       const metadata = data.metadata ?? {};
-      const tier = metadata.tier ?? before?.tier ?? null;
+      // Phase 13 / 05 D2 — the tier is what was PAID FOR: the charged plan's
+      // tier first (a recurring card charge carries no metadata), then the
+      // checkout's metadata, then the current tier.
+      const paidTier = tierForPlanCode(data.plan?.plan_code) ?? metadata.tier ?? before?.tier ?? null;
+      const tier = paidTier;
       const renewalMode = metadata.renewalMode ?? before?.renewalMode ?? 'manual';
       const now = Date.now();
       const periodEnd = monthFromNow(now);
@@ -262,15 +273,82 @@ async function processEvent({ db, event, log, requestId }) {
         updatedAt: FieldValue.serverTimestamp(),
       };
 
-      // Apply a downgrade that was scheduled for the period boundary (Q6).
-      if (before?.scheduledTierChange?.tier) {
-        patch.tier = before.scheduledTierChange.tier;
-        patch.scheduledTierChange = null;
+      if (metadata.uid) patch.ownerUid = metadata.uid;
+      if (data.plan?.plan_code) patch.paystackPlanCode = data.plan.plan_code;
+
+      const scheduled = before?.scheduledTierChange;
+      if (scheduled?.tier) {
+        const isUpgrade = metadata.tier
+          && (TIER_RANK[metadata.tier] ?? 0) > (TIER_RANK[before?.tier] ?? 0);
+
+        if (isUpgrade) {
+          // An upgrade always wins (B9b): the pending cheaper subscription has
+          // not charged yet, so switch it off and drop the schedule.
+          patch.tier = metadata.tier;
+          patch.scheduledTierChange = null;
+          if (scheduled.newSubscriptionCode) {
+            try {
+              await disableSubscription({ code: scheduled.newSubscriptionCode, token: scheduled.newEmailToken });
+            } catch (err) {
+              log.error('Could not disable the pending downgrade subscription after an upgrade', err);
+              await tryWriteAudit(
+                { action: AuditAction.SUBSCRIPTION_CHANGED, actor: 'system:paystack', target: 'subscription:current',
+                  after: { subscription: scheduled.newSubscriptionCode, disabled: false, reason: 'upgrade_superseded_downgrade' },
+                  context: { requestId, needsManualAction: true } },
+                log
+              );
+            }
+          }
+        } else if (paidTier === scheduled.tier) {
+          // The cheaper plan's first charge: the downgrade takes effect now,
+          // and the subscription being billed becomes the current one.
+          patch.tier = scheduled.tier;
+          patch.scheduledTierChange = null;
+          if (scheduled.newSubscriptionCode) {
+            patch.paystackSubscriptionCode = scheduled.newSubscriptionCode;
+            patch.paystackEmailToken = scheduled.newEmailToken ?? null;
+          }
+        }
+        // Otherwise: a renewal still on the old plan (e.g. a manual renewal
+        // before the boundary). The schedule stays.
+      }
+
+      // The price should match the plan. A mismatch (a stale price on the
+      // Paystack plan, say) is recorded loudly — but the money has moved, so
+      // it is not rejected.
+      const expectedKes = TIER_PRICE_KES[patch.tier];
+      const paidKes = typeof data.amount === 'number' ? data.amount / 100 : null;
+      if (expectedKes && paidKes != null && paidKes !== expectedKes) {
+        log.warn('Charged amount does not match the tier price', { tier: patch.tier, paidKes, expectedKes });
+        await tryWriteAudit(
+          { action: 'billing.price_mismatch', actor: 'system:paystack', target: 'subscription/current',
+            after: { tier: patch.tier, paidKes, expectedKes },
+            context: { requestId, reference: data.reference ?? null } },
+          log
+        );
       }
       break;
     }
 
     case 'subscription.create': {
+      // Phase 13 / 05 D1: the replacement a scheduled downgrade created. It is
+      // not a new purchase — it must neither disable the paid subscription
+      // early nor become the current one before its first charge. Recorded
+      // only.
+      if (data.subscription_code
+          && data.subscription_code === before?.scheduledTierChange?.newSubscriptionCode) {
+        log.info('Scheduled downgrade subscription confirmed by Paystack', { code: data.subscription_code });
+        patch = {
+          scheduledTierChange: {
+            ...before.scheduledTierChange,
+            newEmailToken: data.email_token ?? before.scheduledTierChange.newEmailToken ?? null,
+            confirmedByPaystack: true,
+          },
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        break;
+      }
+
       // A NEW subscription replaces the old one, so the old one has to be shut
       // off or Paystack bills both every month.
       //
@@ -349,7 +427,10 @@ async function processEvent({ db, event, log, requestId }) {
 
   // Keep claims in step with the tier so rules gate correctly. Claims are the
   // fast path; subscription/current stays the authority.
-  const uid = data.metadata?.uid ?? before?.uid ?? null;
+  // Phase 13 / 05 D4: a recurring charge carries no metadata, so the owner
+  // stored at checkout is the fallback (it used to be `before.uid`, a field
+  // nothing ever wrote — renewals never synced claims).
+  const uid = data.metadata?.uid ?? before?.ownerUid ?? before?.uid ?? null;
   if (uid && after?.tier) {
     try {
       await setUserClaims(uid, {
