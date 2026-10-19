@@ -1,10 +1,15 @@
 import { getDb } from './firebaseAdmin.js';
 import { getFlags } from './flags.js';
+import { mpesaAvailability } from './mpesaAvailability.js';
 
 /**
  * Public bootstrap data and its per-isolate cache — Phase 13 / 08 A1.
  * Served by api/public/bootstrap.js; cleared by invalidateSession() on every
  * session write.
+ *
+ * `payments.mpesa` says whether the student screen may offer "Pay now"
+ * (mpesaAvailability: flag + Gold plan + credentials). Only the yes/no
+ * leaves the server — not the plan, not why.
  */
 
 const TTL_MS = 60_000;
@@ -19,9 +24,11 @@ export function invalidateBootstrap() {
 }
 
 async function load() {
-  const [flags, snap] = await Promise.all([
+  const db = getDb();
+  const [flags, snap, mpesa] = await Promise.all([
     getFlags(),
-    getDb().collection('sessions').where('active', '==', true).get(),
+    db.collection('sessions').where('active', '==', true).get(),
+    mpesaAvailability(db),
   ]);
   const sessions = snap.docs
     .map((d) => {
@@ -31,7 +38,7 @@ async function load() {
       return out;
     })
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
-  return { flags, sessions };
+  return { flags, sessions, payments: { mpesa: mpesa.available } };
 }
 
 /** The cached payload, reloading it when older than TTL_MS. */

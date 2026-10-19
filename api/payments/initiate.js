@@ -12,8 +12,11 @@ import {
   toDarajaPhone,
   ensureCallbackSecret,
   buildCallbackUrl,
+  callbackBaseUrl,
+  isUnreachableCallback,
 } from '../_lib/daraja.js';
 import { tryWriteAudit } from '../_lib/audit.js';
+import { mpesaAvailability } from '../_lib/mpesaAvailability.js';
 
 /**
  * STK Push initiation — Phase 09 D3.
@@ -47,8 +50,14 @@ export default createHandler({
   schema,
   rateLimit: { bucket: 'payments_initiate_ip', limit: 20, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, req, log }) => {
-    if (!(await isEnabled('payments.daraja'))) {
+    // Flag + Gold plan + credentials — the same rule that decides whether the
+    // student screen shows "Pay now" at all (mpesaAvailability).
+    const availability = await mpesaAvailability();
+    if (availability.reason === 'feature_disabled') {
       throw forbidden('In-app payments are not available.', 'feature_disabled');
+    }
+    if (availability.reason === 'plan') {
+      throw forbidden('M-Pesa payments are not available on this plan. Please pay your teacher and submit the receipt.', 'payments_unavailable');
     }
 
     const { session, phone } = body;
@@ -113,7 +122,12 @@ export default createHandler({
     // only if the credentials form had been submitted — with env credentials
     // this built `…/callback/`, which no route matches), and the URL is checked
     // against the rules Safaricom enforces before an STK push can go out.
-    const callbackUrl = buildCallbackUrl(process.env.PUBLIC_BASE_URL, await ensureCallbackSecret(db));
+    const callbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db));
+    if (isUnreachableCallback(callbackUrl)) {
+      // Sandbox only (live refuses non-HTTPS above). The prompt still goes
+      // out; the result will not come back on its own.
+      log.warn('STK callback URL is not reachable by Safaricom — confirm the payment with `npm run mpesa:reconcile`, or set DARAJA_CALLBACK_BASE_URL to an HTTPS tunnel');
+    }
 
     // AccountReference is the attribution key (Q24) and is capped at 12
     // characters by Daraja (daraja_docs.txt:220). A Kenyan number without the

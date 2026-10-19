@@ -264,16 +264,54 @@ export async function expectedCallbackSecret(db = getDb()) {
  *  - the URL must not contain "mpesa", "m-pesa" or "safaricom" in any case —
  *    Safaricom filters those and silently never calls back.
  */
-export function buildCallbackUrl(baseUrl, secret) {
+export function buildCallbackUrl(baseUrl, secret, { mode = darajaMode() } = {}) {
   const url = `${String(baseUrl ?? '').replace(/\/$/, '')}/api/daraja/callback/${secret ?? ''}`;
-  if (!/^https:\/\//i.test(url)) throw new Error('Daraja CallBackURL must be HTTPS — check PUBLIC_BASE_URL.');
+  if (!/^https?:\/\/[^/]+/i.test(url)) {
+    throw paymentsMisconfigured('Daraja CallBackURL has no base URL — set PUBLIC_BASE_URL (or DARAJA_CALLBACK_BASE_URL).');
+  }
+  // LIVE requires HTTPS: Safaricom must be able to reach and trust it.
+  // SANDBOX allows http (e.g. http://localhost under `npm run dev`), as before
+  // Phase 13 / 04: the STK prompt still reaches the phone; the callback
+  // simply cannot arrive, so confirm with `npm run mpesa:reconcile` or set
+  // DARAJA_CALLBACK_BASE_URL to an HTTPS tunnel. Logged by the caller.
+  if (mode === 'live' && !/^https:\/\//i.test(url)) {
+    throw paymentsMisconfigured('Daraja CallBackURL must be HTTPS in live mode — check PUBLIC_BASE_URL.');
+  }
   if (!secret || !/^[A-Za-z0-9_-]{8,}$/.test(String(secret))) {
-    throw new Error('Daraja CallBackURL has no valid secret segment.');
+    throw paymentsMisconfigured('Daraja CallBackURL has no valid secret segment.');
   }
   if (/m-?pesa|safaricom/i.test(url)) {
-    throw new Error('Daraja CallBackURL must not contain "mpesa", "m-pesa" or "safaricom" — Safaricom drops those callbacks.');
+    throw paymentsMisconfigured('Daraja CallBackURL must not contain "mpesa", "m-pesa" or "safaricom" — Safaricom drops those callbacks.');
   }
   return url;
+}
+
+/**
+ * Where Safaricom should send STK callbacks. DARAJA_CALLBACK_BASE_URL wins
+ * when set — for local testing through an HTTPS tunnel to `wrangler dev`
+ * (e.g. `cloudflared tunnel --url http://localhost:8787`), so callbacks reach a
+ * developer's machine. Otherwise the app's own PUBLIC_BASE_URL.
+ */
+export function callbackBaseUrl() {
+  return process.env.DARAJA_CALLBACK_BASE_URL || process.env.PUBLIC_BASE_URL;
+}
+
+/** True when the URL Safaricom will be given cannot actually reach us (sandbox only). */
+export function isUnreachableCallback(url) {
+  return /^http:\/\//i.test(url) || /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/i.test(url);
+}
+
+/**
+ * A setup problem the operator must fix. The student sees a clear message
+ * (503); the precise reason goes to the log via `cause`.
+ */
+function paymentsMisconfigured(reason) {
+  return new ApiError(
+    503,
+    'payments_misconfigured',
+    'M-Pesa payments are not set up correctly. Please contact your teacher.',
+    { expose: true, cause: new Error(reason) }
+  );
 }
 
 // ---------------------------------------------------------------------------

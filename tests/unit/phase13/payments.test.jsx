@@ -183,3 +183,32 @@ describe('D5 block modal default (B12)', () => {
     expect(screen.getByRole('radio', { name: /Unpaid fees/ }).getAttribute('aria-checked')).toBe('true');
   });
 });
+
+// ---------------------------------------------------------------------------
+// "Pay now" (STK push) is a Gold feature. The blocked-student screen shows it
+// only when the server says M-Pesa is available (flag + Gold + credentials);
+// otherwise only the manual receipt route remains.
+describe('blocked student: Pay now only when the server offers M-Pesa', () => {
+  async function renderBlocked({ mpesa }) {
+    vi.resetModules();
+    vi.doMock('@services/api/public', () => ({
+      getPublicBootstrap: vi.fn().mockResolvedValue({ flags: {}, sessions: [], payments: { mpesa } }),
+    }));
+    vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (k) => k === 'fees.enabled' || k === 'payments.daraja' }));
+    vi.doMock('@features/payments/components/PayNowPanel', () => ({ default: () => <div data-testid="pay-now">Pay now</div> }));
+    const { default: BlockedStudentScreen } = await import('@/features/registration/components/BlockedStudentScreen.jsx');
+    const student = { studentName: 'Amina', parentPhone: '+254711000009', blocked: true, feeBalance: 1500, receiptStatus: 'approved' };
+    render(<BlockedStudentScreen session="morning" studentData={student} phoneNumber="+254711000009" onSubmitReceipt={vi.fn()} onBack={vi.fn()} />);
+  }
+
+  it('Gold deployment: the Pay now panel is shown', async () => {
+    await renderBlocked({ mpesa: true });
+    expect(await screen.findByTestId('pay-now')).toBeTruthy();
+  });
+
+  it('Bronze/Silver deployment (server says no): no Pay now, even with the daraja flag on', async () => {
+    await renderBlocked({ mpesa: false });
+    // The panel is lazy: give it as long as the positive case gets to appear.
+    await expect(screen.findByTestId('pay-now', {}, { timeout: 1000 })).rejects.toThrow();
+  });
+});

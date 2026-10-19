@@ -4,6 +4,7 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { safeCompare } from '../_lib/crypto.js';
 import { isEnabled } from '../_lib/flags.js';
 import { loadCredentials, queryStkStatus, interpretResultCode } from '../_lib/daraja.js';
+import { darajaMode } from '../_lib/mode.js';
 import { postEntry } from '../_lib/ledger.js';
 import { shouldAutoUnblock } from '../_lib/feeState.js';
 import { tryWriteAudit } from '../_lib/audit.js';
@@ -90,6 +91,14 @@ export default async function handler(req, res) {
   const now = Date.now();
   const result = { queried: 0, resolved: 0, abandoned: 0, posted: 0 };
 
+  // Local testing (`npm run mpesa:reconcile`): in SANDBOX mode only, the
+  // caller may shorten the 2-minute wait so a payment made a moment ago is
+  // checked now. Live always waits — Daraja has no verdict that early.
+  const minAgeOverride = Number(req.query?.minAgeSeconds);
+  const queryAfterMs = darajaMode() !== 'live' && Number.isFinite(minAgeOverride) && minAgeOverride >= 0
+    ? minAgeOverride * 1000
+    : QUERY_AFTER_MS;
+
   try {
     const pending = await db
       // Three segments — a COLLECTION path must have an odd segment count,
@@ -136,7 +145,7 @@ export default async function handler(req, res) {
 
       // Too young to have a verdict yet. Not counted against the budget — it
       // cost nothing.
-      if (age < QUERY_AFTER_MS) continue;
+      if (age < queryAfterMs) continue;
 
       handled += 1;
 

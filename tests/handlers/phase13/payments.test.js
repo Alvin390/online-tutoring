@@ -29,6 +29,9 @@ beforeEach(async () => {
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   (await import('../../../api/_lib/daraja.js')).__resetCallbackSecretCache?.();
   await setFlags(db, { 'payments.daraja': true, 'fees.enabled': true });
+  // M-Pesa is a Gold feature (mpesaAvailability): this deployment is on Gold.
+  await db.doc('subscription/current').set({ tier: 'gold', status: 'active' });
+  (await import('../../../api/_lib/publicBootstrap.js')).invalidateBootstrap();
   await call('/api/sessions/manage', { token: gold, body: { action: 'bootstrap' } });
 });
 
@@ -230,5 +233,129 @@ describe('D5 fee charges respect the fees flag (B12 server)', () => {
     const body = { session: 'morning', phone: phoneN(31), type: 'invoice', amount: 500 };
     expect((await call('/api/fees/post', { token: silver, body })).status).toBe(200);
     expect((await call('/api/fees/post', { token: bronze, body })).status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local STK testing: sandbox accepts an http://localhost callback again (the
+// prompt goes out, as before Phase 13 / 04); live still demands HTTPS.
+describe('CallBackURL in sandbox vs live', () => {
+  const saved = {};
+  const setEnv = (vars) => { for (const [k, v] of Object.entries(vars)) { saved[k] = process.env[k]; process.env[k] = v; } };
+  afterEach(() => {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    for (const k of Object.keys(saved)) delete saved[k];
+  });
+  const stkCount = () => externalCalls.filter((c) => /processrequest/.test(c.url)).length;
+
+  it('sandbox + http://localhost: the STK push is sent with that callback', async () => {
+    setEnv({ PUBLIC_BASE_URL: 'http://localhost:5173' });
+    await seedPayer(phoneN(40), 500);
+    const res = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(40) } });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(lastStk().body.CallBackURL).toMatch(/^http:\/\/localhost:5173\/api\/daraja\/callback\/[A-Za-z0-9_-]{22}$/);
+  });
+
+  it('DARAJA_CALLBACK_BASE_URL (an HTTPS tunnel) is used for the callback when set', async () => {
+    setEnv({ PUBLIC_BASE_URL: 'http://localhost:5173', DARAJA_CALLBACK_BASE_URL: 'https://abc.trycloudflare.com' });
+    await seedPayer(phoneN(41), 500);
+    await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(41) } });
+    expect(lastStk().body.CallBackURL).toMatch(/^https:\/\/abc\.trycloudflare\.com\/api\/daraja\/callback\//);
+  });
+
+  it('live + http: refused with a clear 503, and no STK push is sent', async () => {
+    setEnv({
+      PUBLIC_BASE_URL: 'http://localhost:5173', DARAJA_MODE: 'live',
+      DARAJA_LIVE_SHORTCODE: '600000', DARAJA_LIVE_SHORTCODE_TYPE: 'paybill',
+      DARAJA_LIVE_CONSUMER_KEY: 'ck_live_harness', DARAJA_LIVE_CONSUMER_SECRET: 'cs_live_harness', DARAJA_LIVE_PASSKEY: 'pk_live_harness',
+    });
+    await seedPayer(phoneN(42), 500);
+    const before = stkCount();
+    const res = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(42) } });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('payments_misconfigured');
+    expect(stkCount()).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M-Pesa (STK push) is a Gold feature. On Bronze/Silver the student screen
+// never offers it and the server refuses it.
+describe('M-Pesa availability follows the plan', () => {
+  const bootstrap = async () => {
+    (await import('../../../api/_lib/publicBootstrap.js')).invalidateBootstrap();
+    return (await call('/api/public/bootstrap', { method: 'GET' })).body;
+  };
+  const stkCount = () => externalCalls.filter((c) => /processrequest/.test(c.url)).length;
+
+  it('Gold: offered (bootstrap says yes) and accepted', async () => {
+    expect((await bootstrap()).payments).toEqual({ mpesa: true });
+    await seedPayer(phoneN(50), 500);
+    expect((await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(50) } })).status).toBe(200);
+  });
+
+  for (const tier of ['silver', 'bronze']) {
+    it(`${tier}: not offered, and initiate is refused with 403 payments_unavailable (no STK push)`, async () => {
+      await db.doc('subscription/current').set({ tier, status: 'active' });
+      expect((await bootstrap()).payments).toEqual({ mpesa: false });
+      await seedPayer(phoneN(51), 500);
+      const before = stkCount();
+      const res = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(51) } });
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('payments_unavailable');
+      expect(stkCount()).toBe(before);
+    });
+  }
+
+  it('no subscription record at all: not offered', async () => {
+    await db.doc('subscription/current').delete();
+    expect((await bootstrap()).payments).toEqual({ mpesa: false });
+  });
+
+  it('Gold but locked (billing on): not offered', async () => {
+    await setFlags(db, { 'payments.daraja': true, 'fees.enabled': true, 'billing.enabled': true });
+    await db.doc('subscription/current').set({ tier: 'gold', status: 'locked' });
+    expect((await bootstrap()).payments).toEqual({ mpesa: false });
+  });
+
+  it('Gold but no credentials for the mode: not offered (no button that would fail)', async () => {
+    const saved = process.env.DARAJA_SANDBOX_CONSUMER_KEY;
+    delete process.env.DARAJA_SANDBOX_CONSUMER_KEY;
+    try {
+      expect((await bootstrap()).payments).toEqual({ mpesa: false });
+    } finally {
+      process.env.DARAJA_SANDBOX_CONSUMER_KEY = saved;
+    }
+  });
+
+  it('a payment already made is still accepted by the callback after a downgrade', async () => {
+    await seedPayer(phoneN(52), 700);
+    const init = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(52) } });
+    const callbackPath = new URL(lastStk().body.CallBackURL).pathname;
+    await db.doc('subscription/current').set({ tier: 'silver', status: 'active' });
+    const cb = await call(callbackPath, {
+      ip: SAFARICOM_IP, body: callbackBody(init.body.checkoutRequestId, 700, 'QAB1DOWNGR'),
+    });
+    expect(cb.status).toBe(200);
+    const entry = (await db.doc(`fees/accounts/items/${phoneN(52)}/ledger/mpesa_${init.body.checkoutRequestId}`).get()).data();
+    expect(entry.reference).toBe('QAB1DOWNGR');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('npm run mpesa:reconcile (minAgeSeconds)', () => {
+  it('sandbox: minAgeSeconds=0 checks a payment made a moment ago', async () => {
+    await seedPayer(phoneN(60), 400);
+    await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(60) } });
+    const res = await call('/api/cron/mpesaReconcile?minAgeSeconds=0', { headers: { authorization: 'Bearer test-cron-secret' } });
+    expect(res.status).toBe(200);
+    expect(res.body.queried).toBe(1);
+  });
+
+  it('without it, a fresh payment waits the usual 2 minutes', async () => {
+    await seedPayer(phoneN(61), 400);
+    await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(61) } });
+    const res = await call('/api/cron/mpesaReconcile', { headers: { authorization: 'Bearer test-cron-secret' } });
+    expect(res.body.queried).toBe(0);
   });
 });

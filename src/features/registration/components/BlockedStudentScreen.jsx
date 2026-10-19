@@ -2,6 +2,7 @@ import { useState, useMemo, lazy, Suspense } from 'react';
 import { m } from 'framer-motion';
 import { resolveBlockReason, formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
+import { useMpesaAvailable } from '@features/payments/hooks/useMpesaAvailable';
 
 // Lazy: only a Gold deployment with an outstanding balance ever renders this,
 // so the payment code should not be in every student's first paint.
@@ -18,7 +19,9 @@ export default function BlockedStudentScreen({
   const [submitting, setSubmitting] = useState(false);
 
   const feesEnabled = useFlag('fees.enabled');
-  const darajaEnabled = useFlag('payments.daraja');
+  // Flag + Gold plan + credentials, decided on the server — so a Bronze or
+  // Silver deployment never offers an STK push it would refuse.
+  const mpesaAvailable = useMpesaAvailable();
 
   // Shared with the dashboard's blocked badge, so the teacher sees exactly
   // what the student sees.
@@ -125,7 +128,7 @@ export default function BlockedStudentScreen({
         {/* Pay now — Phase 09. Sits ALONGSIDE the receipt form below rather
             than replacing it: a student without M-Pesa on this handset still
             needs the manual route. */}
-        {darajaEnabled && blockState.balance > 0 && (
+        {mpesaAvailable && blockState.balance > 0 && (
           <Suspense fallback={null}>
             <PayNowPanel
               session={session}

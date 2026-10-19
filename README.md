@@ -90,6 +90,20 @@ API running, pages load but every request fails with a 404.
 Note: `.dev.vars` points the local API at whichever Firebase project it names.
 If that is the production project, local testing reads and writes real data.
 
+### Testing M-Pesa (STK push) locally
+
+With `DARAJA_MODE=dev` (sandbox), "Pay now" sends a real sandbox prompt to the
+phone. Safaricom cannot call back to `http://localhost`, so after paying run:
+
+```bash
+npm run mpesa:reconcile   # asks Safaricom for the result now and posts it
+```
+
+For automatic confirmation, set `DARAJA_CALLBACK_BASE_URL` in `.dev.vars` to an
+HTTPS tunnel to the API (e.g. `cloudflared tunnel --url http://localhost:8787`).
+"Pay now" appears only on a Gold plan (`subscription/current.tier`) with the
+`payments.daraja` flag on and the `DARAJA_*` credentials set.
+
 ## 🧪 Testing
 
 ```bash

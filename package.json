@@ -31,6 +31,7 @@
     "seed:superadmin": "node scripts/seedSuperadmin.js",
     "seed:sessions": "node scripts/seedSessions.js",
     "gmail:auth": "node scripts/gmailAuth.js",
+    "mpesa:reconcile": "node scripts/mpesaReconcile.js",
     "test:layout": "playwright test",
     "audit:ci": "npm audit --audit-level=high",
     "perf:latency": "node scripts/perf/apiLatency.mjs",

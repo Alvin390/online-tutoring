@@ -7,6 +7,7 @@ import {
   credentialSource,
   ensureCallbackSecret,
   buildCallbackUrl,
+  callbackBaseUrl,
 } from '../_lib/daraja.js';
 import { ApiError } from '../_lib/errors.js';
 
@@ -53,9 +54,9 @@ export default createHandler({
     if (body.action === 'status') {
       let callbackUrl = null;
       try {
-        callbackUrl = buildCallbackUrl(process.env.PUBLIC_BASE_URL, await ensureCallbackSecret(db));
+        callbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db));
       } catch (err) {
-        log.warn('Callback URL unavailable', { reason: err?.message });
+        log.warn('Callback URL unavailable', { reason: err?.cause?.message ?? err?.message });
       }
 
       const source = await credentialSource();
