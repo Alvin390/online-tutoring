@@ -593,6 +593,24 @@ describe('queries', () => {
 
   const ids = (snap) => snap.docs.map((d) => d.id);
 
+  // Phase 13 / 07: collection-group queries (the deleted-notes purge).
+  it('collectionGroup() finds a collection at any depth, with filters, like admin', async () => {
+    const group = `p13notes${Date.now()}`;
+    const old = new Date('2026-01-01');
+    const fresh = new Date('2026-06-01');
+    await Promise.all([
+      adminDb.doc(`${PREFIX}/s1/students/a/${group}/n1`).set({ deletedAt: old }),
+      adminDb.doc(`${PREFIX}/s1/students/b/${group}/n2`).set({ deletedAt: fresh }),
+      adminDb.doc(`${PREFIX}/s2/students/c/${group}/n3`).set({ deletedAt: old }),
+      adminDb.doc(`${PREFIX}/s2/students/c/${group}/n4`).set({ deletedAt: null }),
+    ]);
+    const q = (db) => db.collectionGroup(group).where('deletedAt', '<', new Date('2026-03-01')).orderBy('deletedAt');
+    const [a, r] = await Promise.all([q(adminDb).get(), q(restDb).get()]);
+    expect(ids(r).sort()).toEqual(ids(a).sort());
+    expect(ids(r).sort()).toEqual(['n1', 'n3']);
+    expect(r.docs.map((d) => d.ref.path).sort()).toEqual(a.docs.map((d) => d.ref.path).sort());
+  });
+
   // Phase 13 / 05: a dotted string path is a NESTED field in firebase-admin;
   // the shim used to escape it as one literal field name and match nothing.
   it('treats a dotted where()/orderBy() path as a nested field, like admin', async () => {

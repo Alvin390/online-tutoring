@@ -109,19 +109,25 @@ export default function DashboardLayout() {
       {/* Dashboard Header */}
       <div className="dashboard-header text-white py-3 sticky-top">
         <div className="container-fluid">
-          <div className="d-flex justify-content-between align-items-center">
-            <div className="d-flex align-items-center gap-3">
+          {/* Phase 13 / 07: must never be wider than a phone. A header that
+              overflowed widened the mobile LAYOUT viewport, and every fixed
+              overlay (the student popup, toasts) was then centred in that
+              wider box — off-screen to the right (I5). Labels collapse to
+              icons below `sm`, and the row may wrap. */}
+          <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+            <div className="d-flex align-items-center gap-3" style={{ minWidth: 0 }}>
               <i className="bi bi-speedometer2 fs-3" />
               <div>
                 <h4 className="mb-0 fw-bold">Teacher Dashboard</h4>
                 <small className="opacity-75">Student Registration Management</small>
               </div>
             </div>
-            <div className="d-flex align-items-center gap-3">
+            <div className="d-flex align-items-center gap-2 gap-md-3 flex-wrap justify-content-end">
               <button
                 className="btn btn-light btn-sm"
                 onClick={handleRefresh}
                 disabled={refreshing}
+                aria-label="Refresh"
               >
                 <i className={`bi bi-arrow-clockwise ${refreshing ? 'spin' : ''}`} />
               </button>
@@ -138,14 +144,15 @@ export default function DashboardLayout() {
                 className="btn btn-outline-light"
                 onClick={() => navigate(ROUTES.BILLING)}
                 title="Manage your subscription"
+                aria-label="Billing"
               >
-                <i className="bi bi-credit-card me-1" aria-hidden="true" />
-                Billing
+                <i className="bi bi-credit-card me-sm-1" aria-hidden="true" />
+                <span className="d-none d-sm-inline">Billing</span>
               </button>
-              <HelpFeedbackButton />
-              <button className="btn btn-light" onClick={handleLogout}>
-                <i className="bi bi-box-arrow-right me-1" />
-                Logout
+              <HelpFeedbackButton compact />
+              <button className="btn btn-light" onClick={handleLogout} aria-label="Logout">
+                <i className="bi bi-box-arrow-right me-sm-1" aria-hidden="true" />
+                <span className="d-none d-sm-inline">Logout</span>
               </button>
             </div>
           </div>

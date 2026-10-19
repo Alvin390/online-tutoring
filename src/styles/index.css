@@ -51,9 +51,12 @@
 }
 
 /* Global Styles */
-* {
-  margin: 0;
-  padding: 0;
+/* Phase 13 / 07 D5: was `* { margin: 0; padding: 0 }`, which fought
+   Bootstrap's Reboot (paragraph and list spacing). Reboot already sets
+   box-sizing; kept explicitly for anything outside Bootstrap's reach. */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -128,18 +131,39 @@ body {
 }
 
 /* Toast Container */
+/* Toasts — Phase 13 / 07 D2. Top-right on desktop; bottom-centre on phones,
+   clear of the home indicator. Overrides Bootstrap's own .toast-container
+   (position: absolute), which index.css loads after. The container lets
+   clicks through; each toast takes them. */
 .toast-container {
   position: fixed;
-  top: 2rem;
-  right: 2rem;
-  z-index: 9999;
-  max-width: 400px;
+  top: 1rem;
+  right: 1rem;
+  left: auto;
+  bottom: auto;
+  z-index: 10000;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
 }
 
-@media (max-width: 768px) {
+.toast-container > .toast {
+  pointer-events: auto;
+  width: 100%;
+  margin: 0;
+}
+
+@media (max-width: 575.98px) {
   .toast-container {
-    right: 1rem;
-    left: 1rem;
-    max-width: none;
+    top: auto;
+    right: auto;
+    left: 50%;
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    translate: -50% 0;
+    width: calc(100vw - 32px);
+    flex-direction: column-reverse;
   }
 }

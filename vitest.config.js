@@ -12,7 +12,7 @@ export default defineConfig({
     // emulator and a node environment. Each has its own config and script
     // (npm run test:rules / test:handlers) so a plain `vitest run` stays fast
     // and dependency-free.
-    exclude: ['node_modules/**', 'dist/**', 'tests/rules/**', 'tests/handlers/**', 'tests/perf/**', 'issues/**'],
+    exclude: ['node_modules/**', 'dist/**', 'tests/rules/**', 'tests/handlers/**', 'tests/perf/**', 'tests/layout/**', 'dist-local/**', 'issues/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

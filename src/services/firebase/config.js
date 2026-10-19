@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import {
+  connectFirestoreEmulator,
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager
@@ -34,6 +35,22 @@ export const db = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager()
   })
 });
+
+/**
+ * Local full-stack mode — Phase 13 / 07 (layout checks) and 08 (authenticated
+ * Lighthouse). Only when the BUILD sets VITE_USE_EMULATORS=true AND the page
+ * is served from this machine: a bundle built that way by mistake and
+ * deployed would otherwise send real users' sign-ins to localhost. A normal
+ * build never sets the variable, so this block is removed as dead code.
+ */
+if (
+  import.meta.env.VITE_USE_EMULATORS === 'true'
+  && typeof window !== 'undefined'
+  && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8085);
+}
 
 // Initialize analytics conditionally
 let analytics = null;

@@ -184,6 +184,17 @@
   color: #dc2626;
 }
 
+/* Phase 13 / 07 (I5, root cause on phones). Make every horizontal scroller
+   the containing block for absolutely positioned descendants. Screen-reader
+   labels (`.visually-hidden` is position: absolute) inside a wide table used
+   to escape the scroller, land ~680 px to the right, and widen the whole
+   document. On mobile that widens the LAYOUT viewport, and every fixed
+   overlay — the student popup, toasts — was centred in that wider box,
+   i.e. off-screen to the right. */
+.table-responsive {
+  position: relative;
+}
+
 /* Student Hover Popup */
 .student-row-wrapper {
   position: relative;
@@ -197,11 +208,25 @@
   z-index: 9997;
 }
 
-.student-info-popup {
+/* Placement layer — never animated (I5). Centres the card on every screen;
+   lets pointer events through everywhere except the card itself. */
+.student-info-layer {
   position: fixed;
-  left: 50%;
-  top: 10%;
-  transform: translate(-50%, 0);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding:
+    max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  pointer-events: none;
+  z-index: 9998;
+}
+
+.student-info-popup {
+  position: relative;
+  outline: none;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -212,12 +237,12 @@
     0 8px 32px rgba(102, 126, 234, 0.15),
     0 2px 8px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
-  z-index: 9998;
-  min-width: 400px;
-  max-width: 500px;
+  width: min(500px, calc(100vw - 32px));
   max-height: 85vh;
+  max-height: min(85dvh, 720px);
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
   pointer-events: auto;
   cursor: default;
   /* Smooth scrolling */
@@ -392,16 +417,11 @@
     width: 100%;
   }
 
-  /* Student info popup on mobile - centered */
+  /* Student info popup on mobile: full width minus gutters; the layer
+     centres it (I5). No left/top/transform here — framer owns transform. */
   .student-info-popup {
-    min-width: 90vw;
-    max-width: 95vw;
-    max-height: 90vh;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+    width: 100%;
     padding: 1rem;
-    /* Ensure it's always visible and centered */
     margin: 0;
   }
 

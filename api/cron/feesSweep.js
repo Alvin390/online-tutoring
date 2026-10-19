@@ -7,6 +7,7 @@ import { accountRef } from '../_lib/ledger.js';
 import { DEFAULT_FEE_CONFIG } from '../fees/config.js';
 import { runInvoiceGeneration } from '../fees/generateInvoices.js';
 import { tryWriteAudit } from '../_lib/audit.js';
+import { purgeDeletedNotes } from '../_lib/notesPurge.js';
 
 /**
  * Nightly fee sweep — Phase 06 D8.
@@ -55,13 +56,24 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: { code: 'unauthorized' } });
   }
 
-  if (!(await isEnabled('fees.enabled'))) {
-    return res.status(200).json({ ok: true, skipped: 'fees_disabled' });
+  const db = getDb();
+
+  // Phase 13 / 07 D4: notes past their 30-day restore window. Independent of
+  // fees, so it runs before the fees gate; a failure here never stops the
+  // fee work below.
+  let notesPurged = 0;
+  try {
+    notesPurged = (await purgeDeletedNotes(db, { log })).purged;
+  } catch (err) {
+    log.error('Notes purge failed', err);
   }
 
-  const db = getDb();
+  if (!(await isEnabled('fees.enabled'))) {
+    return res.status(200).json({ ok: true, skipped: 'fees_disabled', notesPurged });
+  }
+
   const now = new Date();
-  const result = { overdueFlagged: 0, autoBlocked: 0, invoiceRun: null };
+  const result = { overdueFlagged: 0, autoBlocked: 0, invoiceRun: null, notesPurged };
 
   try {
     const configSnap = await db.doc('fees/config').get();

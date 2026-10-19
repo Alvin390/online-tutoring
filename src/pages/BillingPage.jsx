@@ -394,7 +394,10 @@ export default function BillingPage() {
           <div className="col-md-4" key={c.id}>
             <button
               type="button"
-              className={`card h-100 w-100 text-start border-2 ${
+              // p-0: a <button> styled as a card. The old global
+              // `* { padding: 0 }` reset used to strip the browser's button
+              // padding; without it "M-Pesa" wrapped (Phase 13 / 07 D5).
+              className={`card h-100 w-100 text-start border-2 p-0 ${
                 channel === c.id ? 'border-primary' : 'border-light'
               }`}
               onClick={() => setChannel(c.id)}

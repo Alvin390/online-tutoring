@@ -1022,6 +1022,17 @@ export class Firestore {
     return new CollectionReference(this, path);
   }
 
+  /**
+   * Every collection named `collectionId`, at any depth — Phase 13 / 07 (the
+   * notes purge). Same semantics as firebase-admin's `collectionGroup()`.
+   */
+  collectionGroup(collectionId) {
+    if (!collectionId || collectionId.includes('/')) {
+      throw new FirestoreError(GRPC_CODE.INVALID_ARGUMENT, `Invalid collection group id: ${collectionId}`);
+    }
+    return new Query(this, collectionId, { allDescendants: true });
+  }
+
   batch() {
     return new WriteBatch(this);
   }
@@ -1155,7 +1166,9 @@ export class Firestore {
       ? `${this._documentsRoot}/${parentPath}`
       : this._documentsRoot;
 
-    const structuredQuery = { from: [{ collectionId }] };
+    const structuredQuery = {
+      from: [query._parts.allDescendants ? { collectionId, allDescendants: true } : { collectionId }],
+    };
 
     const filters = query._parts.filters.map(({ fieldPath, op, value }) => ({
       fieldFilter: {

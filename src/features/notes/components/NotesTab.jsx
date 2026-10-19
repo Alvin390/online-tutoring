@@ -24,8 +24,18 @@ function formatDate(value) {
   });
 }
 
+/** "today", "yesterday", "3 days ago". */
+function deletedAgo(value) {
+  const ms = value?.toMillis?.() ?? (value instanceof Date ? value.getTime() : null);
+  if (!ms) return 'just now';
+  const days = Math.floor((Date.now() - ms) / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+}
+
 export default function NotesTab({ session, phone, studentName, active }) {
-  const { notes, knownTags, loading, saving, addNote, editNote, deleteNote } = useStudentNotes({
+  const { notes, deletedNotes, knownTags, loading, saving, addNote, editNote, deleteNote, restoreNote } = useStudentNotes({
     session,
     phone,
     enabled: active,
@@ -301,6 +311,35 @@ export default function NotesTab({ session, phone, studentName, active }) {
           </motion.div>
         ))}
       </AnimatePresence>
+
+      {/* Phase 13 / 07 D4: the delete prompt promised a restore window, and
+          nothing in the UI offered one. */}
+      {deletedNotes.length > 0 && (
+        <details className="mt-3" data-testid="deleted-notes">
+          <summary className="small text-muted">
+            Recently deleted ({deletedNotes.length})
+          </summary>
+          <ul className="list-unstyled mt-2 mb-0">
+            {deletedNotes.map((note) => (
+              <li key={note.id} className="border rounded p-2 mb-2 bg-light">
+                <div className="small text-muted text-truncate">{note.body}</div>
+                <div className="d-flex align-items-center gap-2 small mt-1">
+                  <span className="text-muted">Deleted {deletedAgo(note.deletedAt)}</span>
+                  <span className="text-muted" aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    className="btn btn-link btn-sm p-0"
+                    onClick={() => restoreNote(note.id)}
+                    aria-label={`Restore note: ${note.body.slice(0, 40)}`}
+                  >
+                    Restore
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

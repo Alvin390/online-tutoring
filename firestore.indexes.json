@@ -68,6 +68,16 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "notes",
+      "fieldPath": "deletedAt",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
       "collectionGroup": "reports",
       "fieldPath": "description",
       "indexes": []

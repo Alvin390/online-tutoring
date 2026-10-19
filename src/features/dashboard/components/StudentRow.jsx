@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect, memo } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 
 // No escapeHtml (removed in Phase 13 / 03 D6). React escapes every text node
@@ -10,6 +10,9 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const rowRef = useRef(null);
+  const cardRef = useRef(null);
+  const reduceMotion = useReducedMotion();
 
   const isBlocked = student.blocked || false;
   const hasPendingReceipt = student.receiptStatus === 'pending' && student.pendingReceipt;
@@ -55,6 +58,23 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
     }
   };
 
+  // Escape closes the popup; a popup opened by tap takes focus (so a keyboard
+  // or switch user lands inside it) and hands it back to the row on close —
+  // the Phase 10 modal pattern. A desktop HOVER popup does not steal focus.
+  useEffect(() => {
+    if (!showPopup) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setShowPopup(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const row = rowRef.current;
+    if (isTouchDevice) cardRef.current?.focus();
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (isTouchDevice && row?.isConnected) row.focus?.();
+    };
+  }, [showPopup, isTouchDevice]);
+
   const handleClick = (e) => {
     // On mobile: toggle popup on click
     if (isTouchDevice) {
@@ -68,6 +88,8 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
   return (
     <>
       <motion.tr
+        ref={rowRef}
+        tabIndex={-1}
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 20 }}
@@ -198,11 +220,21 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
               onClick={() => setShowPopup(false)}
             />
           )}
+          {/* I5 (Phase 13 / 07): POSITION and ANIMATION live on different
+              elements. Framer writes an inline `transform: scale()`, which
+              used to replace the stylesheet's translate(-50%) centring and
+              left the card's left edge at mid-screen — off-screen on phones.
+              The layer centres with grid; the card only fades and scales. */}
+          <div className="student-info-layer" key="layer">
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
+            ref={cardRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-label={`Details for ${student.studentName ?? 'student'}`}
+            initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
+            exit={{ opacity: 0, scale: reduceMotion ? 1 : 0.95 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
             className="student-info-popup"
             onClick={(e) => e.stopPropagation()}
             onMouseEnter={() => {
@@ -352,6 +384,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
               )}
             </div>
           </motion.div>
+          </div>
         </AnimatePresence>,
         document.body
       )}
