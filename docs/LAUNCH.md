@@ -32,6 +32,24 @@ promoted.
  7. Superadmin    confirm the report recipient; press "Send test email"
 ```
 
+**If `wrangler secret put` refuses** ("latest version isn't currently
+deployed"), add secrets to a new, undeployed version instead:
+`npx wrangler versions secret bulk secrets.json` (a JSON object of name →
+value; delete the file afterwards). Versions uploaded later inherit them.
+
+**Cloudflare Workers Builds** (the GitHub connection under Workers →
+online-tutoring → Settings → Builds) builds every push. It needs:
+
+- **Build command:** `npm run build:quiet` (Workers Builds installs the
+  dependencies itself, before the build command). Without one, `dist/`
+  never exists and the upload fails with "assets.directory … does not exist".
+- **Deploy command:** `npx wrangler versions upload`. It uploads without
+  sending traffic, so a merge to `master` is NOT a production deploy;
+  promotion stays `npx wrangler versions deploy`.
+- **Build variables:** the `VITE_*` values from `.env.local`. The build
+  inlines them into the browser bundle; without them the app has no
+  Firebase config.
+
 **Never run a bare `npm run cf:secrets` from a dev machine** without
 `--dry-run` first: it uploads every non-blank runtime value in `.dev.vars` /
 `.env.local`. Localhost URLs are skipped automatically, but sandbox keys and
