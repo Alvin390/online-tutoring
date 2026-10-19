@@ -9,6 +9,9 @@ import {
   setSessionLink,
   invalidateSession,
   SESSION_TZ,
+  DEFAULT_CLASSES,
+  MAX_CLASSES,
+  MAX_CLASS_NAME,
 } from '../_lib/sessions.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
@@ -52,6 +55,19 @@ const scheduleSchema = z
 /** Shown under the session name on the homepage. Empty string clears it. */
 const descriptionSchema = z.string().trim().max(160).optional();
 
+/**
+ * The registration form's class list for this session. At least one, at most
+ * MAX_CLASSES, no blank or duplicate (case-insensitive) entries; inner spaces
+ * collapsed so "Form  One" and "Form One" cannot both appear.
+ */
+const classesSchema = z
+  .array(z.string().trim().min(1, 'A class name cannot be blank.').max(MAX_CLASS_NAME))
+  .min(1, 'Keep at least one class.')
+  .max(MAX_CLASSES, `At most ${MAX_CLASSES} classes.`)
+  .transform((list) => list.map((c) => c.replace(/\s+/g, ' ')))
+  .refine((list) => new Set(list.map((c) => c.toLowerCase())).size === list.length, 'Each class may appear only once.')
+  .optional();
+
 const schema = z
   .object({
     action: z.enum(['create', 'update', 'delete', 'reorder', 'setLink', 'bootstrap']),
@@ -62,6 +78,7 @@ const schema = z
     gradient: z.string().trim().max(200).optional(),
     active: z.boolean().optional(),
     schedule: scheduleSchema,
+    classes: classesSchema,
     url: z.string().trim().max(2048).optional(),
     order: z.array(z.string().trim().max(40)).max(50).optional(),
     reassignTo: z.string().trim().max(40).nullable().optional(),
@@ -108,6 +125,7 @@ export default createHandler({
           order: 999,
           active: body.active ?? true,
           schedule: body.schedule ?? null,
+          classes: body.classes ?? [...DEFAULT_CLASSES],
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -153,6 +171,11 @@ export default createHandler({
           && JSON.stringify(body.schedule ?? null) !== JSON.stringify(current.schedule ?? null)) {
         patch.schedule = body.schedule ?? null;
         changed.push('schedule');
+      }
+      if (body.classes !== undefined
+          && JSON.stringify(body.classes) !== JSON.stringify(current.classes ?? null)) {
+        patch.classes = body.classes;
+        changed.push('classes');
       }
 
       await ref.set(patch, { merge: true });

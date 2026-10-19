@@ -122,6 +122,22 @@ async function collectTree(ref, out) {
 export const SESSION_TZ = 'Africa/Nairobi';
 
 /**
+ * The classes a student can pick when registering for a session — editable by
+ * the teacher per session. A session document without its own list (every
+ * session created before this existed) offers these. Mirror of DEFAULT_CLASSES
+ * in src/shared/constants/sessions.js (parity-tested).
+ */
+export const DEFAULT_CLASSES = Object.freeze(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+export const MAX_CLASSES = 30;
+export const MAX_CLASS_NAME = 60;
+
+/** The class list a session offers: its own, or the defaults. */
+export function sessionClasses(sessionDoc) {
+  const list = sessionDoc?.classes;
+  return Array.isArray(list) && list.length > 0 ? list : [...DEFAULT_CLASSES];
+}
+
+/**
  * The two sessions every deployment starts with, pre-filled with EXACTLY what
  * the homepage showed before sessions became data, so the first bootstrap
  * changes nothing visually. Every field is editable afterwards.

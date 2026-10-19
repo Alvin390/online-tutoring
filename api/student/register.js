@@ -4,6 +4,7 @@ import { z, sessionSchema, phoneSchema, studentNameSchema } from '../_lib/valida
 import { ApiError } from '../_lib/errors.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { projectStudent } from '../_lib/studentProjection.js';
+import { sessionClasses } from '../_lib/sessions.js';
 
 /**
  * Student registration — Phase 13 / 08 A1.
@@ -48,6 +49,14 @@ export default createHandler({
 
     const db = getDb();
     const ref = db.doc(`sessions/${session}/students/${phone}`);
+
+    // The class must be one this session offers (the teacher edits the list
+    // per session). A session with no document yet offers the defaults.
+    const sessionSnap = await db.doc(`sessions/${session}`).get();
+    const offered = sessionClasses(sessionSnap.exists ? sessionSnap.data() : null);
+    if (!offered.includes(body.class)) {
+      throw new ApiError(400, 'invalid_class', 'Please choose a class from the list.');
+    }
 
     // Mandated initial state — identical to the rules: never blocked, never
     // pre-approved, no receipt approved, no balance.

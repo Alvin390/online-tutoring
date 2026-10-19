@@ -339,3 +339,68 @@ describe('D8 session details', () => {
 // Keep the FieldValue import used (some helpers above may need it later).
 void FieldValue;
 void setFlags;
+
+// ---------------------------------------------------------------------------
+// The registration form's class dropdown is per session and edited by the
+// teacher (sessions/manage `classes`); registration only accepts a listed class.
+describe('session class lists', () => {
+  const manage = (body) => call('/api/sessions/manage', { token: gold, body });
+  const DEFAULTS = ['Form One', 'Form Two', 'Form Three', 'Form Four'];
+  const register = (session, phone, cls) => call('/api/student/register', {
+    body: { session, phone, studentName: 'Amina Wanjiru', class: cls, subjects: 'Mathematics', receiptMessage: 'QAB123XYZ9 Confirmed' },
+  });
+
+  it('a new session starts with the default classes', async () => {
+    expect((await manage({ action: 'create', slug: 'saturday', name: 'Saturday Class' })).status).toBe(200);
+    expect((await getTestDb()).doc('sessions/saturday')).toBeTruthy();
+    const doc = (await (await getTestDb()).doc('sessions/saturday').get()).data();
+    expect(doc.classes).toEqual(DEFAULTS);
+  });
+
+  it('the teacher replaces the list; spaces are tidied; the change is audited', async () => {
+    await manage({ action: 'create', slug: 'saturday', name: 'Saturday Class' });
+    const res = await manage({ action: 'update', slug: 'saturday', classes: ['Grade 7', ' Grade  8 ', 'Grade 9'] });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.changed).toContain('classes');
+    const db = await getTestDb();
+    expect((await db.doc('sessions/saturday').get()).data().classes).toEqual(['Grade 7', 'Grade 8', 'Grade 9']);
+    const audits = await db.collection('audit').where('action', '==', 'session.updated').get();
+    expect(audits.docs.some((d) => (d.data().after?.changed ?? []).includes('classes'))).toBe(true);
+  });
+
+  for (const [label, classes] of [
+    ['an empty list', []],
+    ['a blank entry', ['Grade 7', '  ']],
+    ['a duplicate (case-insensitive)', ['Grade 7', 'grade 7']],
+    ['more than 30', Array.from({ length: 31 }, (_, i) => `Class ${i + 1}`)],
+    ['a 61-character name', ['x'.repeat(61)]],
+  ]) {
+    it(`refuses ${label}`, async () => {
+      await manage({ action: 'create', slug: 'saturday', name: 'Saturday Class' });
+      expect((await manage({ action: 'update', slug: 'saturday', classes })).status).toBe(400);
+    });
+  }
+
+  it('the public bootstrap carries each session\'s list (defaults where none is set)', async () => {
+    await manage({ action: 'create', slug: 'saturday', name: 'Saturday Class' });
+    await manage({ action: 'update', slug: 'saturday', classes: ['Grade 7', 'Grade 8'] });
+    const db = await getTestDb();
+    await db.doc('sessions/legacy').set({ slug: 'legacy', name: 'Legacy', active: true, order: 5 });
+    (await import('../../../api/_lib/publicBootstrap.js')).invalidateBootstrap();
+    const res = await call('/api/public/bootstrap', { method: 'GET' });
+    const bySlug = Object.fromEntries(res.body.sessions.map((x) => [x.slug, x.classes]));
+    expect(bySlug.saturday).toEqual(['Grade 7', 'Grade 8']);
+    expect(bySlug.legacy).toEqual(DEFAULTS);
+  });
+
+  it('registration accepts a class from the session\'s list and refuses one that is not on it', async () => {
+    await manage({ action: 'create', slug: 'saturday', name: 'Saturday Class' });
+    await manage({ action: 'update', slug: 'saturday', classes: ['Grade 7', 'Grade 8'] });
+    const wrong = await register('saturday', phoneN(70), 'Form One');
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error.code).toBe('invalid_class');
+    const ok = await register('saturday', phoneN(71), 'Grade 8');
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.student.class).toBe('Grade 8');
+  });
+});

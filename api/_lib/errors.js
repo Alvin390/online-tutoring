@@ -75,7 +75,10 @@ export function sendError(res, err, log) {
   } else if (apiError.status >= 500) {
     log?.error('Unhandled error in API handler', apiError.cause ?? apiError);
   } else {
-    log?.warn(`Request rejected: ${apiError.code}`, { status: apiError.status });
+    log?.warn(`Request rejected: ${apiError.code}`, {
+      status: apiError.status,
+      ...(apiError.expose ? { message: apiError.message } : {}),
+    });
   }
 
   if (apiError.retryAfter) {

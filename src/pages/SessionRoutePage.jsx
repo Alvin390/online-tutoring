@@ -102,6 +102,7 @@ export default function SessionRoutePage({ slug: slugProp }) {
       gradient={session.gradient ?? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'}
       schedule={session.schedule ?? null}
       description={session.description ?? ''}
+      classes={session.classes}
     />
   );
 }

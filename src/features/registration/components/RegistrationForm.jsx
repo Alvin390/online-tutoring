@@ -2,16 +2,18 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { m } from 'framer-motion';
 import { registrationSchema } from '../schemas/registrationSchema';
-
-const CLASSES = ['Form One', 'Form Two', 'Form Three', 'Form Four'];
+import { DEFAULT_CLASSES } from '@shared/constants/sessions';
 
 export default function RegistrationForm({
   session,
   phoneNumber,
   onSubmit,
   onBack,
-  loading
+  loading,
+  // The session's own class list (edited by the teacher); defaults otherwise.
+  classes = DEFAULT_CLASSES,
 }) {
+  const classOptions = Array.isArray(classes) && classes.length > 0 ? classes : DEFAULT_CLASSES;
   const {
     register,
     handleSubmit,
@@ -77,7 +79,7 @@ export default function RegistrationForm({
             {...register('class')}
           >
             <option value="">Select class...</option>
-            {CLASSES.map((cls) => (
+            {classOptions.map((cls) => (
               <option key={cls} value={cls}>{cls}</option>
             ))}
           </select>

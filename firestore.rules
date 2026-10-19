@@ -245,8 +245,10 @@ service cloud.firestore {
       return data.keys().hasAll(['name', 'slug', 'active'])
              && data.keys().hasOnly([
                'name', 'slug', 'description', 'icon', 'gradient', 'order', 'active',
-               'schedule', 'createdAt', 'updatedAt'
+               'schedule', 'classes', 'createdAt', 'updatedAt'
              ])
+             && (!('classes' in data)
+                 || (data.classes is list && data.classes.size() >= 1 && data.classes.size() <= 30))
              && (!('description' in data)
                  || (data.description is string && data.description.size() <= 160))
              && data.name is string

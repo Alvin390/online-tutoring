@@ -14,6 +14,7 @@ import {
   buildCallbackUrl,
   callbackBaseUrl,
   isUnreachableCallback,
+  stkCallbackUrl,
 } from '../_lib/daraja.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { mpesaAvailability } from '../_lib/mpesaAvailability.js';
@@ -122,11 +123,12 @@ export default createHandler({
     // only if the credentials form had been submitted — with env credentials
     // this built `…/callback/`, which no route matches), and the URL is checked
     // against the rules Safaricom enforces before an STK push can go out.
-    const callbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db));
-    if (isUnreachableCallback(callbackUrl)) {
-      // Sandbox only (live refuses non-HTTPS above). The prompt still goes
-      // out; the result will not come back on its own.
-      log.warn('STK callback URL is not reachable by Safaricom — confirm the payment with `npm run mpesa:reconcile`, or set DARAJA_CALLBACK_BASE_URL to an HTTPS tunnel');
+    const realCallbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db));
+    // Sandbox + localhost: Safaricom rejects a loopback CallBackURL outright,
+    // so a public placeholder is sent instead (see stkCallbackUrl).
+    const { url: callbackUrl, placeholder } = stkCallbackUrl(realCallbackUrl);
+    if (placeholder || isUnreachableCallback(callbackUrl)) {
+      log.warn('STK callback cannot reach this machine — after paying, confirm with `npm run mpesa:reconcile`, or set DARAJA_CALLBACK_BASE_URL to an HTTPS tunnel', { placeholder });
     }
 
     // AccountReference is the attribution key (Q24) and is capped at 12

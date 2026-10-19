@@ -296,6 +296,34 @@ export function callbackBaseUrl() {
   return process.env.DARAJA_CALLBACK_BASE_URL || process.env.PUBLIC_BASE_URL;
 }
 
+/**
+ * Safaricom REJECTS a callback on localhost / a loopback address — verified
+ * against the sandbox: `400.002.02 "Bad Request - Invalid CallBackURL"`, while a
+ * public HTTPS URL is accepted. So for local sandbox testing the STK request is
+ * given this placeholder instead: Safaricom accepts it and the prompt reaches
+ * the phone; the callback goes nowhere, and the payment is confirmed with
+ * `npm run mpesa:reconcile`. Deliberately WITHOUT the callback secret, which
+ * must never leave for a host we do not control. Overridable.
+ */
+export const SANDBOX_PLACEHOLDER_CALLBACK = 'https://example.com/local-dev-callback';
+
+/** localhost, 127.x, 0.0.0.0, [::1] — hosts only the developer's machine can reach. */
+export function isLoopbackUrl(url) {
+  return /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])([:/]|$)/i.test(String(url ?? ''));
+}
+
+/**
+ * The CallBackURL actually sent to Safaricom. Live: the real URL, always.
+ * Sandbox with a loopback base (local `npm run dev`): the placeholder.
+ * @returns {{ url: string, placeholder: boolean }}
+ */
+export function stkCallbackUrl(realUrl, { mode = darajaMode() } = {}) {
+  if (mode !== 'live' && isLoopbackUrl(realUrl)) {
+    return { url: process.env.DARAJA_SANDBOX_PLACEHOLDER_CALLBACK || SANDBOX_PLACEHOLDER_CALLBACK, placeholder: true };
+  }
+  return { url: realUrl, placeholder: false };
+}
+
 /** True when the URL Safaricom will be given cannot actually reach us (sandbox only). */
 export function isUnreachableCallback(url) {
   return /^http:\/\//i.test(url) || /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/i.test(url);

@@ -100,6 +100,18 @@ describe('session document shape (D8)', () => {
     );
   });
 
+  it('accepts a class list for the registration form', async () => {
+    await assertSucceeds(
+      setDoc(doc(teacher(env), 'sessions/saturday'), sessionDoc('saturday', { classes: ['Grade 7', 'Grade 8'] }))
+    );
+  });
+
+  it('rejects an empty class list or one over 30', async () => {
+    await assertFails(setDoc(doc(teacher(env), 'sessions/saturday'), sessionDoc('saturday', { classes: [] })));
+    await assertFails(setDoc(doc(teacher(env), 'sessions/saturday'),
+      sessionDoc('saturday', { classes: Array.from({ length: 31 }, (_, i) => `Class ${i}`) })));
+  });
+
   it('rejects an unknown key', async () => {
     await assertFails(
       setDoc(doc(teacher(env), 'sessions/saturday'), sessionDoc('saturday', { colour: 'red' }))

@@ -114,6 +114,14 @@ export const MAX_SESSION_DESCRIPTION = 160;
 export const SESSION_TZ = 'Africa/Nairobi';
 
 /**
+ * Classes offered by a session's registration form when the teacher has not
+ * set a list for it. Mirror of DEFAULT_CLASSES in api/_lib/sessions.js.
+ */
+export const DEFAULT_CLASSES = Object.freeze(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+export const MAX_CLASSES = 30;
+export const MAX_CLASS_NAME = 60;
+
+/**
  * The two default sessions — Phase 13 / 02 D1. Mirror of DEFAULT_SESSIONS in
  * api/_lib/sessions.js (a parity test keeps them identical). The server creates
  * these documents on first use; the client uses this copy only as the fallback

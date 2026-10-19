@@ -248,12 +248,17 @@ describe('CallBackURL in sandbox vs live', () => {
   });
   const stkCount = () => externalCalls.filter((c) => /processrequest/.test(c.url)).length;
 
-  it('sandbox + http://localhost: the STK push is sent with that callback', async () => {
+  // Safaricom answers a loopback CallBackURL with 400.002.02 "Invalid
+  // CallBackURL" (verified against the sandbox), so the request carries a
+  // public placeholder — and never the callback secret.
+  it('sandbox + http://localhost: the STK push is sent with the public placeholder, no secret', async () => {
     setEnv({ PUBLIC_BASE_URL: 'http://localhost:5173' });
     await seedPayer(phoneN(40), 500);
     const res = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(40) } });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(lastStk().body.CallBackURL).toMatch(/^http:\/\/localhost:5173\/api\/daraja\/callback\/[A-Za-z0-9_-]{22}$/);
+    expect(lastStk().body.CallBackURL).toBe('https://example.com/local-dev-callback');
+    const secret = (await db.doc('integrations/daraja').get()).data().callbackSecret;
+    expect(lastStk().body.CallBackURL).not.toContain(secret);
   });
 
   it('DARAJA_CALLBACK_BASE_URL (an HTTPS tunnel) is used for the callback when set', async () => {

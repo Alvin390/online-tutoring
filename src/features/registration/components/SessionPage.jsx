@@ -32,7 +32,7 @@ import '@/styles/landing.css';
  * Phase 05 drives this from a route slug and a session document; the props are
  * shaped for that already.
  */
-export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '' }) {
+export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes }) {
   const timeLine = formatSchedule(schedule);
   const [step, setStep] = useState('checkin');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -187,6 +187,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                 >
                   <RegistrationForm
                     session={session}
+                    classes={classes}
                     phoneNumber={phoneNumber}
                     onSubmit={handleRegistration}
                     onBack={handleBack}

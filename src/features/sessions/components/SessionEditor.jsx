@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import SessionCard from './SessionCard';
+import ClassListEditor from './ClassListEditor';
 import {
   validateSlug,
   slugify,
@@ -8,6 +9,8 @@ import {
   MAX_SESSION_NAME,
   MAX_SESSION_DESCRIPTION,
   SESSION_TZ,
+  DEFAULT_CLASSES,
+  MAX_CLASSES,
 } from '@shared/constants/sessions';
 
 /**
@@ -37,6 +40,8 @@ const DAYS = [
 ];
 
 const sameSchedule = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const cleanClass = (c) => c.trim().replace(/\s+/g, ' ');
+const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 function toForm(session) {
   return {
@@ -49,6 +54,10 @@ function toForm(session) {
     icon: session?.icon ?? SESSION_ICONS[0],
     gradient: session?.gradient ?? SESSION_GRADIENTS[0],
     active: session?.active !== false,
+    // The session's own list, or the defaults it has been offering until now.
+    classes: Array.isArray(session?.classes) && session.classes.length > 0
+      ? [...session.classes]
+      : [...DEFAULT_CLASSES],
   };
 }
 
@@ -78,6 +87,11 @@ export function validateSessionForm(form, { creating }) {
   } else if (form.startTime && form.endTime <= form.startTime) {
     errors.time = 'The end time must be after the start time.';
   }
+  const classes = form.classes.map(cleanClass);
+  if (classes.length === 0) errors.classes = 'Keep at least one class.';
+  else if (classes.some((c) => !c)) errors.classes = 'A class name cannot be blank — remove it or give it a name.';
+  else if (new Set(classes.map((c) => c.toLowerCase())).size !== classes.length) errors.classes = 'Each class may appear only once.';
+  else if (classes.length > MAX_CLASSES) errors.classes = `At most ${MAX_CLASSES} classes.`;
   return errors;
 }
 
@@ -126,6 +140,7 @@ export default function SessionEditor({ session = null, onSave, onCancel, busy =
         icon: form.icon,
         gradient: form.gradient,
         active: form.active,
+        classes: form.classes.map(cleanClass),
       });
       return;
     }
@@ -138,6 +153,8 @@ export default function SessionEditor({ session = null, onSave, onCancel, busy =
     if (form.icon !== initial.icon) patch.icon = form.icon;
     if (form.gradient !== initial.gradient) patch.gradient = form.gradient;
     if (form.active !== initial.active) patch.active = form.active;
+    const classes = form.classes.map(cleanClass);
+    if (!sameList(classes, initial.classes)) patch.classes = classes;
 
     if (Object.keys(patch).length === 0) {
       onCancel?.();
@@ -315,6 +332,12 @@ export default function SessionEditor({ session = null, onSave, onCancel, busy =
                 ))}
               </div>
             </div>
+
+            <ClassListEditor
+              classes={form.classes}
+              onChange={(classes) => set({ classes })}
+              error={showErrors ? errors.classes : ''}
+            />
 
             <div className="col-12">
               <div className="form-check form-switch">
