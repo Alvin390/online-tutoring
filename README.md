@@ -151,10 +151,11 @@ npx wrangler rollback           # instant revert to the previous version
 ```
 
 `npm run deploy` builds from `.env.local`, so the browser bundle gets the
-`VITE_*` values on this machine. CI (`.github/workflows/ci.yml`) runs lint,
-unit, rules and handler tests and the bundle budget on every PR; uploading a
-version from CI needs the `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`
-secrets and the `VITE_*` repository variables.
+`VITE_*` values on this machine. GitHub Actions (`.github/workflows/ci.yml`)
+only tests: lint, unit, rules, handlers, `npm audit` and the bundle budget, on
+every PR. Versions are uploaded by **Cloudflare Workers Builds** (the repo is
+connected in the Cloudflare dashboard), which builds every push and runs
+`npx wrangler versions upload`, so nothing goes live until it is promoted.
 
 Firestore rules and indexes deploy separately, with the Firebase CLI:
 

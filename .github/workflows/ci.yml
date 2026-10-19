@@ -4,10 +4,12 @@ name: CI
 # the handler suite without the Auth emulator or a project ID — authParity could
 # not pass in CI (validated: every case failed on a verbatim replay).
 #
-# Jobs run in parallel where they share nothing. Deployment to Cloudflare UPLOADS
-# a version from master but does not route traffic to it — that matches
-# `npm run deploy` and keeps promotion a deliberate human step:
+# Jobs run in parallel where they share nothing. This workflow only TESTS.
+# Uploading versions is Cloudflare Workers Builds' job (the repo is connected
+# in the dashboard; its deploy command is `npx wrangler versions upload`, which
+# routes no traffic). Promotion stays a deliberate human step:
 #   npx wrangler versions deploy        (or one click in the Cloudflare dashboard)
+# See docs/LAUNCH.md §0.
 
 on:
   push:
@@ -134,39 +136,3 @@ jobs:
           name: dist
           path: dist
           retention-days: 7
-
-  # Pull requests: upload a preview version (no traffic) so the PR has a URL.
-  preview:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    needs: [lint, unit, rules, handlers, build]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: 'npm' }
-      - run: npm ci
-      - uses: actions/download-artifact@v4
-        with: { name: dist, path: dist }
-      - uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --message "PR #${{ github.event.pull_request.number }}"
-
-  # master: upload a version. Promotion stays manual (see header).
-  deploy:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
-    runs-on: ubuntu-latest
-    needs: [lint, unit, rules, handlers, audit, build]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: 'npm' }
-      - run: npm ci
-      - uses: actions/download-artifact@v4
-        with: { name: dist, path: dist }
-      - uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --message "${{ github.sha }}"
