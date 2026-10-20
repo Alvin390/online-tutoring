@@ -152,7 +152,7 @@ service cloud.firestore {
              && data.class.size() <= 60
              && data.subjects is string
              && data.subjects.size() >= 3
-             && data.subjects.size() <= 200
+             && data.subjects.size() <= 500
              && data.receiptMessage is string
              && data.receiptMessage.size() >= 10
              && data.receiptMessage.size() <= 500
@@ -245,8 +245,9 @@ service cloud.firestore {
       return data.keys().hasAll(['name', 'slug', 'active'])
              && data.keys().hasOnly([
                'name', 'slug', 'description', 'icon', 'gradient', 'order', 'active',
-               'schedule', 'classes', 'createdAt', 'updatedAt'
+               'schedule', 'classes', 'subjectsByClass', 'createdAt', 'updatedAt'
              ])
+             && (!('subjectsByClass' in data) || data.subjectsByClass is map)
              && (!('classes' in data)
                  || (data.classes is list && data.classes.size() >= 1 && data.classes.size() <= 30))
              && (!('description' in data)

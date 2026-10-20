@@ -92,8 +92,8 @@ describe('deleting a student closes their balance', () => {
     await remove(phoneN(5));
     const reg = await call('/api/student/register', {
       body: {
-        session: 'morning', phone: phoneN(5), studentName: 'Back Again', class: 'Form One',
-        subjects: 'Maths', receiptMessage: 'QAB123XYZ9 Confirmed',
+        session: 'morning', phone: phoneN(5), studentName: 'Back Again', class: 'Grade 7',
+        subjects: ['Mathematics'], receiptMessage: 'QAB123XYZ9 Confirmed',
       },
     });
     expect(reg.status, JSON.stringify(reg.body)).toBe(200);

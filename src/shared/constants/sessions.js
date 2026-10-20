@@ -117,7 +117,7 @@ export const SESSION_TZ = 'Africa/Nairobi';
  * Classes offered by a session's registration form when the teacher has not
  * set a list for it. Mirror of DEFAULT_CLASSES in api/_lib/sessions.js.
  */
-export const DEFAULT_CLASSES = Object.freeze(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+export const DEFAULT_CLASSES = Object.freeze(['Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
 export const MAX_CLASSES = 30;
 export const MAX_CLASS_NAME = 60;
 

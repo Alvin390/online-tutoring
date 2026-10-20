@@ -41,9 +41,9 @@ describe('GET /api/public/bootstrap', () => {
     expect(res.body.flags['fees.enabled']).toBe(true);
     expect(res.body.sessions.map((s) => s.slug)).toEqual(['morning', 'evening']);
     expect(Object.keys(res.body.sessions[0]).sort())
-      .toEqual(['classes', 'description', 'gradient', 'icon', 'name', 'order', 'schedule', 'slug']);
+      .toEqual(['classes', 'description', 'gradient', 'icon', 'name', 'order', 'schedule', 'slug', 'subjectsByClass']);
     // No list on the document -> the defaults the form has always offered.
-    expect(res.body.sessions[0].classes).toEqual(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+    expect(res.body.sessions[0].classes).toEqual(['Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
     expect(JSON.stringify(res.body)).not.toMatch(/secret-uid|studentCount/);
   });
 
@@ -73,7 +73,7 @@ const valid = (overrides = {}) => ({
   session: 'morning',
   phone: '+254712345678',
   studentName: 'Amina Wanjiru',
-  class: 'Form Two', // one of the session's (default) classes
+  class: 'Grade 8', // one of the session's (default) classes
   subjects: 'Mathematics',
   receiptMessage: 'QAB123XYZ9 Confirmed',
   ...overrides,

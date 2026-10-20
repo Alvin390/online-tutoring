@@ -41,7 +41,8 @@ const changesSchema = z
   .object({
     studentName: studentNameSchema.optional(),
     class: z.string().trim().min(1).max(60).optional(),
-    subjects: z.string().trim().min(3).max(200).optional(),
+    // Phase 14: room for every subject of a class (checkboxes, joined).
+    subjects: z.string().trim().min(3).max(500).optional(),
     receiptMessage: z.string().trim().min(10).max(500).optional(),
   })
   .strict();
