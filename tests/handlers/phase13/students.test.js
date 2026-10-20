@@ -238,7 +238,13 @@ describe('D2 delete through the API (B3)', () => {
     expect((await db.collection(`sessions/morning/students/${phone}/notes`).get()).size).toBe(0);
     const account = (await db.doc(`fees/accounts/items/${phone}`).get()).data();
     expect(account.studentDeletedAt).toBeTruthy();
-    expect((await db.collection(`fees/accounts/items/${phone}/ledger`).get()).size).toBe(2);
+    // The history is kept, plus one entry closing the 1,200 balance (it no
+    // longer counts towards "Total outstanding"; see cleanup.test.js).
+    const ledger = (await db.collection(`fees/accounts/items/${phone}/ledger`).get()).docs.map((d) => d.data());
+    expect(ledger).toHaveLength(3);
+    expect(ledger.filter((e) => e.type === 'invoice')).toHaveLength(2);
+    expect(account.balance).toBe(0);
+    expect(res.body.balanceClosed).toBe(1200);
   });
 
   it('deletes 600 notes within the 45-subrequest budget', async () => {

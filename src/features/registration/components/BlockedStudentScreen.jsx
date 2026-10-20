@@ -14,6 +14,8 @@ export default function BlockedStudentScreen({
   phoneNumber,
   onSubmitReceipt,
   onBack,
+  // Called with the payment result when an M-Pesa payment succeeds.
+  onPaid,
 }) {
   const [newReceipt, setNewReceipt] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -134,6 +136,7 @@ export default function BlockedStudentScreen({
               session={session}
               phone={phoneNumber ?? studentData.parentPhone ?? studentData.id}
               balance={blockState.balance}
+              onPaid={onPaid}
             />
           </Suspense>
         )}

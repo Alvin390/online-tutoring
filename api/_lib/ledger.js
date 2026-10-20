@@ -62,7 +62,7 @@ export const counterRef = (db, name) => db.doc(`fees/counters/items/${name}`);
  * @param {string} [opts.reversesEntryId]
  * @param {string} [opts.sourceReceiptId]
  * @param {string} [opts.idempotencyKey] entry ID; a replay collides and is dropped
- * @param {number} [opts.deltaOverride] signed delta, for reversals only
+ * @param {number} [opts.deltaOverride] signed delta, for reversals and account closing
  * @param {boolean} [opts.receiptPending] Phase 13 / 04 D3: posted without the
  *        receipt that will follow (reconciled M-Pesa payments)
  */
@@ -278,6 +278,48 @@ export async function reverseEntry({ phone, session, entryId, reason, recordedBy
   }
 
   return result;
+}
+
+/**
+ * Closes the account of a DELETED student: posts one `adjustment` that brings
+ * the balance to exactly zero.
+ *
+ * Without it a deleted student's debt stayed in "Total outstanding" for good
+ * (the aggregate is a running sum of ledger deltas, and deleting the student
+ * posts nothing), and the nightly sweep kept flagging the account overdue.
+ * The ledger itself is kept: the history and this closing entry stay visible
+ * in the statement, which is the append-only rule working as designed.
+ *
+ * Idempotent per deletion (`closeKey`), so the delete handler and the sweep's
+ * self-heal can both call it.
+ *
+ * @returns {Promise<{closed: number}>} the balance that was closed (0: nothing to do)
+ */
+export async function closeDeletedStudentAccount({ phone, recordedBy, closeKey }) {
+  const db = getDb();
+  const account = accountRef(db, phone);
+  const snap = await account.get();
+  if (!snap.exists) return { closed: 0 };
+
+  const data = snap.data();
+  const balance = data.balance ?? 0;
+  if (balance !== 0) {
+    await postEntry({
+      phone,
+      session: data.session ?? null,
+      type: 'adjustment',
+      amount: Math.abs(balance),
+      deltaOverride: -balance,
+      note: balance > 0
+        ? 'Balance closed: student deleted'
+        : 'Credit closed: student deleted',
+      recordedBy,
+      idempotencyKey: `closed_${closeKey}`,
+    });
+  }
+  // Nothing left to invoice or chase.
+  await account.set({ status: 'closed', nextDueDate: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { closed: balance };
 }
 
 /**

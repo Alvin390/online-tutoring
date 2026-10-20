@@ -32,6 +32,13 @@ import '@/styles/landing.css';
  * Phase 05 drives this from a route slug and a session document; the props are
  * shaped for that already.
  */
+// After a payment clears the balance: how long the success message stays up,
+// and how often / how many times the student's access is re-checked.
+export const PAID_REDIRECT_DELAY_MS = 2000;
+const PAID_RECHECK_INTERVAL_MS = 1500;
+const PAID_RECHECKS = 3;
+const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
 export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes }) {
   const timeLine = formatSchedule(schedule);
   const [step, setStep] = useState('checkin');
@@ -110,6 +117,38 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
       return;
     }
     routeTo(data);
+  };
+
+  /**
+   * M-Pesa paid from the blocked screen. A payment that clears the balance
+   * takes the student straight to class: the success message stays up for a
+   * moment, then the student is re-checked and, once admitted, redirected.
+   *
+   * Re-checked rather than assumed: a teacher's own block (with a reason)
+   * still stands after paying, and the screen must show it. A short retry
+   * covers the unblock landing a beat after the payment status.
+   */
+  const handlePaid = async (result) => {
+    if (Number(result?.balanceAfter) > 0) return; // partial payment: still blocked
+    await wait(PAID_REDIRECT_DELAY_MS);
+    for (let attempt = 0; attempt < PAID_RECHECKS; attempt += 1) {
+      const { exists, data } = await checkStudent(phoneNumber);
+      if (!exists) {
+        setStep(GATE.REGISTER);
+        return;
+      }
+      const { screen } = resolveStudentGate(data, { requireApproval });
+      if (screen === GATE.WELCOME) {
+        setStep(screen);
+        await handleRedirect();
+        return;
+      }
+      if (screen !== GATE.BLOCKED || attempt === PAID_RECHECKS - 1) {
+        setStep(screen);
+        return;
+      }
+      await wait(PAID_RECHECK_INTERVAL_MS);
+    }
   };
 
   const handleSubmitReceipt = async (receiptMessage) => {
@@ -231,6 +270,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   // number the student just typed to check in.
                   phoneNumber={phoneNumber}
                   onSubmitReceipt={handleSubmitReceipt}
+                  onPaid={handlePaid}
                   onBack={handleBack}
                   loading={loading}
                 />

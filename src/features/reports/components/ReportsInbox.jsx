@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Modal from '@components/ui/Modal';
 import {
-  addReportNote, getReport, listReports, resendReportEmail, setReportStatus,
+  addReportNote, deleteReport, getReport, listReports, resendReportEmail, setReportStatus,
 } from '@services/api/reports';
 import { STATUS_LABELS, STATUS_TONE, statusesFor } from '../constants';
 import '../reports.css';
@@ -46,13 +46,14 @@ const EMAIL_LABEL = {
   needs_attention: ['danger', 'Email not delivered'],
 };
 
-function ReportDetail({ id, type, onChanged }) {
+function ReportDetail({ id, type, onChanged, onDeleted }) {
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [lightbox, setLightbox] = useState(null);
   const [flash, setFlash] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const load = useCallback(() => {
     setError('');
@@ -107,6 +108,19 @@ function ReportDetail({ id, type, onChanged }) {
     }
   };
 
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await deleteReport(id);
+      setConfirmDelete(false);
+      onDeleted?.(id);
+    } catch (err) {
+      setConfirmDelete(false);
+      setFlash(err?.message ?? 'Could not delete the report.');
+      setBusy(false);
+    }
+  };
+
   const fields = type === 'bug'
     ? [['What happened', report.description], ['Steps to reproduce', report.steps], ['Expected', report.expected]]
     : [['What they would like', report.description], ['Problem it solves', report.problem]];
@@ -143,6 +157,10 @@ function ReportDetail({ id, type, onChanged }) {
               <i className="bi bi-reply me-1" aria-hidden="true" />Reply by email
             </a>
           )}
+          <button type="button" className="btn btn-sm btn-outline-danger text-nowrap" disabled={busy}
+            onClick={() => setConfirmDelete(true)} data-testid="report-delete">
+            <i className="bi bi-trash me-1" aria-hidden="true" />Delete
+          </button>
         </div>
       </div>
 
@@ -209,6 +227,25 @@ function ReportDetail({ id, type, onChanged }) {
         </form>
       </div>
 
+      {confirmDelete && (
+        <Modal
+          title={`Delete ${report.number}?`}
+          type="danger"
+          confirmLabel="Delete report"
+          loading={busy}
+          onConfirm={remove}
+          onClose={() => setConfirmDelete(false)}
+        >
+          <p className="mb-1">
+            <strong>{report.title}</strong>
+          </p>
+          <p className="mb-0 small text-muted">
+            The report, its internal notes and its screenshots are removed for good.
+            Its number is not reused.
+          </p>
+        </Modal>
+      )}
+
       {lightbox && (
         <Modal title={`Screenshot ${lightbox.index + 1}`} onClose={() => setLightbox(null)} footer={null} wide>
           <div className="report-lightbox">
@@ -254,6 +291,12 @@ export default function ReportsInbox({ type, initialReportId = null, onCountsCha
 
   const onChanged = ({ id, status: next }) => {
     setItems((prev) => prev.map((r) => (r.id === id ? { ...r, status: next } : r)));
+    load();
+  };
+
+  const onDeleted = (id) => {
+    setItems((prev) => prev.filter((r) => r.id !== id));
+    setSelected(null);
     load();
   };
 
@@ -307,7 +350,7 @@ export default function ReportsInbox({ type, initialReportId = null, onCountsCha
         <div className="card">
           <div className="card-body">
             {selected
-              ? <ReportDetail key={selected} id={selected} type={type} onChanged={onChanged} />
+              ? <ReportDetail key={selected} id={selected} type={type} onChanged={onChanged} onDeleted={onDeleted} />
               : <div className="text-muted small">Select a report to read it.</div>}
           </div>
         </div>

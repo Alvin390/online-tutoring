@@ -88,7 +88,7 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
             `${paid ? `Paid ${formatKes(paid)}. ` : 'Payment received. '}${
               result.balanceAfter > 0
                 ? `${formatKes(result.balanceAfter)} still outstanding.`
-                : 'Your access has been restored.'
+                : 'Your access has been restored. Taking you to class…'
             }`
           );
           onPaid?.(result);

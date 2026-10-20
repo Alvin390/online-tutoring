@@ -235,23 +235,13 @@ export default async function handler(req, res) {
       idempotencyKey: `mpesa_${checkoutRequestId}`,
     });
 
-    await txRef.set(
-      {
-        status: 'success',
-        resultCode: 0,
-        resultDesc: callback.ResultDesc ?? null,
-        mpesaReceipt: receipt,
-        receivedAmount: amount,
-        ledgerEntryId: posted.entryId,
-        balanceAfter: posted.balance,
-        completedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
     // --- Auto-unblock, which is precisely the Phase 06 D5 rule reached
     // automatically. A PARTIAL payment leaves the student blocked, and the
     // derived block reason updates itself to the new, smaller balance.
+    //
+    // BEFORE the transaction is marked 'success': the student's screen polls
+    // that status and, on success, re-checks the student and takes them to
+    // class. Marking success first let that re-check see the old block.
     let unblocked = false;
     if (!posted.duplicate && shouldAutoUnblock(posted.balance)) {
       const studentRef = db.doc(`sessions/${tx.session}/students/${tx.phone}`);
@@ -270,6 +260,20 @@ export default async function handler(req, res) {
         unblocked = true;
       }
     }
+
+    await txRef.set(
+      {
+        status: 'success',
+        resultCode: 0,
+        resultDesc: callback.ResultDesc ?? null,
+        mpesaReceipt: receipt,
+        receivedAmount: amount,
+        ledgerEntryId: posted.entryId,
+        balanceAfter: posted.balance,
+        completedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
     log.info('M-Pesa payment posted', {
       checkoutRequestId,

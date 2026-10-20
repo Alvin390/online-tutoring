@@ -15,6 +15,8 @@ import { REPORT_TYPES, statusesFor, sendReportEmail } from '../_lib/reports.js';
  *   setStatus    status for that type's workflow
  *   addNote      an internal note (superadmin-only, capped at 50)
  *   resendEmail  re-send the alert now
+ *   delete       remove the report, its screenshots and its upload record
+ *                (numbers are never reused; the audit keeps number + title)
  */
 
 const PAGE = 20;
@@ -23,7 +25,7 @@ const SIGNED_URL_MS = 15 * 60 * 1000;
 
 const schema = z
   .object({
-    action: z.enum(['list', 'get', 'setStatus', 'addNote', 'resendEmail']),
+    action: z.enum(['list', 'get', 'setStatus', 'addNote', 'resendEmail', 'delete']),
     type: z.enum(REPORT_TYPES).optional(),
     status: z.string().trim().max(20).optional(),
     cursor: z.string().datetime().optional(),
@@ -146,6 +148,39 @@ export default createHandler({
         return next;
       });
       return { ok: true, notes: notes.length };
+    }
+
+    if (body.action === 'delete') {
+      // Screenshots first (best effort: a file already gone is not an error),
+      // then the staging record, then the report itself.
+      // Paths come from the report AND from the staging record, which also
+      // holds uploads that never made it into a submitted report.
+      const uploadsRef = db.doc(`reportUploads/${body.id}`);
+      const uploads = await uploadsRef.get();
+      const staged = Object.values(uploads.exists ? uploads.data().files ?? {} : {});
+      const paths = [
+        ...(report.attachments ?? []).flatMap((a) => [a.path, a.thumbPath]),
+        ...staged.flatMap((f) => [f?.fullPath, f?.thumbPath]),
+      ].filter(Boolean);
+      let filesRemoved = 0;
+      for (const path of new Set(paths)) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await getStorage().bucket().file(path).delete();
+          filesRemoved += 1;
+        } catch (err) {
+          log.warn('Report screenshot delete failed', { message: err?.message });
+        }
+      }
+      if (uploads.exists) await uploadsRef.delete();
+      await ref.delete();
+      await tryWriteAudit(
+        { action: 'reports.deleted', actor: user.uid, actorRole: user.role, target: `reports/${body.id}`,
+          before: { type: report.type, number: report.number, title: report.title, status: report.status },
+          after: { filesRemoved }, context: { requestId: log.requestId } },
+        log
+      );
+      return { ok: true, deleted: true, filesRemoved };
     }
 
     // resendEmail

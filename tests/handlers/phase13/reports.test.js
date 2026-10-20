@@ -557,3 +557,81 @@ describe('D2 screenshots', () => {
     expect((await db.doc(`reportUploads/${keep}`).get()).exists).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The superadmin can delete a report: the document, its screenshots and any
+// staged uploads go; the audit keeps its number and title.
+describe('superadmin deletes a report', () => {
+  const upload = (reportId, index, variant, data, token = teacher, contentType = 'image/webp') =>
+    call('/api/reports/attachment', { token, body: { reportId, index, variant, contentType, data, width: 1, height: 1 } });
+  const del = (id, token = superadmin) => call('/api/admin/reports', { token, body: { action: 'delete', id } });
+
+  it('removes the report, its screenshots and the staged uploads, and audits it', async () => {
+    const body = bug();
+    await upload(body.reportId, 0, 'full', webp(11));
+    await upload(body.reportId, 0, 'thumb', webp(12));
+    expect((await submit({ ...body, attachments: [{ index: 0 }] })).status).toBe(200);
+    await drainWaitUntil();
+    const { number, title } = await report(body.reportId);
+    expect(fakes.storage.objects.size).toBe(2);
+
+    const res = await del(body.reportId);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({ deleted: true, filesRemoved: 2 });
+    expect((await db.doc(`reports/${body.reportId}`).get()).exists).toBe(false);
+    expect(fakes.storage.objects.size).toBe(0);
+
+    await drainWaitUntil();
+    const audits = await db.collection('audit').where('action', '==', 'reports.deleted').get();
+    expect(audits.docs.map((d) => d.data().before)).toEqual([expect.objectContaining({ number, title, type: 'bug' })]);
+
+    // Gone from the inbox.
+    const list = await call('/api/admin/reports', { token: superadmin, body: { action: 'list', type: 'bug' } });
+    expect(list.body.items.map((r) => r.id)).not.toContain(body.reportId);
+  });
+
+  it('removes screenshots that were uploaded but never submitted', async () => {
+    // A staged upload left behind for this report id (e.g. a slot uploaded and
+    // then dropped before submitting) is cleaned up with the report.
+    const body = bug();
+    await upload(body.reportId, 0, 'full', webp(31));
+    expect((await submit({ ...body, attachments: [{ index: 0 }] })).status).toBe(200);
+    await drainWaitUntil();
+    await db.doc(`reportUploads/${body.reportId}`).set({
+      uid: 'p13-reports-teacher', files: { 1: { fullPath: `reports/${body.reportId}/1.webp` } },
+    });
+    fakes.storage.objects.set(`reports/${body.reportId}/1.webp`, { contentType: 'image/webp', bytes: 10 });
+
+    expect((await del(body.reportId)).body.filesRemoved).toBe(2);
+    expect(fakes.storage.objects.size).toBe(0);
+    expect((await db.doc(`reportUploads/${body.reportId}`).get()).exists).toBe(false);
+  });
+
+  it('feature requests too; a second delete is a clean 404', async () => {
+    const body = feature();
+    expect((await submit(body)).status).toBe(200);
+    await drainWaitUntil();
+    expect((await del(body.reportId)).status).toBe(200);
+    expect((await del(body.reportId)).status).toBe(404);
+  });
+
+  it('only the superadmin can delete', async () => {
+    const body = bug();
+    expect((await submit(body)).status).toBe(200);
+    await drainWaitUntil();
+    expect((await del(body.reportId, teacher)).status).toBe(403);
+    expect((await db.doc(`reports/${body.reportId}`).get()).exists).toBe(true);
+  });
+
+  it('a screenshot that cannot be deleted does not block the delete', async () => {
+    const body = bug();
+    await upload(body.reportId, 0, 'full', webp(21));
+    expect((await submit({ ...body, attachments: [{ index: 0 }] })).status).toBe(200);
+    await drainWaitUntil();
+    fakes.storage.fail = 500;
+    const res = await del(body.reportId);
+    fakes.storage.fail = null;
+    expect(res.status).toBe(200);
+    expect((await db.doc(`reports/${body.reportId}`).get()).exists).toBe(false);
+  });
+});

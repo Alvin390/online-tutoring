@@ -217,6 +217,21 @@ export default async function handler(req, res) {
           idempotencyKey: `mpesa_${tx.checkoutRequestId}`,
         });
 
+        // Unblock BEFORE marking success (see the callback): a student polling
+        // this status re-checks their access the moment it reads 'success'.
+        if (!posted.duplicate && shouldAutoUnblock(posted.balance)) {
+          const studentRef = db.doc(`sessions/${tx.session}/students/${tx.phone}`);
+          // eslint-disable-next-line no-await-in-loop
+          const studentSnap = await studentRef.get();
+          if (studentSnap.exists && studentSnap.data().blocked === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await studentRef.set(
+              { blocked: false, blockReason: '', blockedAt: null },
+              { merge: true }
+            );
+          }
+        }
+
         // eslint-disable-next-line no-await-in-loop
         await docSnap.ref.set(
           {
@@ -232,19 +247,6 @@ export default async function handler(req, res) {
 
         if (!posted.duplicate) result.posted += 1;
         result.resolved += 1;
-
-        if (!posted.duplicate && shouldAutoUnblock(posted.balance)) {
-          const studentRef = db.doc(`sessions/${tx.session}/students/${tx.phone}`);
-          // eslint-disable-next-line no-await-in-loop
-          const studentSnap = await studentRef.get();
-          if (studentSnap.exists && studentSnap.data().blocked === true) {
-            // eslint-disable-next-line no-await-in-loop
-            await studentRef.set(
-              { blocked: false, blockReason: '', blockedAt: null },
-              { merge: true }
-            );
-          }
-        }
 
         // eslint-disable-next-line no-await-in-loop
         await tryWriteAudit(

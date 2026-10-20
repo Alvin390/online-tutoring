@@ -83,6 +83,19 @@ export default createHandler({
       throw err;
     }
 
+    // The same number registering again after being deleted: the fee account
+    // (closed at zero on deletion) belongs to a live student once more.
+    const account = db.doc(`fees/accounts/items/${phone}`);
+    const accountSnap = await account.get();
+    if (accountSnap.exists && accountSnap.data().studentDeletedAt) {
+      await account.set({
+        session,
+        studentDeletedAt: FieldValue.delete(),
+        studentDeletedBy: FieldValue.delete(),
+        status: FieldValue.delete(),
+      }, { merge: true });
+    }
+
     log.info('Student registered', { session });
     return {
       ok: true,

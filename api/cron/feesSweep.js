@@ -3,7 +3,7 @@ import { createLogger } from '../_lib/log.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { safeCompare } from '../_lib/crypto.js';
 import { isEnabled } from '../_lib/flags.js';
-import { accountRef } from '../_lib/ledger.js';
+import { accountRef, closeDeletedStudentAccount } from '../_lib/ledger.js';
 import { DEFAULT_FEE_CONFIG } from '../fees/config.js';
 import { runInvoiceGeneration } from '../fees/generateInvoices.js';
 import { tryWriteAudit } from '../_lib/audit.js';
@@ -103,9 +103,42 @@ export default async function handler(req, res) {
     // ---- 2. Overdue sweep.
     const accounts = await db.collection('fees/accounts/items').get();
     const overdue = [];
+    result.deletedClosed = 0;
 
     for (const accountDoc of accounts.docs) {
       const account = accountDoc.data();
+
+      // A deleted student is never overdue: flagging them wrote `overdue` back
+      // to the deleted student's path. Self-heal for accounts deleted before
+      // balances were closed on deletion: close it now — unless the same number
+      // has since registered again, in which case the account is live.
+      if (account.studentDeletedAt) {
+        if ((account.balance ?? 0) !== 0) {
+          // eslint-disable-next-line no-await-in-loop
+          const live = account.session
+            ? await db.doc(`sessions/${account.session}/students/${accountDoc.id}`).get()
+            : null;
+          if (live?.exists && live.data().studentName) {
+            // eslint-disable-next-line no-await-in-loop
+            await accountDoc.ref.set({
+              studentDeletedAt: FieldValue.delete(),
+              studentDeletedBy: FieldValue.delete(),
+            }, { merge: true });
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await closeDeletedStudentAccount({
+              phone: accountDoc.id,
+              recordedBy: 'system:fees-sweep',
+              closeKey: String(account.studentDeletedAt.toMillis?.() ?? account.studentDeletedAt),
+            });
+            result.deletedClosed += 1;
+            continue;
+          }
+        } else {
+          continue;
+        }
+      }
+
       const dueAt = account.nextDueDate?.toMillis?.() ?? null;
 
       if (dueAt === null) continue;

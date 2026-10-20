@@ -31,6 +31,8 @@ export const addReportNote = ({ id, text }) => apiPost('/api/admin/reports', { a
 
 export const resendReportEmail = (id) => apiPost('/api/admin/reports', { action: 'resendEmail', id });
 
+export const deleteReport = (id) => apiPost('/api/admin/reports', { action: 'delete', id });
+
 export const getNotificationSettings = () => apiPost('/api/admin/notifications', { action: 'get' });
 
 export const setReportRecipient = (email) => apiPost('/api/admin/notifications', { action: 'setRecipient', email });

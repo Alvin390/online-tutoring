@@ -4,6 +4,7 @@ import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { notFound } from '../_lib/errors.js';
 import { deleteRecursively } from '../_lib/sessions.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
+import { closeDeletedStudentAccount } from '../_lib/ledger.js';
 
 /**
  * Delete a student, and everything beneath them — Phase 05 Part B.
@@ -55,14 +56,22 @@ export default createHandler({
 
     // The fee record is RETAINED (Phase 13 / 03 D2): the ledger is a financial
     // record, append-only by design. It is marked so fee views can tell the
-    // student is gone.
+    // student is gone, and any remaining balance is CLOSED with a ledger entry
+    // so the student no longer counts towards "Total outstanding".
     const account = db.doc(`fees/accounts/items/${phone}`);
     const accountSnap = await account.get();
+    let balanceClosed = 0;
     if (accountSnap.exists) {
-      await account.set({ studentDeletedAt: new Date(), studentDeletedBy: user.uid }, { merge: true });
+      const deletedAt = new Date();
+      await account.set({ studentDeletedAt: deletedAt, studentDeletedBy: user.uid }, { merge: true });
+      ({ closed: balanceClosed } = await closeDeletedStudentAccount({
+        phone,
+        recordedBy: user.uid,
+        closeKey: String(deletedAt.getTime()),
+      }));
     }
 
-    log.info('Student deleted', { session, notesRemoved: noteCount, feeRecordRetained: accountSnap.exists });
+    log.info('Student deleted', { session, notesRemoved: noteCount, feeRecordRetained: accountSnap.exists, balanceClosed });
 
     await tryWriteAudit(
       {
@@ -75,12 +84,13 @@ export default createHandler({
           approvalStatus: data.approvalStatus ?? null,
           notesRemoved: noteCount,
           feeRecordRetained: accountSnap.exists,
+          balanceClosed,
         },
         context: { requestId: log.requestId },
       },
       log
     );
 
-    return { ok: true, notesRemoved: noteCount };
+    return { ok: true, notesRemoved: noteCount, balanceClosed };
   },
 });
