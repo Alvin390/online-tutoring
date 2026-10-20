@@ -1,8 +1,11 @@
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { m } from 'framer-motion';
 import { registrationSchema } from '../schemas/registrationSchema';
 import { DEFAULT_CLASSES } from '@shared/constants/sessions';
+import { subjectsForClass } from '@shared/constants/subjects';
+import SubjectPicker, { compulsoryNames } from './SubjectPicker';
 
 export default function RegistrationForm({
   session,
@@ -12,16 +15,41 @@ export default function RegistrationForm({
   loading,
   // The session's own class list (edited by the teacher); defaults otherwise.
   classes = DEFAULT_CLASSES,
+  // Phase 14: each class's subjects, resolved by the server (bootstrap).
+  subjectsByClass = null,
 }) {
   const classOptions = Array.isArray(classes) && classes.length > 0 ? classes : DEFAULT_CLASSES;
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isValid },
   } = useForm({
     resolver: zodResolver(registrationSchema),
     mode: 'onBlur',
+    defaultValues: { subjects: '' },
   });
+
+  const selectedClass = watch('class');
+  const picked = watch('subjects');
+  // The bootstrap's list for the class; the defaults by name if it is missing
+  // (a page cached from before subjects existed).
+  const subjectOptions = selectedClass
+    ? (subjectsByClass?.[selectedClass] ?? subjectsForClass(null, selectedClass))
+    : [];
+  const usePicker = subjectOptions.length > 0;
+
+  // A new class starts from its compulsory subjects (or an empty text box).
+  useEffect(() => {
+    if (!selectedClass) return;
+    const options = subjectsByClass?.[selectedClass] ?? subjectsForClass(null, selectedClass);
+    const start = options.length > 0 ? compulsoryNames(options) : '';
+    // Validate straight away only when something is already ticked (Form 3):
+    // the submit button must enable without another click, but an empty
+    // choice should not show an error before the student has done anything.
+    setValue('subjects', start, { shouldValidate: start.length > 0 });
+  }, [selectedClass, subjectsByClass, setValue]);
 
   return (
     <m.div
@@ -88,20 +116,42 @@ export default function RegistrationForm({
           )}
         </div>
 
-        {/* Subjects */}
+        {/* Subjects — checkboxes for the chosen class (Phase 14), or free
+            text for a class without a subject list. */}
         <div className="mb-3">
-          <label className="form-label fw-semibold">
+          <label className="form-label fw-semibold" id="reg-subjects-label">
             Subjects Enrolled <span className="text-danger">*</span>
           </label>
-          <input
-            type="text"
-            className={`form-control ${errors.subjects ? 'is-invalid' : ''}`}
-            placeholder="e.g., Mathematics, Physics, Chemistry, Biology"
-            {...register('subjects')}
-          />
-          <div className="form-text">Enter subjects separated by commas</div>
+          {!selectedClass && (
+            <div className="form-text mt-0">Choose a class to see its subjects.</div>
+          )}
+          {selectedClass && usePicker && (
+            <>
+              <SubjectPicker
+                options={subjectOptions}
+                value={Array.isArray(picked) ? picked : []}
+                onChange={(names) => setValue('subjects', names, { shouldValidate: true, shouldDirty: true })}
+                invalid={Boolean(errors.subjects)}
+                describedBy="reg-subjects-label"
+                legend={`Subjects for ${selectedClass}`}
+              />
+              <div className="form-text">Tick every subject the student will take.</div>
+            </>
+          )}
+          {selectedClass && !usePicker && (
+            <>
+              <input
+                type="text"
+                className={`form-control ${errors.subjects ? 'is-invalid' : ''}`}
+                placeholder="e.g., Mathematics, Physics, Chemistry, Biology"
+                aria-labelledby="reg-subjects-label"
+                {...register('subjects')}
+              />
+              <div className="form-text">Enter subjects separated by commas</div>
+            </>
+          )}
           {errors.subjects && (
-            <div className="invalid-feedback">{errors.subjects.message}</div>
+            <div className="invalid-feedback d-block">{errors.subjects.message}</div>
           )}
         </div>
 

@@ -9,6 +9,8 @@ import logger from '@utils/logger';
 import { useFlag } from '@shared/config/FlagsContext';
 import { useAuthState } from '@features/auth/context/AuthContext';
 import { TIER_RANK } from '@shared/constants/tiers';
+import SubjectPicker from '@features/registration/components/SubjectPicker';
+import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
 
 const VIRTUALIZE_ABOVE = 50;
 const OVERSCAN = 8;
@@ -18,6 +20,8 @@ const ROW_ESTIMATE_PX = 90;
 
 export default function StudentTable({
   session,
+  // Phase 14: the session document — its classes and their subjects.
+  sessionDoc = null,
   students,
   onDelete,
   onEdit,
@@ -87,6 +91,9 @@ export default function StudentTable({
   });
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
+
+  // Phase 14: the subjects offered by the class being edited.
+  const editSubjectOptions = editForm.class ? subjectsForClass(sessionDoc, editForm.class) : [];
 
   const handleDeleteClick = (student) => {
     setSelectedStudent(student);
@@ -404,17 +411,33 @@ export default function StudentTable({
           </div>
 
           <div className="mb-3">
-            <label className="form-label fw-bold">
+            <label className="form-label fw-bold" id="edit-subjects-label">
               <i className="bi bi-journal-text me-2" />
               Subjects
             </label>
-            <input
-              type="text"
-              className="form-control"
-              value={editForm.subjects || ''}
-              onChange={(e) => setEditForm({ ...editForm, subjects: e.target.value })}
-              placeholder="Math, English, Science"
-            />
+            {/* Phase 14: the student's class's subjects as checkboxes. Any
+                subject they already have that is not on the list stays ticked
+                (shown as "not on this class's list"); a class without a list
+                keeps the text box. */}
+            {editSubjectOptions.length > 0 ? (
+              <SubjectPicker
+                options={editSubjectOptions}
+                value={parseSubjects(editForm.subjects || '')}
+                onChange={(names) => setEditForm({ ...editForm, subjects: joinSubjects(names) })}
+                lockCompulsory={false}
+                describedBy="edit-subjects-label"
+                legend={`Subjects for ${editForm.class}`}
+              />
+            ) : (
+              <input
+                type="text"
+                className="form-control"
+                value={editForm.subjects || ''}
+                onChange={(e) => setEditForm({ ...editForm, subjects: e.target.value })}
+                placeholder="Math, English, Science"
+                aria-labelledby="edit-subjects-label"
+              />
+            )}
           </div>
 
           <div className="mb-3">

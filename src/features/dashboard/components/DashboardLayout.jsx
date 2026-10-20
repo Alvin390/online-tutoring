@@ -295,6 +295,7 @@ export default function DashboardLayout() {
                 <StudentTable
                   key={activeTab}
                   session={activeTab}
+                  sessionDoc={sessions.find((s) => s.id === activeTab) ?? null}
                   students={currentStudents}
                   onDelete={deleteStudent}
                   onEdit={updateStudent}

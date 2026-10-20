@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { m } from 'framer-motion';
+import { DEFAULT_CLASSES } from '@shared/constants/sessions';
+import { subjectsForClass, parseSubjects } from '@shared/constants/subjects';
+import SubjectPicker, { compulsoryNames } from './SubjectPicker';
 
 /**
  * Shown to a student whose registration was rejected — Phase 04 Part A.
@@ -12,15 +15,31 @@ import { m } from 'framer-motion';
  * rejections trigger a 24-hour soft block; when that fires, the API returns
  * `resubmit_blocked` and this screen shows the wait time instead of the form.
  */
-export default function RejectedScreen({ studentData, onResubmit, onBack, loading }) {
+export default function RejectedScreen({
+  studentData, onResubmit, onBack, loading, classes = DEFAULT_CLASSES, subjectsByClass = null,
+}) {
   const [showForm, setShowForm] = useState(false);
+  const optionsFor = (cls) => subjectsByClass?.[cls] ?? subjectsForClass(null, cls);
+  const initialClass = studentData?.class ?? '';
   const [form, setForm] = useState({
     studentName: studentData?.studentName ?? '',
-    class: studentData?.class ?? '',
-    subjects: studentData?.subjects ?? '',
+    class: initialClass,
+    // Phase 14: a list when the class has subjects (checkboxes), else text.
+    subjects: optionsFor(initialClass).length > 0
+      ? parseSubjects(studentData?.subjects ?? '')
+      : studentData?.subjects ?? '',
     receiptMessage: '',
   });
   const [error, setError] = useState('');
+  // The class's current list, plus the one they registered with if the
+  // teacher has since removed it, so the dropdown never drops their value.
+  const classChoices = [...new Set([...(classes?.length ? classes : DEFAULT_CLASSES), ...(initialClass ? [initialClass] : [])])];
+  const subjectOptions = optionsFor(form.class);
+
+  const changeClass = (cls) => {
+    const options = optionsFor(cls);
+    setForm({ ...form, class: cls, subjects: options.length > 0 ? compulsoryNames(options) : '' });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -28,6 +47,10 @@ export default function RejectedScreen({ studentData, onResubmit, onBack, loadin
 
     if (form.receiptMessage.trim().length < 10) {
       setError('Please paste your full payment confirmation message.');
+      return;
+    }
+    if (Array.isArray(form.subjects) ? form.subjects.length === 0 : form.subjects.trim().length < 3) {
+      setError('Please choose at least one subject.');
       return;
     }
 
@@ -93,30 +116,41 @@ export default function RejectedScreen({ studentData, onResubmit, onBack, loadin
               />
             </div>
 
-            <div className="row g-2 mb-3">
-              <div className="col-6">
-                <label className="form-label fw-semibold" htmlFor="rs-class">Class</label>
-                <input
-                  id="rs-class"
-                  className="form-control"
-                  value={form.class}
-                  onChange={(e) => setForm({ ...form, class: e.target.value })}
-                  required
-                  maxLength={60}
+            <div className="mb-3">
+              <label className="form-label fw-semibold" htmlFor="rs-class">Class</label>
+              <select
+                id="rs-class"
+                className="form-select"
+                value={form.class}
+                onChange={(e) => changeClass(e.target.value)}
+                required
+              >
+                <option value="">Select class...</option>
+                {classChoices.map((cls) => <option key={cls} value={cls}>{cls}</option>)}
+              </select>
+            </div>
+
+            <div className="mb-3">
+              <label className="form-label fw-semibold" htmlFor="rs-subjects" id="rs-subjects-label">Subjects</label>
+              {subjectOptions.length > 0 ? (
+                <SubjectPicker
+                  options={subjectOptions}
+                  value={Array.isArray(form.subjects) ? form.subjects : parseSubjects(form.subjects)}
+                  onChange={(names) => setForm({ ...form, subjects: names })}
+                  describedBy="rs-subjects-label"
+                  legend={`Subjects for ${form.class}`}
                 />
-              </div>
-              <div className="col-6">
-                <label className="form-label fw-semibold" htmlFor="rs-subjects">Subjects</label>
+              ) : (
                 <input
                   id="rs-subjects"
                   className="form-control"
-                  value={form.subjects}
+                  value={Array.isArray(form.subjects) ? form.subjects.join(', ') : form.subjects}
                   onChange={(e) => setForm({ ...form, subjects: e.target.value })}
                   required
                   minLength={3}
-                  maxLength={200}
+                  maxLength={500}
                 />
-              </div>
+              )}
             </div>
 
             <div className="mb-3">

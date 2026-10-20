@@ -26,10 +26,12 @@ export const registrationSchema = z.object({
     .string()
     .min(1, 'Please select a class'),
 
-  subjects: z
-    .string()
-    .min(3, 'Please enter at least one subject')
-    .max(200, 'Subjects list is too long'),
+  // Phase 14: the ticked subjects (a class with a subject list), or free
+  // text (a class without one). The server checks the choice against the list.
+  subjects: z.union([
+    z.string().trim().min(3, 'Please enter at least one subject').max(500, 'Subjects list is too long'),
+    z.array(z.string()).min(1, 'Please choose at least one subject').max(30, 'Too many subjects'),
+  ]),
 
   receiptMessage: z
     .string()

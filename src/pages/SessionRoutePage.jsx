@@ -103,6 +103,7 @@ export default function SessionRoutePage({ slug: slugProp }) {
       schedule={session.schedule ?? null}
       description={session.description ?? ''}
       classes={session.classes}
+      subjectsByClass={session.subjectsByClass}
     />
   );
 }

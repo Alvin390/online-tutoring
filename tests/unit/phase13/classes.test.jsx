@@ -49,7 +49,13 @@ describe('SessionEditor: classes students can choose', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0]).toEqual({ classes: ['Grade Seven', 'Grade 8', 'Grade 9', 'Grade 10'] });
+    expect(onSave.mock.calls[0][0].classes).toEqual(['Grade Seven', 'Grade 8', 'Grade 9', 'Grade 10']);
+    // Phase 14: the subjects travel with the classes — renamed under the new
+    // name, the new class (no defaults for "Grade 9") with none.
+    expect(Object.keys(onSave.mock.calls[0][0].subjectsByClass)).toEqual(['Grade Seven', 'Grade 8', 'Grade 9', 'Grade 10']);
+    expect(onSave.mock.calls[0][0].subjectsByClass['Grade Seven']).toHaveLength(9);
+    expect(onSave.mock.calls[0][0].subjectsByClass['Grade 9']).toEqual([]);
+    expect(Object.keys(onSave.mock.calls[0][0]).sort()).toEqual(['classes', 'subjectsByClass']);
   });
 
   it('refuses a duplicate when adding (case-insensitive)', async () => {

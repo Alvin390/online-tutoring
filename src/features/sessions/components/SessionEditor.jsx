@@ -12,6 +12,7 @@ import {
   DEFAULT_CLASSES,
   MAX_CLASSES,
 } from '@shared/constants/sessions';
+import { MAX_SUBJECTS, resolveSubjectsByClass } from '@shared/constants/subjects';
 
 /**
  * Create / edit a session — Phase 13 / 02 D8.
@@ -43,7 +44,18 @@ const sameSchedule = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ??
 const cleanClass = (c) => c.trim().replace(/\s+/g, ' ');
 const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/** The subjects map as saved: tidied names, keyed by the tidied class names, in class order. */
+function cleanSubjectsMap(form) {
+  return Object.fromEntries(form.classes.map((c) => [
+    cleanClass(c),
+    (form.subjectsByClass[c] ?? []).map((s) => ({ name: cleanClass(s.name), compulsory: s.compulsory === true })),
+  ]));
+}
+
 function toForm(session) {
+  const classes = Array.isArray(session?.classes) && session.classes.length > 0
+    ? [...session.classes]
+    : [...DEFAULT_CLASSES];
   return {
     name: session?.name ?? '',
     slug: session?.id ?? session?.slug ?? '',
@@ -55,9 +67,9 @@ function toForm(session) {
     gradient: session?.gradient ?? SESSION_GRADIENTS[0],
     active: session?.active !== false,
     // The session's own list, or the defaults it has been offering until now.
-    classes: Array.isArray(session?.classes) && session.classes.length > 0
-      ? [...session.classes]
-      : [...DEFAULT_CLASSES],
+    classes,
+    // Phase 14: each class's subjects — saved ones, else the defaults by name.
+    subjectsByClass: resolveSubjectsByClass(session, classes),
   };
 }
 
@@ -92,6 +104,15 @@ export function validateSessionForm(form, { creating }) {
   else if (classes.some((c) => !c)) errors.classes = 'A class name cannot be blank — remove it or give it a name.';
   else if (new Set(classes.map((c) => c.toLowerCase())).size !== classes.length) errors.classes = 'Each class may appear only once.';
   else if (classes.length > MAX_CLASSES) errors.classes = `At most ${MAX_CLASSES} classes.`;
+  if (!errors.classes) {
+    for (const [cls, list] of Object.entries(cleanSubjectsMap(form))) {
+      const names = list.map((s) => s.name);
+      if (names.some((n) => !n)) errors.classes = `A subject name in ${cls} is blank — remove it or give it a name.`;
+      else if (new Set(names.map((n) => n.toLowerCase())).size !== names.length) errors.classes = `Each subject may appear only once in ${cls}.`;
+      else if (names.length > MAX_SUBJECTS) errors.classes = `At most ${MAX_SUBJECTS} subjects in ${cls}.`;
+      if (errors.classes) break;
+    }
+  }
   return errors;
 }
 
@@ -141,6 +162,7 @@ export default function SessionEditor({ session = null, onSave, onCancel, busy =
         gradient: form.gradient,
         active: form.active,
         classes: form.classes.map(cleanClass),
+        subjectsByClass: cleanSubjectsMap(form),
       });
       return;
     }
@@ -155,6 +177,8 @@ export default function SessionEditor({ session = null, onSave, onCancel, busy =
     if (form.active !== initial.active) patch.active = form.active;
     const classes = form.classes.map(cleanClass);
     if (!sameList(classes, initial.classes)) patch.classes = classes;
+    const subjectsByClass = cleanSubjectsMap(form);
+    if (!sameList(subjectsByClass, cleanSubjectsMap(initial))) patch.subjectsByClass = subjectsByClass;
 
     if (Object.keys(patch).length === 0) {
       onCancel?.();
@@ -335,7 +359,8 @@ export default function SessionEditor({ session = null, onSave, onCancel, busy =
 
             <ClassListEditor
               classes={form.classes}
-              onChange={(classes) => set({ classes })}
+              subjectsByClass={form.subjectsByClass}
+              onChange={({ classes, subjectsByClass }) => set({ classes, subjectsByClass })}
               error={showErrors ? errors.classes : ''}
             />
 
