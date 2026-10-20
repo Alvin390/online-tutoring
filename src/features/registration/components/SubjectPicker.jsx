@@ -15,6 +15,8 @@ import { useId } from 'react';
  *
  * `onChange` receives the names in the list's order, extras after.
  */
+const LOCKED = { opacity: 1 };
+
 export default function SubjectPicker({
   options,
   value,
@@ -39,7 +41,7 @@ export default function SubjectPicker({
 
   return (
     <fieldset
-      className={`subject-picker border rounded p-2 ${invalid ? 'border-danger' : ''}`}
+      className={`subject-picker bg-white text-body border rounded p-2 ${invalid ? 'border-danger' : ''}`}
       aria-describedby={describedBy}
       aria-invalid={invalid || undefined}
       data-testid="subject-picker"
@@ -58,8 +60,11 @@ export default function SubjectPicker({
                   checked={locked || has(o.name)}
                   disabled={locked}
                   onChange={() => toggle(o.name)}
+                  // Locked is not "unavailable": keep it fully legible
+                  // (Bootstrap fades disabled checks to 50%).
+                  style={locked ? LOCKED : undefined}
                 />
-                <label className="form-check-label" htmlFor={`${id}-${i}`}>
+                <label className="form-check-label" htmlFor={`${id}-${i}`} style={locked ? LOCKED : undefined}>
                   {o.name}
                   {o.compulsory && <span className="badge text-bg-light border ms-1 fw-normal">Compulsory</span>}
                 </label>
