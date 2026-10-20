@@ -38,6 +38,9 @@ export const RESERVED_SLUGS = Object.freeze([
   'settings',
   'account',
   'help',
+  // Phase 13 / 06 routes
+  'reports',
+  'support',
 ]);
 
 export const SLUG_PATTERN = /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -106,3 +109,48 @@ export const SESSION_GRADIENTS = [
   'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
   'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
 ];
+
+export const MAX_SESSION_DESCRIPTION = 160;
+export const SESSION_TZ = 'Africa/Nairobi';
+
+/**
+ * Classes offered by a session's registration form when the teacher has not
+ * set a list for it. Mirror of DEFAULT_CLASSES in api/_lib/sessions.js.
+ */
+export const DEFAULT_CLASSES = Object.freeze(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+export const MAX_CLASSES = 30;
+export const MAX_CLASS_NAME = 60;
+
+/**
+ * The two default sessions — Phase 13 / 02 D1. Mirror of DEFAULT_SESSIONS in
+ * api/_lib/sessions.js (a parity test keeps them identical). The server creates
+ * these documents on first use; the client uses this copy only as the fallback
+ * when the session list cannot be read (offline, or before the bootstrap has
+ * run), so the homepage and /morning, /evening never render empty.
+ */
+export const DEFAULT_SESSIONS = Object.freeze([
+  Object.freeze({
+    slug: 'morning',
+    name: 'Morning Session',
+    description: 'Start your day with focused learning and interactive classes',
+    schedule: Object.freeze({ days: [], startTime: '08:00', endTime: '12:00', tz: SESSION_TZ }),
+    icon: 'bi-sunrise-fill',
+    gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    order: 0,
+  }),
+  Object.freeze({
+    slug: 'evening',
+    name: 'Evening Session',
+    description: 'Perfect for after-school learning and homework support',
+    schedule: Object.freeze({ days: [], startTime: '16:00', endTime: '20:00', tz: SESSION_TZ }),
+    icon: 'bi-moon-stars-fill',
+    gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+    order: 1,
+  }),
+]);
+
+/** Fallback session documents, keyed by slug, in the Firestore document shape. */
+export const FALLBACK_SESSIONS = DEFAULT_SESSIONS.map((d) => ({ id: d.slug, active: true, ...d }));
+
+export const DEFAULT_SESSION_ICON = 'bi-book-fill';
+export const DEFAULT_SESSION_GRADIENT = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';

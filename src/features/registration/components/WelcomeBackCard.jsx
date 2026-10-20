@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
 
@@ -50,14 +50,14 @@ export default function WelcomeBackCard({
     }) || 'Recently';
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="glass-card"
     >
       <div className="py-4 text-center">
         {/* Profile Icon */}
-        <motion.div
+        <m.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.2, type: 'spring' }}
@@ -81,10 +81,10 @@ export default function WelcomeBackCard({
                 the whole screen down with it. */}
             {studentData.studentName?.charAt(0)?.toUpperCase() ?? '?'}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Welcome Message */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
@@ -95,7 +95,7 @@ export default function WelcomeBackCard({
           <p className="text-muted mb-4">
             We found your registration for <strong>{session} session</strong>
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Student Details */}
         <div className="text-start bg-light p-3 rounded mb-4">
@@ -130,7 +130,7 @@ export default function WelcomeBackCard({
         )}
 
         {/* Countdown */}
-        <motion.div
+        <m.div
           key={countdown}
           initial={{ scale: 1.2 }}
           animate={{ scale: 1 }}
@@ -138,7 +138,7 @@ export default function WelcomeBackCard({
         >
           <i className="bi bi-info-circle me-2" />
           Redirecting you to class in <strong>{countdown}</strong> seconds...
-        </motion.div>
+        </m.div>
 
         {/* Loading Spinner */}
         <div className="spinner-border text-primary mb-4" role="status">
@@ -163,6 +163,6 @@ export default function WelcomeBackCard({
           </button>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

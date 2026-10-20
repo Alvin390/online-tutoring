@@ -137,7 +137,8 @@ describe('Registration Flow Integration', () => {
         />
       );
 
-      expect(screen.getByText(/Enter 9-digit phone number/)).toBeInTheDocument();
+      // Phase 13 / 03 D4: Kenya uses a trunk 0, which may now be typed and is stripped.
+      expect(screen.getByText(/Enter the 9-digit number — a leading 0 is fine/)).toBeInTheDocument();
     });
 
     it('should enforce maxLength based on country', () => {
@@ -153,7 +154,9 @@ describe('Registration Flow Integration', () => {
       );
 
       const input = screen.getByRole('textbox');
-      expect(input).toHaveAttribute('maxLength', '9');
+      // 9 digits + room for the trunk 0 (Phase 13 / 03 D4), which used to push
+      // the last digit out and store +254071234567.
+      expect(input).toHaveAttribute('maxLength', '10');
     });
   });
 

@@ -263,7 +263,12 @@ export function publicProjection(sub) {
     renewalMode: sub.renewalMode ?? null,
     cancelAtPeriodEnd: sub.cancelAtPeriodEnd === true,
     trialEndsAt: sub.trialEndsAt ?? null,
-    scheduledTierChange: sub.scheduledTierChange ?? null,
+    // Only what the billing page shows. Since Phase 13 / 05 the stored object
+    // also holds the replacement and previous Paystack subscription codes and
+    // email tokens, which must never reach a client.
+    scheduledTierChange: sub.scheduledTierChange?.tier
+      ? { tier: sub.scheduledTierChange.tier, effectiveAt: sub.scheduledTierChange.effectiveAt ?? null }
+      : null,
     // Deliberately absent: paystackAuthorizationCode, paystackCustomerCode,
     // paystackSubscriptionCode, and everything else that could be replayed
     // against Paystack.

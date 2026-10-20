@@ -13,6 +13,7 @@ import { DEFAULT_FEE_CONFIG } from './config.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { runResumable } from '../_lib/sweepCursor.js';
 import { SubrequestBudgetExceeded } from '../_lib/firestoreRest.js';
+import { effectiveApprovalStatus } from '../_lib/studentState.js';
 
 /**
  * Monthly invoice generation — Phase 06 D6.
@@ -113,7 +114,7 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
 
     // Only approved, unblocked-by-approval students are billed. Invoicing
     // someone the teacher has not yet accepted would be nonsense.
-    if ((student.approvalStatus ?? 'approved') !== 'approved') {
+    if (effectiveApprovalStatus(student) !== 'approved') {
       results.skipped.push({ phone, reason: 'not_approved' });
       return;
     }
@@ -256,6 +257,8 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
 }
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   auth: true,
   role: 'teacher',

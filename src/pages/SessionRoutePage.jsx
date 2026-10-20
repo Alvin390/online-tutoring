@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@services/firebase/config';
+import { getPublicBootstrap } from '@services/api/public';
 import SessionPage from '@features/registration/components/SessionPage';
 import LoadingFallback from '@components/ui/LoadingFallback';
 import logger from '@utils/logger';
+import { FALLBACK_SESSIONS } from '@shared/constants/sessions';
 
 /**
  * Slug-resolved session page — Phase 05 Part A.
  *
- * The slug IS the session document ID, so resolution is one `getDoc` rather
- * than a query — no index, no scan, and unknown slugs fail immediately.
+ * The slug IS the session document ID. Since Phase 13 / 08 A1 it is resolved
+ * against the active-session list from /api/public/bootstrap (shared with the
+ * homepage, and no Firestore SDK on the page) instead of a client `getDoc`.
  *
  * `/morning` and `/evening` keep working for free, because those documents are
  * already keyed by exactly those IDs. Every registration link and QR code
@@ -23,20 +24,12 @@ import logger from '@utils/logger';
  * seed would take both class pages offline.
  */
 
-const LEGACY_FALLBACK = {
-  morning: {
-    name: 'Morning Session',
-    icon: 'bi-sunrise-fill',
-    gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    badgeClass: 'morning-badge',
-  },
-  evening: {
-    name: 'Evening Session',
-    icon: 'bi-moon-stars-fill',
-    gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-    badgeClass: 'evening-badge',
-  },
-};
+/**
+ * The two original sessions, from the shared defaults (Phase 13 / 02) — the
+ * same name, description and times the server bootstrap writes, so a page
+ * rendered from the fallback looks identical to one rendered from the document.
+ */
+const LEGACY_FALLBACK = Object.fromEntries(FALLBACK_SESSIONS.map((s) => [s.slug, s]));
 
 export default function SessionRoutePage({ slug: slugProp }) {
   const params = useParams();
@@ -54,27 +47,22 @@ export default function SessionRoutePage({ slug: slugProp }) {
       }
 
       try {
-        const snap = await getDoc(doc(db, 'sessions', slug));
+        const data = await getPublicBootstrap();
 
         if (cancelled) return;
 
-        if (snap.exists()) {
-          const data = snap.data();
-
-          // A deactivated session is hidden from students, not deleted. It
-          // behaves as though it does not exist rather than showing an empty
-          // page they cannot act on.
-          if (data.active === false) {
-            setState({ status: 'missing', session: null });
-            return;
-          }
-
-          setState({ status: 'found', session: { id: snap.id, ...data } });
+        // Only ACTIVE sessions are listed: a deactivated session is hidden
+        // from students, not deleted, and behaves as though it does not exist.
+        const sessions = data?.sessions ?? [];
+        const match = sessions.find((s) => s.slug === slug);
+        if (match) {
+          setState({ status: 'found', session: { id: match.slug, ...match } });
           return;
         }
 
-        // No document. Fall back for the two original sessions only.
-        if (LEGACY_FALLBACK[slug]) {
+        // Not listed. Fall back for the two original sessions only, and only
+        // on a deployment that has no session documents at all yet.
+        if (sessions.length === 0 && LEGACY_FALLBACK[slug]) {
           logger.warn('Session document missing; using legacy fallback', { slug });
           setState({ status: 'found', session: { id: slug, ...LEGACY_FALLBACK[slug] } });
           return;
@@ -111,8 +99,10 @@ export default function SessionRoutePage({ slug: slugProp }) {
       session={session.id}
       label={session.name}
       icon={session.icon ?? 'bi-book-fill'}
-      badgeClass={session.badgeClass ?? `${session.id}-badge`}
       gradient={session.gradient ?? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'}
+      schedule={session.schedule ?? null}
+      description={session.description ?? ''}
+      classes={session.classes}
     />
   );
 }

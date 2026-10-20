@@ -1,7 +1,8 @@
 import { getDb } from './firebaseAdmin.js';
-import { decrypt } from './crypto.js';
+import { randomToken } from './crypto.js';
 import { ApiError } from './errors.js';
 import { darajaMode, darajaEnvironment, darajaVar } from './mode.js';
+import { countExternalSubrequest } from './firestoreRest.js';
 
 /**
  * M-Pesa Daraja client — Phase 09.
@@ -132,19 +133,9 @@ export function toDarajaPhone(phone) {
 // ---------------------------------------------------------------------------
 
 /**
- * Loads and decrypts the teacher's Daraja credentials.
- *
- * These move real money out of a real till, so they are AES-256-GCM encrypted
- * at rest (Phase 01 D5) and `integrations/daraja` is `allow read, write: if
- * false` for every client including the superadmin. Only the Admin SDK reads it.
- */
-/**
  * Credentials from the environment, when the current mode has a full set.
- *
- * A local-testing convenience so STK pushes can be exercised without going
- * through the credentials form first. Returns null unless EVERY field for the
- * active mode is present — a partial set would fail against Safaricom with a
- * confusing error rather than falling through to the stored record.
+ * Returns null unless EVERY field for the active mode is present — a partial
+ * set would fail against Safaricom with a confusing error.
  */
 function credentialsFromEnv() {
   const consumerKey = darajaVar('DARAJA_CONSUMER_KEY');
@@ -161,62 +152,194 @@ function credentialsFromEnv() {
     consumerKey,
     consumerSecret,
     passkey,
-    // Env-supplied credentials are taken as operator-verified: whoever set them
-    // has the .env file, and there is no form step that could have tested them.
+    // Operator-supplied credentials are taken as verified: whoever set them
+    // has the deployment's variables, and there is no form step to test them.
     verifiedAt: new Date(),
     source: 'env',
   };
 }
 
+/**
+ * The Daraja credentials — from the ENVIRONMENT only (Cloudflare Worker
+ * variables/secrets in production, `.dev.vars` locally).
+ *
+ * Phase 13 decision: the operator supplies the till and keys; teachers never
+ * see or enter them. The in-app credentials form is gone, the save endpoint
+ * refuses, and the old Firestore-stored copy (`integrations/daraja`, encrypted)
+ * is no longer read. That document still holds the callback secret, which is
+ * not a credential.
+ *
+ * `DARAJA_MODE` selects the sandbox or live set (see mode.js).
+ */
 export async function loadCredentials() {
-  // Environment first, so DARAJA_MODE genuinely controls which till is hit.
   const fromEnv = credentialsFromEnv();
   if (fromEnv) return fromEnv;
 
-  const snap = await getDb().doc('integrations/daraja').get();
+  throw new ApiError(
+    503,
+    'daraja_not_configured',
+    'M-Pesa payments are not set up yet.',
+    {
+      expose: true,
+      cause: new Error(`No DARAJA_${darajaMode() === 'live' ? 'LIVE' : 'SANDBOX'}_* credentials in the environment`),
+    }
+  );
+}
 
-  if (!snap.exists) {
-    throw new ApiError(
-      503,
-      'daraja_not_configured',
-      'M-Pesa payments are not set up yet.',
-      {
-        expose: true,
-        cause: new Error(
-          `No DARAJA_${darajaMode() === 'live' ? 'LIVE' : 'SANDBOX'}_* env credentials and no integrations/daraja record`
-        ),
-      }
-    );
+/** Where the active credentials come from: 'env', or null when not set. */
+export async function credentialSource() {
+  return credentialsFromEnv() ? 'env' : null;
+}
+
+/** Whether env credentials are active — the form must not offer to save then. */
+export function hasEnvCredentials() {
+  return Boolean(credentialsFromEnv());
+}
+
+// ---------------------------------------------------------------------------
+// Callback secret — Phase 13 / 04 D1
+// ---------------------------------------------------------------------------
+
+let cachedCallbackSecret = null;
+
+export function __resetCallbackSecretCache() {
+  cachedCallbackSecret = null;
+}
+
+/**
+ * The secret path segment of the STK callback URL, CREATING it if missing.
+ *
+ * Before Phase 13 the secret was generated only by the credentials form. With
+ * credentials in env (no form ever submitted) there was none, so every STK
+ * push carried `…/api/daraja/callback/` — a URL no route matches. Safaricom's
+ * callback 404'd, the payment was only recovered by the reconcile cron, and the
+ * M-Pesa receipt code was lost (validated). Now:
+ *
+ *  - `DARAJA_CALLBACK_SECRET` (a Worker secret) wins, for operators who want a
+ *    fixed URL they can register anywhere;
+ *  - otherwise the stored `integrations/daraja.callbackSecret`, created in a
+ *    TRANSACTION on first use so concurrent first payments agree on one.
+ *
+ * Cached per isolate: the secret never changes once set.
+ */
+export async function ensureCallbackSecret(db = getDb()) {
+  const fromEnv = process.env.DARAJA_CALLBACK_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  if (cachedCallbackSecret) return cachedCallbackSecret;
+
+  const ref = db.doc('integrations/daraja');
+  const secret = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const existing = snap.exists ? snap.data().callbackSecret : null;
+    if (existing) return existing;
+    const created = randomToken(16);
+    tx.set(ref, { callbackSecret: created, callbackSecretCreatedAt: new Date() }, { merge: true });
+    return created;
+  });
+
+  cachedCallbackSecret = secret;
+  return secret;
+}
+
+/**
+ * The secret a callback must carry. Never creates one: an incoming callback
+ * that arrives before any payment was initiated has nothing to match.
+ */
+export async function expectedCallbackSecret(db = getDb()) {
+  const fromEnv = process.env.DARAJA_CALLBACK_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  if (cachedCallbackSecret) return cachedCallbackSecret;
+  const snap = await db.doc('integrations/daraja').get();
+  const stored = snap.exists ? snap.data().callbackSecret ?? null : null;
+  if (stored) cachedCallbackSecret = stored;
+  return stored;
+}
+
+/**
+ * Builds the STK `CallBackURL` and refuses one Safaricom would drop.
+ *
+ * Rules (daraja_docs.txt and the operator notes in upgrade/fix.txt):
+ *  - HTTPS only;
+ *  - a non-empty secret segment (the 404 bug above);
+ *  - the URL must not contain "mpesa", "m-pesa" or "safaricom" in any case —
+ *    Safaricom filters those and silently never calls back.
+ */
+export function buildCallbackUrl(baseUrl, secret, { mode = darajaMode() } = {}) {
+  const url = `${String(baseUrl ?? '').replace(/\/$/, '')}/api/daraja/callback/${secret ?? ''}`;
+  if (!/^https?:\/\/[^/]+/i.test(url)) {
+    throw paymentsMisconfigured('Daraja CallBackURL has no base URL — set PUBLIC_BASE_URL (or DARAJA_CALLBACK_BASE_URL).');
   }
-
-  const data = snap.data();
-
-  try {
-    return {
-      shortCode: String(data.shortCode ?? ''),
-      shortCodeType: data.shortCodeType === 'paybill' ? 'paybill' : 'till',
-      // DARAJA_MODE wins over the stored value when it is explicitly set, so
-      // flipping the env var moves the whole app between sandbox and
-      // production without editing the Firestore record.
-      environment: process.env.DARAJA_MODE
-        ? darajaEnvironment()
-        : (data.environment === 'production' ? 'production' : 'sandbox'),
-      consumerKey: decrypt(data.consumerKeyEnc),
-      consumerSecret: decrypt(data.consumerSecretEnc),
-      passkey: decrypt(data.passkeyEnc),
-      verifiedAt: data.verifiedAt ?? null,
-      source: 'firestore',
-    };
-  } catch (err) {
-    // A decryption failure means the encryption key changed or the record is
-    // corrupt. Either way this is not something to retry against.
-    throw new ApiError(
-      503,
-      'daraja_credentials_unreadable',
-      'M-Pesa credentials could not be read. Please re-enter them.',
-      { expose: true, cause: err }
-    );
+  // LIVE requires HTTPS: Safaricom must be able to reach and trust it.
+  // SANDBOX allows http (e.g. http://localhost under `npm run dev`), as before
+  // Phase 13 / 04: the STK prompt still reaches the phone; the callback
+  // simply cannot arrive, so confirm with `npm run mpesa:reconcile` or set
+  // DARAJA_CALLBACK_BASE_URL to an HTTPS tunnel. Logged by the caller.
+  if (mode === 'live' && !/^https:\/\//i.test(url)) {
+    throw paymentsMisconfigured('Daraja CallBackURL must be HTTPS in live mode — check PUBLIC_BASE_URL.');
   }
+  if (!secret || !/^[A-Za-z0-9_-]{8,}$/.test(String(secret))) {
+    throw paymentsMisconfigured('Daraja CallBackURL has no valid secret segment.');
+  }
+  if (/m-?pesa|safaricom/i.test(url)) {
+    throw paymentsMisconfigured('Daraja CallBackURL must not contain "mpesa", "m-pesa" or "safaricom" — Safaricom drops those callbacks.');
+  }
+  return url;
+}
+
+/**
+ * Where Safaricom should send STK callbacks. DARAJA_CALLBACK_BASE_URL wins
+ * when set — for local testing through an HTTPS tunnel to `wrangler dev`
+ * (e.g. `cloudflared tunnel --url http://localhost:8787`), so callbacks reach a
+ * developer's machine. Otherwise the app's own PUBLIC_BASE_URL.
+ */
+export function callbackBaseUrl() {
+  return process.env.DARAJA_CALLBACK_BASE_URL || process.env.PUBLIC_BASE_URL;
+}
+
+/**
+ * Safaricom REJECTS a callback on localhost / a loopback address — verified
+ * against the sandbox: `400.002.02 "Bad Request - Invalid CallBackURL"`, while a
+ * public HTTPS URL is accepted. So for local sandbox testing the STK request is
+ * given this placeholder instead: Safaricom accepts it and the prompt reaches
+ * the phone; the callback goes nowhere, and the payment is confirmed with
+ * `npm run mpesa:reconcile`. Deliberately WITHOUT the callback secret, which
+ * must never leave for a host we do not control. Overridable.
+ */
+export const SANDBOX_PLACEHOLDER_CALLBACK = 'https://example.com/local-dev-callback';
+
+/** localhost, 127.x, 0.0.0.0, [::1] — hosts only the developer's machine can reach. */
+export function isLoopbackUrl(url) {
+  return /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])([:/]|$)/i.test(String(url ?? ''));
+}
+
+/**
+ * The CallBackURL actually sent to Safaricom. Live: the real URL, always.
+ * Sandbox with a loopback base (local `npm run dev`): the placeholder.
+ * @returns {{ url: string, placeholder: boolean }}
+ */
+export function stkCallbackUrl(realUrl, { mode = darajaMode() } = {}) {
+  if (mode !== 'live' && isLoopbackUrl(realUrl)) {
+    return { url: process.env.DARAJA_SANDBOX_PLACEHOLDER_CALLBACK || SANDBOX_PLACEHOLDER_CALLBACK, placeholder: true };
+  }
+  return { url: realUrl, placeholder: false };
+}
+
+/** True when the URL Safaricom will be given cannot actually reach us (sandbox only). */
+export function isUnreachableCallback(url) {
+  return /^http:\/\//i.test(url) || /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/i.test(url);
+}
+
+/**
+ * A setup problem the operator must fix. The student sees a clear message
+ * (503); the precise reason goes to the log via `cause`.
+ */
+function paymentsMisconfigured(reason) {
+  return new ApiError(
+    503,
+    'payments_misconfigured',
+    'M-Pesa payments are not set up correctly. Please contact your teacher.',
+    { expose: true, cause: new Error(reason) }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +384,7 @@ export async function getAccessToken(credentials) {
     const timer = setTimeout(() => controller.abort(), 15_000);
 
     try {
+      countExternalSubrequest();
       const response = await fetch(ENDPOINTS[credentials.environment].oauth, {
         method: 'GET',
         headers: { Authorization: `Basic ${basic}` },
@@ -314,6 +438,7 @@ async function darajaPost(url, token, body) {
   const timer = setTimeout(() => controller.abort(), 20_000);
 
   try {
+    countExternalSubrequest();
     const response = await fetch(url, {
       method: 'POST',
       headers: {

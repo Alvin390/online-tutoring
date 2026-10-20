@@ -22,3 +22,6 @@ export const scheduleDowngrade = (tier) =>
 
 /** Superadmin only — grants a tier with no payment. */
 export const grantTier = (tier) => apiPost('/api/billing/manage', { action: 'grant', tier });
+
+/** Undo a scheduled downgrade before it takes effect — Phase 13 / 05 D3. */
+export const cancelDowngrade = () => apiPost('/api/billing/manage', { action: 'cancel_downgrade' });

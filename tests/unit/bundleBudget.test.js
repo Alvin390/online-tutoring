@@ -15,17 +15,21 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (relative) => readFileSync(join(root, relative), 'utf8');
 
 describe('jsPDF stays off the static import graph', () => {
-  const source = read('src/features/dashboard/hooks/useDashboard.js');
+  // useDashboard imports studentsPdf statically; studentsPdf loads jsPDF.
+  const files = ['src/features/dashboard/hooks/useDashboard.js', 'src/features/dashboard/hooks/studentsPdf.js'];
 
   it('does not import jspdf at module scope', () => {
     // Statically imported, jsPDF drags in html2canvas and its canvas helpers —
     // ~220 KB gzipped on every dashboard load, for a button most teachers
     // press rarely. This single line is worth 87% of the dashboard chunk.
-    expect(source).not.toMatch(/^import\s+jsPDF\s+from\s+['"]jspdf['"]/m);
-    expect(source).not.toMatch(/^import\s+autoTable\s+from\s+['"]jspdf-autotable['"]/m);
+    for (const file of files) {
+      const source = read(file);
+      expect(source, file).not.toMatch(/^import\s+[^;]*\s+from\s+['"]jspdf(-autotable)?['"]/m);
+    }
   });
 
   it('loads it dynamically at the point of use', () => {
+    const source = read('src/features/dashboard/hooks/studentsPdf.js');
     expect(source).toContain("import('jspdf')");
     expect(source).toContain("import('jspdf-autotable')");
   });

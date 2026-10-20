@@ -4,6 +4,7 @@ import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { notFound } from '../_lib/errors.js';
 import { deleteRecursively } from '../_lib/sessions.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
+import { closeDeletedStudentAccount } from '../_lib/ledger.js';
 
 /**
  * Delete a student, and everything beneath them — Phase 05 Part B.
@@ -31,6 +32,8 @@ const schema = z
   .strict();
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   auth: true,
   role: 'teacher',
@@ -45,12 +48,30 @@ export default createHandler({
     if (!snap.exists) throw notFound('That student no longer exists.');
 
     const data = snap.data();
-    const notesSnap = await ref.collection('notes').get();
-    const noteCount = notesSnap.size;
 
-    await deleteRecursively(db, ref);
+    // Batched since Phase 13 / 03. Counted by collection: the student also
+    // has a meta/activity marker since Phase 13 / 08 B3.
+    const { byCollection } = await deleteRecursively(db, ref);
+    const noteCount = byCollection?.notes ?? 0;
 
-    log.info('Student deleted', { session, notesRemoved: noteCount });
+    // The fee record is RETAINED (Phase 13 / 03 D2): the ledger is a financial
+    // record, append-only by design. It is marked so fee views can tell the
+    // student is gone, and any remaining balance is CLOSED with a ledger entry
+    // so the student no longer counts towards "Total outstanding".
+    const account = db.doc(`fees/accounts/items/${phone}`);
+    const accountSnap = await account.get();
+    let balanceClosed = 0;
+    if (accountSnap.exists) {
+      const deletedAt = new Date();
+      await account.set({ studentDeletedAt: deletedAt, studentDeletedBy: user.uid }, { merge: true });
+      ({ closed: balanceClosed } = await closeDeletedStudentAccount({
+        phone,
+        recordedBy: user.uid,
+        closeKey: String(deletedAt.getTime()),
+      }));
+    }
+
+    log.info('Student deleted', { session, notesRemoved: noteCount, feeRecordRetained: accountSnap.exists, balanceClosed });
 
     await tryWriteAudit(
       {
@@ -62,12 +83,14 @@ export default createHandler({
           class: data.class ?? null,
           approvalStatus: data.approvalStatus ?? null,
           notesRemoved: noteCount,
+          feeRecordRetained: accountSnap.exists,
+          balanceClosed,
         },
         context: { requestId: log.requestId },
       },
       log
     );
 
-    return { ok: true, notesRemoved: noteCount };
+    return { ok: true, notesRemoved: noteCount, balanceClosed };
   },
 });

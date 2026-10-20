@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 
 /**
  * Shown to a student whose registration is awaiting the teacher's decision —
@@ -15,13 +15,13 @@ import { motion } from 'framer-motion';
  */
 export default function PendingApprovalScreen({ session, studentData, onBack, onRefresh, loading }) {
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="glass-card"
     >
       <div className="py-4 text-center">
-        <motion.div
+        <m.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.15, type: 'spring' }}
@@ -42,7 +42,7 @@ export default function PendingApprovalScreen({ session, studentData, onBack, on
           >
             <i className="bi bi-hourglass-split" aria-hidden="true" />
           </div>
-        </motion.div>
+        </m.div>
 
         <h3 className="fw-bold mb-2">You&apos;re registered — just waiting on your teacher</h3>
         <p className="text-muted mb-4">
@@ -99,6 +99,6 @@ export default function PendingApprovalScreen({ session, studentData, onBack, on
           Use a different number
         </button>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

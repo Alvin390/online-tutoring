@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { safeCompare } from './crypto.js';
 import { ApiError } from './errors.js';
 import { paystackMode, paystackVar } from './mode.js';
+import { countExternalSubrequest } from './firestoreRest.js';
 
 /**
  * Paystack client — Phase 03 D1/D3/D4.
@@ -95,6 +96,7 @@ async function paystackFetch(path, { method = 'GET', body } = {}) {
   const timer = setTimeout(() => controller.abort(), 15_000);
 
   try {
+    countExternalSubrequest();
     const response = await fetch(`${API_BASE}${path}`, {
       method,
       headers: {
@@ -221,6 +223,46 @@ export async function disableSubscription({ code, token }) {
 
 export async function fetchSubscription(code) {
   return paystackFetch(`/subscription/${encodeURIComponent(code)}`);
+}
+
+/**
+ * Creates a subscription on an existing customer and authorization, with its
+ * first debit on `startDate` — Phase 13 / 05 D1. This is how a scheduled card
+ * downgrade really changes the plan: the cheaper subscription is created to
+ * start when the paid period ends (paystack_docs.txt:1869–1898).
+ *
+ * @returns {Promise<{subscription_code: string, email_token: string}>}
+ */
+export async function createSubscription({ customer, plan, authorization, startDate }) {
+  return paystackFetch('/subscription', {
+    method: 'POST',
+    body: {
+      customer,
+      plan,
+      authorization,
+      ...(startDate ? { start_date: new Date(startDate).toISOString() } : {}),
+    },
+  });
+}
+
+/** Re-enables a disabled subscription (paystack_docs.txt:2258). */
+export async function enableSubscription({ code, token }) {
+  return paystackFetch('/subscription/enable', {
+    method: 'POST',
+    body: { code, token },
+  });
+}
+
+/**
+ * The tier a plan code belongs to, in the current mode — the inverse of
+ * planCodeForTier. Null for an unknown or unconfigured code.
+ */
+export function tierForPlanCode(planCode) {
+  if (!planCode) return null;
+  for (const tier of Object.keys(TIER_PLAN_ENV)) {
+    if (paystackVar(TIER_PLAN_ENV[tier]) === planCode) return tier;
+  }
+  return null;
 }
 
 // --------------------------------------------------------------------------

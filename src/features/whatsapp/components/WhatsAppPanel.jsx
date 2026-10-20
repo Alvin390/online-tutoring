@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import SendQueue from './SendQueue';
 import Modal from '@components/ui/Modal';
 import { useAuthState } from '@features/auth/context/AuthContext';
@@ -197,7 +197,7 @@ export default function WhatsAppPanel() {
   const overLimit = template.length > MAX_MESSAGE_LENGTH;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 className="mb-0">
           <i className="bi bi-whatsapp me-2" aria-hidden="true" />
@@ -562,6 +562,6 @@ export default function WhatsAppPanel() {
           </p>
         </Modal>
       )}
-    </motion.div>
+    </m.div>
   );
 }

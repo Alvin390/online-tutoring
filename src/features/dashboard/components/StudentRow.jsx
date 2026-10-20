@@ -1,26 +1,32 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect, memo } from 'react';
+import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 
-const escapeHtml = (text) => {
-  if (!text) return '';
-  return text
-    .toString()
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-};
+// No escapeHtml (removed in Phase 13 / 03 D6). React escapes every text node
+// already; escaping again here displayed "O'Brien" as "O&#039;Brien" and
+// "Maths & Science" as "Maths &amp; Science".
 
-function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline }) {
+/**
+ * Entrance stagger cap — Phase 13 / 08 B2. Each row waited `index * 0.05 s`,
+ * so on a 500-student class the last row appeared 25 seconds after mount.
+ * Only the first rows are staggered now; virtualised rows (above 50) do not
+ * animate at all, since they mount and unmount as the teacher scrolls.
+ */
+const STAGGER_ROWS = 10;
+
+function StudentRow({
+  student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline,
+  animated = true, measureRef, dataIndex,
+}) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const rowRef = useRef(null);
+  const cardRef = useRef(null);
+  const reduceMotion = useReducedMotion();
 
   const isBlocked = student.blocked || false;
   const hasPendingReceipt = student.receiptStatus === 'pending' && student.pendingReceipt;
-  const isDeclined = student.receiptStatus === 'declined';
 
   const regDate = student.registeredAt?.toDate?.()
     .toLocaleString('en-GB', {
@@ -63,6 +69,23 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
     }
   };
 
+  // Escape closes the popup; a popup opened by tap takes focus (so a keyboard
+  // or switch user lands inside it) and hands it back to the row on close —
+  // the Phase 10 modal pattern. A desktop HOVER popup does not steal focus.
+  useEffect(() => {
+    if (!showPopup) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setShowPopup(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const row = rowRef.current;
+    if (isTouchDevice) cardRef.current?.focus();
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (isTouchDevice && row?.isConnected) row.focus?.();
+    };
+  }, [showPopup, isTouchDevice]);
+
   const handleClick = (e) => {
     // On mobile: toggle popup on click
     if (isTouchDevice) {
@@ -75,11 +98,17 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
 
   return (
     <>
-      <motion.tr
-        initial={{ opacity: 0, x: -20 }}
+      <m.tr
+        ref={(el) => {
+          rowRef.current = el;
+          measureRef?.(el);
+        }}
+        data-index={dataIndex}
+        tabIndex={-1}
+        initial={animated ? { opacity: 0, x: -20 } : false}
         animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 20 }}
-        transition={{ delay: index * 0.05 }}
+        exit={animated ? { opacity: 0, x: 20 } : undefined}
+        transition={{ delay: animated && index < STAGGER_ROWS ? index * 0.05 : 0 }}
         className="student-row-wrapper"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -99,7 +128,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
           </div>
           <div>
             <div className="d-flex align-items-center gap-2">
-              <strong>{escapeHtml(student.studentName)}</strong>
+              <strong>{student.studentName}</strong>
               {isBlocked && <span className="badge bg-danger">Blocked</span>}
               {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
             </div>
@@ -108,17 +137,17 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
       </td>
       <td>
         <code className="bg-light px-2 py-1 rounded">
-          {escapeHtml(student.parentPhone)}
+          {student.parentPhone}
         </code>
       </td>
       <td>
         <span className="badge bg-primary">
-          {escapeHtml(student.class)}
+          {student.class}
         </span>
       </td>
       <td>
         <small className="text-muted">
-          {escapeHtml(student.subjects)}
+          {student.subjects}
         </small>
       </td>
       <td>
@@ -133,7 +162,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
           }}
           title={student.receiptMessage}
         >
-          {escapeHtml(student.receiptMessage)}
+          {student.receiptMessage}
         </small>
       </td>
       <td>
@@ -191,14 +220,14 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
         </div>
       </td>
 
-      </motion.tr>
+      </m.tr>
 
       {/* Hover Popup Portal */}
       {showPopup && createPortal(
         <AnimatePresence>
           {/* Backdrop for mobile only - click to close */}
           {isTouchDevice && (
-            <motion.div
+            <m.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -206,11 +235,21 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
               onClick={() => setShowPopup(false)}
             />
           )}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
+          {/* I5 (Phase 13 / 07): POSITION and ANIMATION live on different
+              elements. Framer writes an inline `transform: scale()`, which
+              used to replace the stylesheet's translate(-50%) centring and
+              left the card's left edge at mid-screen — off-screen on phones.
+              The layer centres with grid; the card only fades and scales. */}
+          <div className="student-info-layer" key="layer">
+          <m.div
+            ref={cardRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-label={`Details for ${student.studentName ?? 'student'}`}
+            initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
+            exit={{ opacity: 0, scale: reduceMotion ? 1 : 0.95 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
             className="student-info-popup"
             onClick={(e) => e.stopPropagation()}
             onMouseEnter={() => {
@@ -229,7 +268,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 {student.studentName?.charAt(0)?.toUpperCase() ?? '?'}
               </div>
               <div className="flex-grow-1">
-                <h6 className="student-info-name mb-1">{escapeHtml(student.studentName)}</h6>
+                <h6 className="student-info-name mb-1">{student.studentName}</h6>
                 {isBlocked && (
                   <span className="badge bg-danger" style={{ fontSize: '0.7rem' }}>
                     <i className="bi bi-slash-circle me-1" />
@@ -250,7 +289,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 <i className="bi bi-telephone student-info-icon" />
                 <div className="student-info-content">
                   <div className="student-info-label">Parent Phone</div>
-                  <div className="student-info-value">{escapeHtml(student.parentPhone)}</div>
+                  <div className="student-info-value">{student.parentPhone}</div>
                 </div>
               </div>
 
@@ -258,7 +297,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 <i className="bi bi-book student-info-icon" />
                 <div className="student-info-content">
                   <div className="student-info-label">Class</div>
-                  <div className="student-info-badge">{escapeHtml(student.class)}</div>
+                  <div className="student-info-badge">{student.class}</div>
                 </div>
               </div>
 
@@ -266,7 +305,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 <i className="bi bi-journal-text student-info-icon" />
                 <div className="student-info-content">
                   <div className="student-info-label">Subjects</div>
-                  <div className="student-info-value">{escapeHtml(student.subjects)}</div>
+                  <div className="student-info-value">{student.subjects}</div>
                 </div>
               </div>
 
@@ -282,7 +321,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                     )}
                   </div>
                   <div className="student-info-receipt">
-                    <small>{escapeHtml(student.receiptMessage)}</small>
+                    <small>{student.receiptMessage}</small>
                   </div>
 
                   {hasPendingReceipt && (
@@ -292,7 +331,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                         New Payment Receipt (Pending)
                       </div>
                       <div className="student-info-receipt" style={{ borderLeft: '3px solid #ffc107' }}>
-                        <small>{escapeHtml(student.pendingReceipt)}</small>
+                        <small>{student.pendingReceipt}</small>
                       </div>
                       <div className="mt-2 d-flex gap-2">
                         <button
@@ -328,7 +367,7 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                         Block Reason
                       </div>
                       <div className="alert alert-danger py-2 mb-0" style={{ fontSize: '0.85rem' }}>
-                        {escapeHtml(student.blockReason)}
+                        {student.blockReason}
                       </div>
                     </div>
                   )}
@@ -359,7 +398,8 @@ function StudentRow({ student, index, session, onDelete, onEdit, onView, onBlock
                 </div>
               )}
             </div>
-          </motion.div>
+          </m.div>
+          </div>
         </AnimatePresence>,
         document.body
       )}

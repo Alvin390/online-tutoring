@@ -32,6 +32,8 @@ import logger from '@utils/logger';
  */
 
 const RECOVERY_WINDOW_DAYS = 30;
+const RECOVERY_WINDOW_MS = RECOVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const millis = (value) => value?.toMillis?.() ?? (value instanceof Date ? value.getTime() : null);
 
 export const useStudentNotes = ({ session, phone, enabled = false }) => {
   const [notes, setNotes] = useState([]);
@@ -129,24 +131,6 @@ export const useStudentNotes = ({ session, phone, enabled = false }) => {
     [path, showError]
   );
 
-  const deleteNote = useCallback(
-    async (noteId) => {
-      if (!path) return { success: false };
-      try {
-        // Soft delete. The note stays for RECOVERY_WINDOW_DAYS so an accidental
-        // tap is recoverable; a hard delete of a parent conversation is not.
-        await updateDoc(doc(db, path, noteId), { deletedAt: serverTimestamp() });
-        showSuccess(`Note deleted. Recoverable for ${RECOVERY_WINDOW_DAYS} days.`);
-        return { success: true };
-      } catch (error) {
-        logger.error('Delete note failed', error);
-        showError('Could not delete that note.');
-        return { success: false };
-      }
-    },
-    [path, showSuccess, showError]
-  );
-
   const restoreNote = useCallback(
     async (noteId) => {
       if (!path) return { success: false };
@@ -156,15 +140,52 @@ export const useStudentNotes = ({ session, phone, enabled = false }) => {
         return { success: true };
       } catch (error) {
         logger.error('Restore note failed', error);
+        showError('Could not restore that note.');
         return { success: false };
       }
     },
-    [path, showSuccess]
+    [path, showSuccess, showError]
   );
+
+  const deleteNote = useCallback(
+    async (noteId) => {
+      if (!path) return { success: false };
+      try {
+        // Soft delete. The note stays for RECOVERY_WINDOW_DAYS so an accidental
+        // tap is recoverable; a hard delete of a parent conversation is not.
+        // Phase 13 / 07 D4: the toast carries an Undo for 8 seconds, and the
+        // Notes tab lists "Recently deleted" for the rest of the window.
+        await updateDoc(doc(db, path, noteId), { deletedAt: serverTimestamp() });
+        showSuccess(`Recoverable for ${RECOVERY_WINDOW_DAYS} days.`, 'Note deleted', {
+          duration: 8000,
+          action: { label: 'Undo', onClick: () => { restoreNote(noteId); } },
+        });
+        return { success: true };
+      } catch (error) {
+        logger.error('Delete note failed', error);
+        showError('Could not delete that note.');
+        return { success: false };
+      }
+    },
+    [path, restoreNote, showSuccess, showError]
+  );
+
+  /**
+   * Soft-deleted notes still inside the recovery window, newest deletion
+   * first. Older ones are purged by the nightly sweep (feesSweep); until it
+   * runs they are simply not offered. A just-deleted note whose server
+   * timestamp has not resolved yet counts as "now".
+   */
+  const deletedNotes = useMemo(() => {
+    const cutoff = Date.now() - RECOVERY_WINDOW_MS;
+    return notes
+      .filter((n) => n.deletedAt && (millis(n.deletedAt) ?? Date.now()) >= cutoff)
+      .sort((a, b) => (millis(b.deletedAt) ?? Date.now()) - (millis(a.deletedAt) ?? Date.now()));
+  }, [notes]);
 
   return {
     notes: visibleNotes,
-    deletedNotes: notes.filter((n) => n.deletedAt),
+    deletedNotes,
     knownTags,
     loading,
     saving,

@@ -118,7 +118,11 @@ service cloud.firestore {
       return phone is string
              && phone.size() >= 10
              && phone.size() <= 20
-             && phone.matches('^\\+[0-9]+$');
+             && phone.matches('^\\+[0-9]+$')
+             // Phase 13 / 03 D4: no national trunk "0" after these country
+             // codes (a typed "0712…" used to be stored as +254071…). Same list
+             // as TRUNK_ZERO_CODES in api/_lib/validate.js.
+             && !phone.matches('^\\+(254|255|256|250|234|233|27|44|61|91|49|33|31)0.*');
     }
 
     // A registration create is open to unauthenticated callers — a student has
@@ -154,7 +158,10 @@ service cloud.firestore {
              && data.receiptMessage.size() <= 500
              && data.session is string
              && data.session == session
-             && (data.session == 'morning' || data.session == 'evening')
+             // Phase 13 / 02 D6: the session must EXIST and be shown to
+             // students — not be one of two hard-coded names, which made every
+             // teacher-created session impossible to register into.
+             && isOpenSession(session)
 
              // Mandated initial state. This is the database-layer fix for the
              // gap where `blocked` was absent, read back as `undefined`, and
@@ -214,21 +221,36 @@ service cloud.firestore {
     // that identifies a person.
     // ==================================================================
 
+    // A session students may register into: its document exists and is
+    // active. TRANSITIONAL second clause — morning/evening count before their
+    // documents exist, because production predates the bootstrap; removed in
+    // Phase 13 / 09 once config/sessionsBootstrap exists in production.
+    function isOpenSession(session) {
+      return (exists(/databases/$(database)/documents/sessions/$(session))
+              && get(/databases/$(database)/documents/sessions/$(session)).data.active == true)
+             || (session in ['morning', 'evening']
+                 && !exists(/databases/$(database)/documents/sessions/$(session)));
+    }
+
     function isReservedSlug(slug) {
       return slug in [
         'login', 'logout', 'dashboard', 'billing', 'superadmin', 'admin',
         '403', '404', 'api', 'assets', 'static', 'sw', 'workbox', 'manifest',
         'robots', 'favicon', 'fees', 'calendar', 'whatsapp', 'settings',
-        'account', 'help'
+        'account', 'help', 'reports', 'support'
       ];
     }
 
     function isValidSessionDoc(data) {
       return data.keys().hasAll(['name', 'slug', 'active'])
              && data.keys().hasOnly([
-               'name', 'slug', 'icon', 'gradient', 'order', 'active',
-               'schedule', 'createdAt', 'updatedAt'
+               'name', 'slug', 'description', 'icon', 'gradient', 'order', 'active',
+               'schedule', 'classes', 'createdAt', 'updatedAt'
              ])
+             && (!('classes' in data)
+                 || (data.classes is list && data.classes.size() >= 1 && data.classes.size() <= 30))
+             && (!('description' in data)
+                 || (data.description is string && data.description.size() <= 160))
              && data.name is string
              && data.name.size() >= 1
              && data.name.size() <= 60
@@ -319,6 +341,14 @@ service cloud.firestore {
 
     match /sessions/{session}/students/{phone}/notes/{noteId} {
       allow read, write: if isTeacher();
+    }
+
+    // Phase 13 / 08 B3: the check-in heartbeat (`meta/activity`), kept off the
+    // student document so dashboard listeners do not fire on every visit.
+    // Written only by the server; teachers may read it.
+    match /sessions/{session}/students/{phone}/meta/{docId} {
+      allow read: if isTeacher();
+      allow write: if false;
     }
 
     // Collection-group reads (Phase 04 approvals panel, Phase 06 overdue sweep,
@@ -534,5 +564,20 @@ service cloud.firestore {
     match /admin/{document=**} {
       allow read, write: if isSuperadmin();
     }
+
+    // ==================================================================
+    // Bug reports and feature requests — Phase 13 / 06
+    //
+    // Server-only, superadmin included: every read and write goes through
+    // /api/reports/* and /api/admin/reports, which enforce ownership, rate
+    // limits and the status workflows. Reports hold teachers' email
+    // addresses and free text, and `config/notifications` holds the owner's
+    // address. Already denied by default — stated here so a future wildcard
+    // (say `match /config/{doc}`) cannot quietly open them.
+    // ==================================================================
+    match /reports/{document=**}       { allow read, write: if false; }
+    match /reportUploads/{document=**} { allow read, write: if false; }
+    match /counters/{document=**}      { allow read, write: if false; }
+    match /config/notifications        { allow read, write: if false; }
   }
 }

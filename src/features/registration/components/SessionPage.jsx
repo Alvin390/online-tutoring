@@ -1,8 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import CheckinCard from './CheckinCard';
-import RegistrationForm from './RegistrationForm';
 import WelcomeBackCard from './WelcomeBackCard';
 import BlockedStudentScreen from './BlockedStudentScreen';
 import PendingApprovalScreen from './PendingApprovalScreen';
@@ -12,6 +11,15 @@ import { useRegistration } from '../hooks/useRegistration';
 import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
 import { providerLabel } from '@utils/classLink';
+import { formatSchedule } from '@utils/formatSchedule';
+
+// Phase 13 / 08: the registration form (react-hook-form + zod, ~20 KB gz) is
+// only needed by a first-time student, after the phone lookup. Loaded on
+// demand, and prefetched as soon as a number is submitted (A5), so it is
+// normally ready before the lookup answers.
+const loadRegistrationForm = () => import('./RegistrationForm');
+const RegistrationForm = lazy(loadRegistrationForm);
+import '@/styles/landing.css';
 
 /**
  * One session check-in flow — Phase 04.
@@ -24,7 +32,15 @@ import { providerLabel } from '@utils/classLink';
  * Phase 05 drives this from a route slug and a session document; the props are
  * shaped for that already.
  */
-export default function SessionPage({ session, label, icon, badgeClass, gradient }) {
+// After a payment clears the balance: how long the success message stays up,
+// and how often / how many times the student's access is re-checked.
+export const PAID_REDIRECT_DELAY_MS = 2000;
+const PAID_RECHECK_INTERVAL_MS = 1500;
+const PAID_RECHECKS = 3;
+const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes }) {
+  const timeLine = formatSchedule(schedule);
   const [step, setStep] = useState('checkin');
   const [phoneNumber, setPhoneNumber] = useState('');
 
@@ -56,6 +72,7 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
 
   const handleCheckin = async (phone) => {
     setPhoneNumber(phone);
+    loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
     const { exists, data } = await checkStudent(phone);
 
     if (!exists) {
@@ -102,6 +119,38 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
     routeTo(data);
   };
 
+  /**
+   * M-Pesa paid from the blocked screen. A payment that clears the balance
+   * takes the student straight to class: the success message stays up for a
+   * moment, then the student is re-checked and, once admitted, redirected.
+   *
+   * Re-checked rather than assumed: a teacher's own block (with a reason)
+   * still stands after paying, and the screen must show it. A short retry
+   * covers the unblock landing a beat after the payment status.
+   */
+  const handlePaid = async (result) => {
+    if (Number(result?.balanceAfter) > 0) return; // partial payment: still blocked
+    await wait(PAID_REDIRECT_DELAY_MS);
+    for (let attempt = 0; attempt < PAID_RECHECKS; attempt += 1) {
+      const { exists, data } = await checkStudent(phoneNumber);
+      if (!exists) {
+        setStep(GATE.REGISTER);
+        return;
+      }
+      const { screen } = resolveStudentGate(data, { requireApproval });
+      if (screen === GATE.WELCOME) {
+        setStep(screen);
+        await handleRedirect();
+        return;
+      }
+      if (screen !== GATE.BLOCKED || attempt === PAID_RECHECKS - 1) {
+        setStep(screen);
+        return;
+      }
+      await wait(PAID_RECHECK_INTERVAL_MS);
+    }
+  };
+
   const handleSubmitReceipt = async (receiptMessage) => {
     await submitReceipt(receiptMessage);
   };
@@ -124,7 +173,7 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
       <div className="container position-relative">
         <div className="row min-vh-100 align-items-center justify-content-center py-5">
           <div className="col-lg-6 col-md-8">
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               className="mb-4 text-center"
@@ -133,13 +182,25 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
                 <i className="bi bi-arrow-left me-2" aria-hidden="true" />
                 Back to Home
               </Link>
-            </motion.div>
+            </m.div>
 
             <div className="text-center mb-4 animate-fade-in-up">
-              <div className={`session-badge ${badgeClass} d-inline-flex`}>
+              <div className="session-badge" style={{ '--card-gradient': gradient }}>
                 <i className={`bi ${icon} me-2`} aria-hidden="true" />
                 {label}
               </div>
+              {/* Phase 13 / 02 D5: the same details as the homepage card. */}
+              {(timeLine || description) && (
+                <div className="session-page-details mt-2 small">
+                  {timeLine && (
+                    <div>
+                      <i className="bi bi-clock-fill me-1" aria-hidden="true" />
+                      {timeLine}
+                    </div>
+                  )}
+                  {description && <div className="mt-1">{description}</div>}
+                </div>
+              )}
             </div>
 
             <AnimatePresence mode="wait">
@@ -153,14 +214,25 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
               )}
 
               {step === GATE.REGISTER && (
-                <RegistrationForm
+                <Suspense
                   key="register"
-                  session={session}
-                  phoneNumber={phoneNumber}
-                  onSubmit={handleRegistration}
-                  onBack={handleBack}
-                  loading={loading}
-                />
+                  fallback={(
+                    <div className="text-center py-4">
+                      <span className="spinner-border spinner-border-sm text-primary" role="status">
+                        <span className="visually-hidden">Loading the registration form…</span>
+                      </span>
+                    </div>
+                  )}
+                >
+                  <RegistrationForm
+                    session={session}
+                    classes={classes}
+                    phoneNumber={phoneNumber}
+                    onSubmit={handleRegistration}
+                    onBack={handleBack}
+                    loading={loading}
+                  />
+                </Suspense>
               )}
 
               {step === GATE.PENDING && (
@@ -198,6 +270,7 @@ export default function SessionPage({ session, label, icon, badgeClass, gradient
                   // number the student just typed to check in.
                   phoneNumber={phoneNumber}
                   onSubmitReceipt={handleSubmitReceipt}
+                  onPaid={handlePaid}
                   onBack={handleBack}
                   loading={loading}
                 />

@@ -4,6 +4,7 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { safeCompare } from '../_lib/crypto.js';
 import { isEnabled } from '../_lib/flags.js';
 import { loadCredentials, queryStkStatus, interpretResultCode } from '../_lib/daraja.js';
+import { darajaMode } from '../_lib/mode.js';
 import { postEntry } from '../_lib/ledger.js';
 import { shouldAutoUnblock } from '../_lib/feeState.js';
 import { tryWriteAudit } from '../_lib/audit.js';
@@ -90,6 +91,14 @@ export default async function handler(req, res) {
   const now = Date.now();
   const result = { queried: 0, resolved: 0, abandoned: 0, posted: 0 };
 
+  // Local testing (`npm run mpesa:reconcile`): in SANDBOX mode only, the
+  // caller may shorten the 2-minute wait so a payment made a moment ago is
+  // checked now. Live always waits — Daraja has no verdict that early.
+  const minAgeOverride = Number(req.query?.minAgeSeconds);
+  const queryAfterMs = darajaMode() !== 'live' && Number.isFinite(minAgeOverride) && minAgeOverride >= 0
+    ? minAgeOverride * 1000
+    : QUERY_AFTER_MS;
+
   try {
     const pending = await db
       // Three segments — a COLLECTION path must have an odd segment count,
@@ -136,7 +145,7 @@ export default async function handler(req, res) {
 
       // Too young to have a verdict yet. Not counted against the budget — it
       // cost nothing.
-      if (age < QUERY_AFTER_MS) continue;
+      if (age < queryAfterMs) continue;
 
       handled += 1;
 
@@ -199,10 +208,29 @@ export default async function handler(req, res) {
           amount: tx.expectedAmount,
           method: 'mpesa',
           reference: null,
+          // Phase 13 / 04 D3: the status query returns no receipt code. The
+          // entry is flagged so the teacher sees "receipt not received" and
+          // can add it; a late callback fills it in automatically.
+          receiptPending: true,
           note: 'Recovered by reconciliation — callback not received',
           recordedBy: 'system:daraja-reconcile',
           idempotencyKey: `mpesa_${tx.checkoutRequestId}`,
         });
+
+        // Unblock BEFORE marking success (see the callback): a student polling
+        // this status re-checks their access the moment it reads 'success'.
+        if (!posted.duplicate && shouldAutoUnblock(posted.balance)) {
+          const studentRef = db.doc(`sessions/${tx.session}/students/${tx.phone}`);
+          // eslint-disable-next-line no-await-in-loop
+          const studentSnap = await studentRef.get();
+          if (studentSnap.exists && studentSnap.data().blocked === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await studentRef.set(
+              { blocked: false, blockReason: '', blockedAt: null },
+              { merge: true }
+            );
+          }
+        }
 
         // eslint-disable-next-line no-await-in-loop
         await docSnap.ref.set(
@@ -219,19 +247,6 @@ export default async function handler(req, res) {
 
         if (!posted.duplicate) result.posted += 1;
         result.resolved += 1;
-
-        if (!posted.duplicate && shouldAutoUnblock(posted.balance)) {
-          const studentRef = db.doc(`sessions/${tx.session}/students/${tx.phone}`);
-          // eslint-disable-next-line no-await-in-loop
-          const studentSnap = await studentRef.get();
-          if (studentSnap.exists && studentSnap.data().blocked === true) {
-            // eslint-disable-next-line no-await-in-loop
-            await studentRef.set(
-              { blocked: false, blockReason: '', blockedAt: null },
-              { merge: true }
-            );
-          }
-        }
 
         // eslint-disable-next-line no-await-in-loop
         await tryWriteAudit(

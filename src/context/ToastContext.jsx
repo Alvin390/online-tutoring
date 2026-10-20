@@ -1,62 +1,68 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import Toast from '@components/ui/Toast';
 
+/**
+ * Toasts — rebuilt in Phase 13 / 07 D2.
+ *
+ * What was wrong:
+ *   - Styled with Tailwind classes this project does not load, so toasts were
+ *     unstyled text dumped wherever the page flow put them (B-toast).
+ *   - `id = Date.now()`: two toasts in the same millisecond shared a React key
+ *     and a timer, so dismissing one dismissed both (S-toast-id).
+ *   - The context value was a fresh object on every render, so every one of
+ *     the ~30 components calling useToast() re-rendered on every toast.
+ *
+ * Now: Bootstrap toast styles; UUID ids; at most 4 visible (oldest drops);
+ * timers live in each Toast and pause on hover/focus; and the context holds
+ * ONLY the stable actions — the list is rendered here and reaches nobody else.
+ */
+
 const ToastContext = createContext(null);
+
+export const MAX_TOASTS = 4;
+
+let fallbackSeq = 0;
+const newId = () => globalThis.crypto?.randomUUID?.() ?? `toast-${Date.now()}-${(fallbackSeq += 1)}`;
 
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
 
-  const showToast = useCallback((type, title, message, duration = 5000) => {
-    const id = Date.now();
-    const toast = { id, type, title, message, duration };
-
-    setToasts(prev => [...prev, toast]);
-
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, duration);
-  }, []);
-
-  const showSuccess = useCallback((message, title = 'Success') => {
-    showToast('success', title, message);
-  }, [showToast]);
-
-  const showError = useCallback((message, title = 'Error') => {
-    showToast('error', title, message);
-  }, [showToast]);
-
-  const showWarning = useCallback((message, title = 'Warning') => {
-    showToast('warning', title, message);
-  }, [showToast]);
-
-  const showInfo = useCallback((message, title = 'Info') => {
-    showToast('info', title, message);
-  }, [showToast]);
-
   const removeToast = useCallback((id) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const value = {
-    showToast,
-    showSuccess,
-    showError,
-    showWarning,
-    showInfo,
-  };
+  /**
+   * @param {'success'|'error'|'warning'|'info'} type
+   * @param {{duration?: number, action?: {label: string, onClick: () => void}}} [options]
+   *        `action` adds a button (e.g. "Undo"); clicking it also dismisses.
+   */
+  const showToast = useCallback((type, title, message, duration = 5000, options = {}) => {
+    const id = newId();
+    setToasts((prev) => [...prev, { id, type, title, message, duration, action: options.action ?? null }].slice(-MAX_TOASTS));
+    return id;
+  }, []);
+
+  const actions = useMemo(() => {
+    const make = (type, fallbackTitle) => (message, title = fallbackTitle, options = {}) =>
+      showToast(type, title, message, options.duration ?? 5000, options);
+    return {
+      showToast,
+      showSuccess: make('success', 'Success'),
+      showError: make('error', 'Error'),
+      showWarning: make('warning', 'Warning'),
+      showInfo: make('info', 'Info'),
+      dismissToast: removeToast,
+    };
+  }, [showToast, removeToast]);
 
   return (
-    <ToastContext.Provider value={value}>
+    <ToastContext.Provider value={actions}>
       {children}
-      <div className="fixed top-4 right-4 z-50 max-w-md w-full px-4">
+      <div className="toast-container" data-testid="toast-container">
         <AnimatePresence>
-          {toasts.map(toast => (
-            <Toast
-              key={toast.id}
-              {...toast}
-              onClose={() => removeToast(toast.id)}
-            />
+          {toasts.map((toast) => (
+            <Toast key={toast.id} {...toast} onClose={() => removeToast(toast.id)} />
           ))}
         </AnimatePresence>
       </div>

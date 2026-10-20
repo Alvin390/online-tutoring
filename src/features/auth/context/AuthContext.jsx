@@ -13,9 +13,10 @@ import {
   signIn as firebaseSignIn,
   signOut as firebaseSignOut,
 } from '@services/firebase/auth';
-import { auth, db } from '@services/firebase/config';
-import { trackLogin } from '@services/firebase/analytics';
+import { auth, db, wipeLocalData } from '@services/firebase/config';
+import { trackLogin } from '@utils/analytics';
 import { recordLoginAttempt } from '@services/api/auth';
+import { setAuthTokenSource } from '@services/api/client';
 import logger from '@utils/logger';
 
 /**
@@ -53,6 +54,13 @@ export const AuthProvider = ({ children }) => {
   // Guards against a late token read landing after sign-out and resurrecting
   // the previous user's claims.
   const currentUidRef = useRef(null);
+
+  // The API client has no Firebase import of its own (Phase 13 / 08 A1): the
+  // staff shell's provider tells it where ID tokens come from.
+  useEffect(() => {
+    setAuthTokenSource(() => auth.currentUser?.getIdToken() ?? Promise.resolve(null));
+    return () => setAuthTokenSource(null);
+  }, []);
 
   const readClaims = useCallback(async (firebaseUser, forceRefresh = false) => {
     if (!firebaseUser) return EMPTY_CLAIMS;
@@ -160,7 +168,8 @@ export const AuthProvider = ({ children }) => {
    * cleared only React state, so cached student data survived logout in memory.
    * The TanStack Query cache clear lands in Phase 10 when that cache exists.
    */
-  const signOut = useCallback(async () => {
+  /** @param {{ redirectTo?: string }} [options] where to land after the reload */
+  const signOut = useCallback(async ({ redirectTo } = {}) => {
     logger.info('signOut: attempting logout');
 
     const result = await firebaseSignOut();
@@ -171,6 +180,17 @@ export const AuthProvider = ({ children }) => {
       setClaims(EMPTY_CLAIMS);
       setError(null);
       logger.info('signOut: logout successful');
+
+      // Phase 13 / 08 B5: the roster must not stay on this computer. The
+      // Firestore instance is unusable after wiping, so reload the page:
+      // the next visitor starts from a clean, empty cache.
+      try {
+        await wipeLocalData();
+      } catch (err) {
+        logger.warn('signOut: could not clear the offline cache', { code: err?.code });
+      }
+      if (redirectTo) window.location.replace(redirectTo);
+      else window.location.reload();
     } else {
       logger.error('signOut: logout failed', result.error);
     }

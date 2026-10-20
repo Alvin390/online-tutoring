@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 
 /**
  * Pending approvals queue — Phase 04 Part A.
@@ -53,7 +53,6 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
     // One call per session, because the API is session-scoped — and because a
     // partial failure should not span sessions.
     for (const [session, students] of grouped.entries()) {
-      // eslint-disable-next-line no-await-in-loop
       await onApprove(session, students.map((s) => s.id));
     }
     setConfirmBulk(false);
@@ -82,7 +81,7 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
   }
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       className="card mb-4 border-warning"
@@ -137,7 +136,7 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
       <div className="card-body p-0">
         <AnimatePresence initial={false}>
           {(pending ?? []).map((student) => (
-            <motion.div
+            <m.div
               key={`${student.session}-${student.id}`}
               layout
               initial={{ opacity: 0 }}
@@ -239,10 +238,10 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
                   </div>
                 </div>
               )}
-            </motion.div>
+            </m.div>
           ))}
         </AnimatePresence>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

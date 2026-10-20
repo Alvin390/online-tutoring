@@ -2,9 +2,18 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z } from '../_lib/validate.js';
 import { badRequest, notFound } from '../_lib/errors.js';
-import { validateSlug, deleteRecursively } from '../_lib/sessions.js';
-import { parseClassLink } from '../_lib/classLink.js';
-import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
+import {
+  validateSlug,
+  deleteRecursively,
+  ensureDefaultSessions,
+  setSessionLink,
+  invalidateSession,
+  SESSION_TZ,
+  DEFAULT_CLASSES,
+  MAX_CLASSES,
+  MAX_CLASS_NAME,
+} from '../_lib/sessions.js';
+import { tryWriteAudit } from '../_lib/audit.js';
 
 /**
  * Session management — Phase 05 Part A.
@@ -21,25 +30,55 @@ import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
  *   3. **Reorder.** A batch, so the list never renders half-reordered.
  */
 
+/**
+ * When a session runs — shown on the homepage card (Phase 13 / 02 D8).
+ *
+ * `days` empty means "every day". Times are 24h `HH:MM` in Nairobi time; the
+ * zone is fixed because the whole app is (recurrence, ICS, fees). `null`
+ * clears the schedule, which hides the time line on the card.
+ */
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const scheduleSchema = z
   .object({
-    days: z.array(z.number().int().min(0).max(6)).max(7),
-    startTime: z.string().regex(/^\d{2}:\d{2}$/),
-    endTime: z.string().regex(/^\d{2}:\d{2}$/),
-    tz: z.string().max(64).default('Africa/Nairobi'),
+    days: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+    startTime: z.string().regex(HHMM, 'must be HH:MM'),
+    endTime: z.string().regex(HHMM, 'must be HH:MM'),
+    tz: z.literal(SESSION_TZ).optional(),
   })
   .strict()
+  .refine((s) => new Set(s.days).size === s.days.length, { message: 'days must not repeat', path: ['days'] })
+  .refine((s) => s.endTime > s.startTime, { message: 'must be after the start time', path: ['endTime'] })
+  .transform((s) => ({ days: [...s.days].sort((a, b) => a - b), startTime: s.startTime, endTime: s.endTime, tz: SESSION_TZ }))
+  .nullable()
+  .optional();
+
+/** Shown under the session name on the homepage. Empty string clears it. */
+const descriptionSchema = z.string().trim().max(160).optional();
+
+/**
+ * The registration form's class list for this session. At least one, at most
+ * MAX_CLASSES, no blank or duplicate (case-insensitive) entries; inner spaces
+ * collapsed so "Form  One" and "Form One" cannot both appear.
+ */
+const classesSchema = z
+  .array(z.string().trim().min(1, 'A class name cannot be blank.').max(MAX_CLASS_NAME))
+  .min(1, 'Keep at least one class.')
+  .max(MAX_CLASSES, `At most ${MAX_CLASSES} classes.`)
+  .transform((list) => list.map((c) => c.replace(/\s+/g, ' ')))
+  .refine((list) => new Set(list.map((c) => c.toLowerCase())).size === list.length, 'Each class may appear only once.')
   .optional();
 
 const schema = z
   .object({
-    action: z.enum(['create', 'update', 'delete', 'reorder', 'setLink']),
+    action: z.enum(['create', 'update', 'delete', 'reorder', 'setLink', 'bootstrap']),
     slug: z.string().trim().max(40).optional(),
     name: z.string().trim().min(1).max(60).optional(),
+    description: descriptionSchema,
     icon: z.string().trim().max(60).optional(),
     gradient: z.string().trim().max(200).optional(),
     active: z.boolean().optional(),
     schedule: scheduleSchema,
+    classes: classesSchema,
     url: z.string().trim().max(2048).optional(),
     order: z.array(z.string().trim().max(40)).max(50).optional(),
     reassignTo: z.string().trim().max(40).nullable().optional(),
@@ -58,6 +97,14 @@ export default createHandler({
     const db = getDb();
     const { action } = body;
 
+    // ------------------------------------------------------------- bootstrap
+    // Phase 13 / 02 D1. The dashboard calls this when a teacher sees an empty
+    // session list. Run-once and idempotent — see ensureDefaultSessions.
+    if (action === 'bootstrap') {
+      const outcome = await ensureDefaultSessions(db, { actor: user.uid, log });
+      return { ok: true, ...outcome };
+    }
+
     // ---------------------------------------------------------------- create
     if (action === 'create') {
       const check = validateSlug(body.slug);
@@ -72,11 +119,13 @@ export default createHandler({
         await ref.create({
           name: body.name,
           slug: check.slug,
+          description: body.description ?? '',
           icon: body.icon ?? 'bi-book-fill',
           gradient: body.gradient ?? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           order: 999,
           active: body.active ?? true,
           schedule: body.schedule ?? null,
+          classes: body.classes ?? [...DEFAULT_CLASSES],
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -87,6 +136,7 @@ export default createHandler({
         throw err;
       }
 
+      invalidateSession(check.slug);
       log.info('Session created', { slug: check.slug });
       await tryWriteAudit(
         { action: 'session.created', actor: user.uid, actorRole: user.role,
@@ -105,48 +155,60 @@ export default createHandler({
       const snap = await ref.get();
       if (!snap.exists) throw notFound('That session no longer exists.');
 
+      const current = snap.data();
       const patch = { updatedAt: FieldValue.serverTimestamp() };
+      const changed = [];
       // The slug is the document ID and is deliberately immutable: changing it
       // would break every registration link and QR code already handed out.
-      for (const field of ['name', 'icon', 'gradient', 'active']) {
-        if (body[field] !== undefined) patch[field] = body[field];
+      // Renaming "Morning Session" therefore keeps /morning working.
+      for (const field of ['name', 'description', 'icon', 'gradient', 'active']) {
+        if (body[field] !== undefined && body[field] !== current[field]) {
+          patch[field] = body[field];
+          changed.push(field);
+        }
       }
-      if (body.schedule !== undefined) patch.schedule = body.schedule ?? null;
+      if (body.schedule !== undefined
+          && JSON.stringify(body.schedule ?? null) !== JSON.stringify(current.schedule ?? null)) {
+        patch.schedule = body.schedule ?? null;
+        changed.push('schedule');
+      }
+      if (body.classes !== undefined
+          && JSON.stringify(body.classes) !== JSON.stringify(current.classes ?? null)) {
+        patch.classes = body.classes;
+        changed.push('classes');
+      }
 
       await ref.set(patch, { merge: true });
-      log.info('Session updated', { slug: body.slug });
+      invalidateSession(body.slug);
+      log.info('Session updated', { slug: body.slug, changed });
 
-      return { ok: true, slug: body.slug };
+      if (changed.length > 0) {
+        await tryWriteAudit(
+          { action: 'session.updated', actor: user.uid, actorRole: user.role,
+            target: `sessions/${body.slug}`,
+            before: Object.fromEntries(changed.map((f) => [f, current[f] ?? null])),
+            after: { changed, ...Object.fromEntries(changed.map((f) => [f, patch[f] ?? null])) },
+            context: { requestId: log.requestId } },
+          log
+        );
+      }
+
+      return { ok: true, slug: body.slug, changed };
     }
 
     // --------------------------------------------------------------- setLink
     if (action === 'setLink') {
       if (!body.slug) throw badRequest('Which session?');
 
-      const result = parseClassLink(body.url);
-      if (!result.valid) throw badRequest(result.error, 'invalid_class_link');
-
-      // Written to the PRIVATE subcollection, never to the session document —
-      // that one is world-readable so students can render the page, and putting
-      // the link on it would recreate the leak Phase 01 closed.
-      await db.doc(`sessions/${body.slug}/private/classLink`).set(
-        {
-          url: result.url,
-          provider: result.provider,
-          updatedAt: FieldValue.serverTimestamp(),
-          updatedBy: user.uid,
-        },
-        { merge: true }
-      );
+      // Same code path as /api/class/setLink — one store, see setSessionLink.
+      const result = await setSessionLink(db, body.slug, body.url, {
+        actor: user.uid,
+        actorRole: user.role,
+        log,
+        requestId: log.requestId,
+      });
 
       log.info('Session class link updated', { slug: body.slug, provider: result.provider });
-      await tryWriteAudit(
-        { action: AuditAction.CLASS_LINK_UPDATED, actor: user.uid, actorRole: user.role,
-          target: `sessions/${body.slug}`, after: { provider: result.provider },
-          context: { requestId: log.requestId } },
-        log
-      );
-
       return { ok: true, slug: body.slug, provider: result.provider, url: result.url };
     }
 
@@ -222,6 +284,7 @@ export default createHandler({
       // document and every private note under this session would survive the
       // delete, orphaned but fully readable.
       await deleteRecursively(db, ref);
+      invalidateSession(body.slug);
 
       log.info('Session deleted', { slug: body.slug, students: students.size });
       await tryWriteAudit(

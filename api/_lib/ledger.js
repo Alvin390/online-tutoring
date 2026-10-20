@@ -62,7 +62,9 @@ export const counterRef = (db, name) => db.doc(`fees/counters/items/${name}`);
  * @param {string} [opts.reversesEntryId]
  * @param {string} [opts.sourceReceiptId]
  * @param {string} [opts.idempotencyKey] entry ID; a replay collides and is dropped
- * @param {number} [opts.deltaOverride] signed delta, for reversals only
+ * @param {number} [opts.deltaOverride] signed delta, for reversals and account closing
+ * @param {boolean} [opts.receiptPending] Phase 13 / 04 D3: posted without the
+ *        receipt that will follow (reconciled M-Pesa payments)
  */
 export async function postEntry(opts) {
   const db = getDb();
@@ -81,6 +83,7 @@ export async function postEntry(opts) {
     sourceReceiptId = null,
     idempotencyKey = null,
     deltaOverride = null,
+    receiptPending = false,
   } = opts;
 
   if (!ENTRY_TYPES.includes(type)) throw badRequest(`Unknown entry type: ${type}`);
@@ -141,6 +144,7 @@ export async function postEntry(opts) {
       sourceReceiptId,
       session,
       phone,
+      ...(receiptPending ? { receiptPending: true } : {}),
     });
 
     // ---- 2. The authoritative balance.
@@ -192,6 +196,44 @@ export async function postEntry(opts) {
 }
 
 /**
+ * Fills in a ledger entry's missing reference — Phase 13 / 04 D3.
+ *
+ * The ONE permitted change to a posted entry, and only in one direction:
+ * `reference` from null to a value. Amount, type, dates and balance are never
+ * touched, so the append-only guarantee holds for every money field. Used when
+ * a payment was recovered by the reconcile cron (Daraja's status query returns
+ * no receipt code) and the receipt arrives later — from a late Safaricom
+ * callback, or typed in by the teacher.
+ *
+ * Transactional: two fillers racing cannot both win.
+ *
+ * @returns {Promise<{filled: boolean, reason?: 'missing'|'already_set'}>}
+ */
+export async function fillMissingReference({ phone, entryId, reference, addedBy, notMpesa = false }) {
+  const db = getDb();
+  const ref = ledgerRef(db, phone).doc(entryId);
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { filled: false, reason: 'missing' };
+    if (snap.data().reference) return { filled: false, reason: 'already_set' };
+
+    tx.set(
+      ref,
+      {
+        reference,
+        receiptPending: false,
+        referenceAddedBy: addedBy,
+        referenceAddedAt: new Date(),
+        ...(notMpesa ? { referenceIsNotMpesa: true } : {}),
+      },
+      { merge: true }
+    );
+    return { filled: true };
+  });
+}
+
+/**
  * Reverses an existing entry.
  *
  * Does NOT delete or edit the original — it posts an opposing entry that points
@@ -236,6 +278,48 @@ export async function reverseEntry({ phone, session, entryId, reason, recordedBy
   }
 
   return result;
+}
+
+/**
+ * Closes the account of a DELETED student: posts one `adjustment` that brings
+ * the balance to exactly zero.
+ *
+ * Without it a deleted student's debt stayed in "Total outstanding" for good
+ * (the aggregate is a running sum of ledger deltas, and deleting the student
+ * posts nothing), and the nightly sweep kept flagging the account overdue.
+ * The ledger itself is kept: the history and this closing entry stay visible
+ * in the statement, which is the append-only rule working as designed.
+ *
+ * Idempotent per deletion (`closeKey`), so the delete handler and the sweep's
+ * self-heal can both call it.
+ *
+ * @returns {Promise<{closed: number}>} the balance that was closed (0: nothing to do)
+ */
+export async function closeDeletedStudentAccount({ phone, recordedBy, closeKey }) {
+  const db = getDb();
+  const account = accountRef(db, phone);
+  const snap = await account.get();
+  if (!snap.exists) return { closed: 0 };
+
+  const data = snap.data();
+  const balance = data.balance ?? 0;
+  if (balance !== 0) {
+    await postEntry({
+      phone,
+      session: data.session ?? null,
+      type: 'adjustment',
+      amount: Math.abs(balance),
+      deltaOverride: -balance,
+      note: balance > 0
+        ? 'Balance closed: student deleted'
+        : 'Credit closed: student deleted',
+      recordedBy,
+      idempotencyKey: `closed_${closeKey}`,
+    });
+  }
+  // Nothing left to invoice or chase.
+  await account.set({ status: 'closed', nextDueDate: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { closed: balance };
 }
 
 /**

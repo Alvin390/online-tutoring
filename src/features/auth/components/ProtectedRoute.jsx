@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAuthState } from '../context/AuthContext';
 import { useFlag } from '@shared/config/FlagsContext';
 import { TIER_RANK } from '@shared/constants/tiers';
@@ -19,7 +19,7 @@ import { TIER_RANK } from '@shared/constants/tiers';
 function FullPageSpinner({ label }) {
   return (
     <div className="min-vh-100 d-flex align-items-center justify-content-center">
-      <motion.div
+      <m.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         className="text-center"
@@ -32,7 +32,7 @@ function FullPageSpinner({ label }) {
           <span className="visually-hidden">Loading…</span>
         </div>
         <p className="text-muted">{label}</p>
-      </motion.div>
+      </m.div>
     </div>
   );
 }

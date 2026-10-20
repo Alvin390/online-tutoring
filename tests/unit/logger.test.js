@@ -59,9 +59,30 @@ describe('Logger Utility', () => {
     expect(console.error).toHaveBeenCalled();
   });
 
-  it('should log debug messages', () => {
-    logger.debug('Debug message');
-    expect(console.debug).toHaveBeenCalled();
+  // The level is read once at import, from VITE_LOG_LEVEL (default: info), so
+  // pin it rather than depend on whatever .env.local holds.
+  it('should log debug messages when VITE_LOG_LEVEL is debug', async () => {
+    vi.stubEnv('VITE_LOG_LEVEL', 'debug');
+    vi.resetModules();
+    try {
+      const { default: debugLogger } = await import('@utils/logger');
+      debugLogger.debug('Debug message');
+      expect(console.debug).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('should not log debug messages at the default (info) level', async () => {
+    vi.stubEnv('VITE_LOG_LEVEL', '');
+    vi.resetModules();
+    try {
+      const { default: infoLogger } = await import('@utils/logger');
+      infoLogger.debug('Debug message');
+      expect(console.debug).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('should store logs in buffer', () => {

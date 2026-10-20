@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { firestoreAuthHeader, firestoreEmulatorHost, getProjectId } from './googleAuth.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
  * Firestore over the REST API — Phase 12 D2.
@@ -159,8 +160,39 @@ export class SubrequestBudgetExceeded extends Error {
 // Subrequest budget
 // ---------------------------------------------------------------------------
 
-let subrequestBudget = Infinity;
-let subrequestsUsed = 0;
+/**
+ * Phase 13 / 08 C9: the budget is PER INVOCATION. It used to be two module
+ * variables, so a second request arriving in the same isolate re-armed them
+ * mid-flight and the first request kept spending past its own limit
+ * (validated: 5 calls against a budget of 3). Each fetch()/scheduled() now
+ * runs inside its own AsyncLocalStorage context (`runWithSubrequestBudget`);
+ * background work registered with waitUntil inherits it, which is right —
+ * Cloudflare counts it against the same invocation.
+ *
+ * Outside any context (scripts, tests calling the shim directly) the
+ * module-level fallback below is used, armed by `armSubrequestBudget`.
+ */
+const budgetStore = new AsyncLocalStorage();
+const fallbackBudget = { budget: Infinity, used: 0 };
+const currentBudget = () => budgetStore.getStore() ?? fallbackBudget;
+const normaliseBudget = (budget) => (Number.isFinite(budget) && budget > 0 ? budget : Infinity);
+
+/** Runs `fn` with its own subrequest budget — one per Worker invocation. */
+export function runWithSubrequestBudget(budget, fn) {
+  return budgetStore.run({ budget: normaliseBudget(budget), used: 0 }, fn);
+}
+
+/**
+ * Local-latency harness — Phase 13 / 08. Adds `SIMULATED_RTT_MS` before every
+ * Google-bound call (Firestore, Auth, OAuth) so the effect of removing a round
+ * trip is measurable on localhost, where the emulators answer in ~1 ms.
+ * Honoured ONLY when an emulator host is set: production cannot be slowed.
+ */
+export async function simulatedGoogleRtt() {
+  const ms = Number(process.env.SIMULATED_RTT_MS);
+  if (!(ms > 0) || !(process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST)) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Arms the budget for one invocation. Called by the Worker entry point on every
@@ -171,22 +203,42 @@ let subrequestsUsed = 0;
  * trip a limit that only applies to Workers.
  */
 export function armSubrequestBudget(budget) {
-  subrequestBudget = Number.isFinite(budget) && budget > 0 ? budget : Infinity;
-  subrequestsUsed = 0;
+  const target = currentBudget();
+  target.budget = normaliseBudget(budget);
+  target.used = 0;
 }
 
 export function subrequestsRemaining() {
-  return subrequestBudget === Infinity ? Infinity : Math.max(0, subrequestBudget - subrequestsUsed);
+  const b = currentBudget();
+  return b.budget === Infinity ? Infinity : Math.max(0, b.budget - b.used);
 }
 
 export function subrequestsSpent() {
-  return subrequestsUsed;
+  return currentBudget().used;
+}
+
+/**
+ * Counts a NON-Firestore subrequest (Google OAuth, Gmail, Storage, Daraja,
+ * Paystack, Auth) — Phase 13 / 06.
+ *
+ * Cloudflare's limit is on every outbound fetch, but only Firestore calls were
+ * counted, so a sweep checking `subrequestsRemaining()` was told it had room
+ * that Daraja or Gmail calls had already used. Since the ten-minute trigger
+ * now runs two sweeps in one invocation, the count has to be honest.
+ *
+ * Counts without throwing: the caller has already decided to make the call,
+ * and an error here would be indistinguishable from the remote failing. The
+ * next budget check sees the true figure.
+ */
+export function countExternalSubrequest() {
+  currentBudget().used += 1;
 }
 
 function spendSubrequest() {
-  subrequestsUsed += 1;
-  if (subrequestsUsed > subrequestBudget) {
-    throw new SubrequestBudgetExceeded(subrequestsUsed, subrequestBudget);
+  const b = currentBudget();
+  b.used += 1;
+  if (b.used > b.budget) {
+    throw new SubrequestBudgetExceeded(b.used, b.budget);
   }
 }
 
@@ -205,12 +257,13 @@ function spendSubrequest() {
  * ordinary work still stops.
  */
 export async function withSubrequestAllowance(extra, fn) {
-  const previous = subrequestBudget;
-  if (previous !== Infinity) subrequestBudget = subrequestsUsed + extra;
+  const b = currentBudget();
+  const previous = b.budget;
+  if (previous !== Infinity) b.budget = b.used + extra;
   try {
     return await fn();
   } finally {
-    subrequestBudget = previous;
+    b.budget = previous;
   }
 }
 
@@ -436,6 +489,17 @@ const SIMPLE_FIELD_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function escapeSegment(segment) {
   if (SIMPLE_FIELD_RE.test(segment)) return segment;
   return `\`${segment.replace(/\\/g, '\\\\').replace(/`/g, '\\`')}\``;
+}
+
+/**
+ * A query field path: dots separate nested fields, exactly as firebase-admin
+ * reads a string field path in where()/orderBy(). Each segment is escaped on
+ * its own. (Phase 13 / 05: this used to escape the WHOLE string as one
+ * segment, so where('context.flag', …) silently matched a top-level field
+ * literally named "context.flag" — never anything.)
+ */
+function queryFieldPath(fieldPath) {
+  return String(fieldPath).split('.').map(escapeSegment).join('.');
 }
 
 function joinPath(prefix, segment) {
@@ -683,6 +747,25 @@ export class DocumentReference {
   }
 
   /**
+   * Atomically adds `delta` to `field` (creating the document if needed),
+   * merges `extra`, and returns the NEW value — in ONE round trip.
+   * Phase 13 / 08 C2. Firestore's commit reports each transform's result, so
+   * a counter needs no transaction (begin + get + commit = 3 round trips).
+   * Shim-only: firebase-admin has no equivalent.
+   */
+  async incrementAndGet(field, delta = 1, extra = {}) {
+    const write = buildWrite(this, extra, { merge: true });
+    write.updateMask = { fieldPaths: collectMergePaths(extra) };
+    write.updateTransforms = [
+      ...(write.updateTransforms ?? []),
+      { fieldPath: queryFieldPath(field), increment: encodeValue(delta) },
+    ];
+    const [result] = await this._firestore._commit([write]);
+    const value = result?.transformResults?.at(-1);
+    return typeof value === 'number' ? value : Number(value);
+  }
+
+  /**
    * Fails if the document already exists.
    *
    * The thrown error carries gRPC code 6 because that is what the two call
@@ -753,12 +836,17 @@ export class Query {
     return this._derive({ limit: n });
   }
 
-  startAfter(value) {
-    return this._derive({ startAfter: value });
+  startAfter(...values) {
+    return this._derive({ startAfter: values.length === 1 ? values[0] : values });
   }
 
   async get() {
     return this._firestore._runQuery(this);
+  }
+
+  /** Mirrors firebase-admin: `query.count().get()` → `{ data: () => ({ count }) }`. */
+  count() {
+    return { get: () => this._firestore._runCount(this) };
   }
 }
 
@@ -989,6 +1077,17 @@ export class Firestore {
     return new CollectionReference(this, path);
   }
 
+  /**
+   * Every collection named `collectionId`, at any depth — Phase 13 / 07 (the
+   * notes purge). Same semantics as firebase-admin's `collectionGroup()`.
+   */
+  collectionGroup(collectionId) {
+    if (!collectionId || collectionId.includes('/')) {
+      throw new FirestoreError(GRPC_CODE.INVALID_ARGUMENT, `Invalid collection group id: ${collectionId}`);
+    }
+    return new Query(this, collectionId, { allDescendants: true });
+  }
+
   batch() {
     return new WriteBatch(this);
   }
@@ -1019,6 +1118,7 @@ export class Firestore {
 
   async _request(path, { method = 'GET', body, query } = {}) {
     spendSubrequest();
+    await simulatedGoogleRtt();
 
     const url = new URL(`${this._baseUrl()}/${path}`);
     if (query) {
@@ -1111,7 +1211,8 @@ export class Firestore {
    * roster ever approaches four figures, add cursor pagination via
    * `startAfter` on `__name__` rather than raising a limit.
    */
-  async _runQuery(query) {
+  /** Builds the REST `structuredQuery` and the parent resource for `query`. */
+  _structuredQuery(query) {
     const path = query._collectionPath;
     const at = path.lastIndexOf('/');
     const parentPath = at === -1 ? '' : path.slice(0, at);
@@ -1121,11 +1222,13 @@ export class Firestore {
       ? `${this._documentsRoot}/${parentPath}`
       : this._documentsRoot;
 
-    const structuredQuery = { from: [{ collectionId }] };
+    const structuredQuery = {
+      from: [query._parts.allDescendants ? { collectionId, allDescendants: true } : { collectionId }],
+    };
 
     const filters = query._parts.filters.map(({ fieldPath, op, value }) => ({
       fieldFilter: {
-        field: { fieldPath: escapeSegment(fieldPath) },
+        field: { fieldPath: queryFieldPath(fieldPath) },
         op: QUERY_OPERATORS[op] ?? assertUnknownOperator(op),
         value: encodeValue(value),
       },
@@ -1138,12 +1241,33 @@ export class Firestore {
 
     if (query._parts.orders.length > 0) {
       structuredQuery.orderBy = query._parts.orders.map(({ fieldPath, direction }) => ({
-        field: { fieldPath: escapeSegment(fieldPath) },
+        field: { fieldPath: queryFieldPath(fieldPath) },
         direction: String(direction).toLowerCase() === 'desc' ? 'DESCENDING' : 'ASCENDING',
       }));
     }
 
     if (query._parts.limit != null) structuredQuery.limit = query._parts.limit;
+
+    // Cursor — Phase 13 / 06. `startAfter()` used to be RECORDED but never
+    // sent, so a "next page" query silently returned the first page again.
+    // Accepts what firebase-admin accepts: field value(s) matching the
+    // orderBy clauses, or a DocumentSnapshot (its orderBy field values).
+    if (query._parts.startAfter !== undefined) {
+      const cursor = query._parts.startAfter;
+      let values;
+      if (cursor instanceof DocumentSnapshot) {
+        values = query._parts.orders.map(({ fieldPath }) => cursor.get(fieldPath));
+      } else {
+        values = Array.isArray(cursor) ? cursor : [cursor];
+      }
+      structuredQuery.startAt = { values: values.map((v) => encodeValue(v)), before: false };
+    }
+
+    return { parentName, structuredQuery };
+  }
+
+  async _runQuery(query) {
+    const { parentName, structuredQuery } = this._structuredQuery(query);
 
     const results = await this._request(`${encodePath(parentName)}:runQuery`, {
       method: 'POST',
@@ -1158,6 +1282,32 @@ export class Firestore {
     }
 
     return new QuerySnapshot(docs);
+  }
+
+  /**
+   * Server-side COUNT aggregation — Phase 13 / 02 D2.
+   *
+   * One `:runAggregationQuery` call however many documents match; nothing is
+   * downloaded. Same semantics as firebase-admin's `query.count().get()`,
+   * including a `limit()` capping the count.
+   */
+  async _runCount(query) {
+    const { parentName, structuredQuery } = this._structuredQuery(query);
+
+    const results = await this._request(`${encodePath(parentName)}:runAggregationQuery`, {
+      method: 'POST',
+      body: {
+        structuredAggregationQuery: {
+          structuredQuery,
+          aggregations: [{ alias: 'count', count: {} }],
+        },
+      },
+    });
+
+    const entry = (results ?? []).find((r) => r.result);
+    const raw = entry?.result?.aggregateFields?.count?.integerValue ?? 0;
+    const count = Number(raw);
+    return { data: () => ({ count }) };
   }
 
   async _listDocuments(collectionRef) {
@@ -1230,6 +1380,7 @@ export class Firestore {
 
     return (result?.writeResults ?? []).map((wr) => ({
       writeTime: wr.updateTime ? Timestamp.fromISO(wr.updateTime) : null,
+      transformResults: (wr.transformResults ?? []).map((v) => decodeValue(v)),
     }));
   }
 

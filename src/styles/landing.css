@@ -1,0 +1,293 @@
+/*
+ * Public pages: homepage hero, session cards, session-page badge — Phase 13 / 02.
+ *
+ * WHY THIS FILE EXISTS: the React homepage and session pages have always used
+ * these class names (.hero-section, .session-card, .session-badge, …), but the
+ * rules were never ported from the pre-React stylesheet
+ * (archive-pre-react-version/css/styles.css), so the cards rendered almost
+ * unstyled. Ported from there, with one change: the morning/evening-specific
+ * variants (.morning-card, .evening-icon, …) are replaced by a per-card
+ * `--card-gradient` custom property, so ANY session — including ones a teacher
+ * creates — gets its own colours with no new CSS.
+ *
+ * Imported by the public components only, so Vite emits it in their route
+ * chunk rather than in the CSS every dashboard visit downloads.
+ */
+
+/* HERO */
+.hero-section {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.hero-background {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  z-index: -2;
+}
+
+.hero-background::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 800px;
+  height: 800px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  animation: float 20s ease-in-out infinite;
+}
+
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.2);
+  z-index: -1;
+}
+
+.hero-icon {
+  font-size: 5rem;
+  color: white;
+  text-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.hero-title {
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  font-weight: 900;
+  color: white;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.hero-subtitle {
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 400;
+  max-width: 600px;
+  margin: 0 auto;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* SESSION CARDS */
+.session-card {
+  --card-gradient: var(--primary-gradient);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: var(--radius-2xl);
+  padding: 2rem;
+  box-shadow: var(--shadow-2xl);
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  text-align: center;
+}
+
+.session-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 5px;
+  background: var(--card-gradient);
+  transition: height var(--transition-base), opacity var(--transition-base);
+}
+
+a:hover > .session-card,
+a:focus-visible > .session-card {
+  transform: translateY(-10px) scale(1.02);
+  box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.3);
+}
+
+a:hover > .session-card::before {
+  height: 100%;
+  opacity: 0.05;
+}
+
+.session-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 1.5rem;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  color: white;
+  background: var(--card-gradient);
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--transition-base);
+}
+
+a:hover > .session-card .session-icon {
+  transform: scale(1.1) rotate(5deg);
+}
+
+.session-card-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.session-card-time {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.session-card-description {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+  overflow-wrap: anywhere;
+}
+
+.session-card-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: var(--card-gradient);
+  color: white;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+  transition: transform var(--transition-base);
+}
+
+a:hover > .session-card .session-card-button {
+  transform: translateX(5px);
+}
+
+/* Skeleton while sessions load: same footprint as a card, so nothing shifts. */
+.session-card-skeleton {
+  min-height: 330px;
+  border-radius: var(--radius-2xl);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* TEACHER PORTAL LINK */
+.teacher-portal-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  border-radius: var(--radius-full);
+  text-decoration: none;
+  font-weight: 600;
+  transition: background var(--transition-base), transform var(--transition-base);
+}
+
+.teacher-portal-link:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+  color: white;
+}
+
+/* FEATURES */
+.features-section {
+  background: white;
+  position: relative;
+  z-index: 1;
+}
+
+.feature-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 1.5rem;
+  background: var(--primary-gradient);
+  border-radius: var(--radius-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: white;
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--transition-base);
+}
+
+.feature-card:hover .feature-icon {
+  transform: scale(1.1) rotate(-5deg);
+}
+
+.feature-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.feature-description {
+  color: var(--text-secondary);
+}
+
+.footer {
+  background: var(--bg-dark);
+  color: var(--text-light);
+  padding: 2rem 0;
+  margin-top: 3rem;
+}
+
+/* SESSION PAGE BADGE + DETAILS */
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: white;
+  background: var(--card-gradient, var(--primary-gradient));
+  box-shadow: var(--shadow-md);
+}
+
+.session-page-details {
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+}
+
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: 2.25rem;
+  }
+
+  .session-card {
+    padding: 1.5rem;
+  }
+
+  .session-card-title {
+    font-size: 1.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-background::before {
+    animation: none;
+  }
+
+  .session-card,
+  .session-card::before,
+  .session-icon,
+  .session-card-button,
+  .teacher-portal-link,
+  .feature-icon {
+    transition: none;
+  }
+
+  a:hover > .session-card,
+  a:hover > .session-card .session-icon,
+  a:hover > .session-card .session-card-button {
+    transform: none;
+  }
+}

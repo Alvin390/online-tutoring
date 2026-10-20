@@ -1,17 +1,19 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { registrationSchema } from '../schemas/registrationSchema';
-
-const CLASSES = ['Form One', 'Form Two', 'Form Three', 'Form Four'];
+import { DEFAULT_CLASSES } from '@shared/constants/sessions';
 
 export default function RegistrationForm({
   session,
   phoneNumber,
   onSubmit,
   onBack,
-  loading
+  loading,
+  // The session's own class list (edited by the teacher); defaults otherwise.
+  classes = DEFAULT_CLASSES,
 }) {
+  const classOptions = Array.isArray(classes) && classes.length > 0 ? classes : DEFAULT_CLASSES;
   const {
     register,
     handleSubmit,
@@ -22,7 +24,7 @@ export default function RegistrationForm({
   });
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       className="glass-card"
@@ -77,7 +79,7 @@ export default function RegistrationForm({
             {...register('class')}
           >
             <option value="">Select class...</option>
-            {CLASSES.map((cls) => (
+            {classOptions.map((cls) => (
               <option key={cls} value={cls}>{cls}</option>
             ))}
           </select>
@@ -152,6 +154,6 @@ export default function RegistrationForm({
           Use different phone number
         </button>
       </form>
-    </motion.div>
+    </m.div>
   );
 }

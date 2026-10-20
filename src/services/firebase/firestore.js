@@ -2,7 +2,6 @@ import {
   doc,
   getDoc,
   setDoc,
-  deleteDoc,
   collection,
   collectionGroup,
   getDocs,
@@ -19,8 +18,8 @@ import logger from '@utils/logger';
  * Direct Firestore access.
  *
  * Phase 01 scope change: everything in here now runs as an AUTHENTICATED
- * TEACHER, with one deliberate exception — `registerStudent`, because a student
- * has no identity until they have registered.
+ * TEACHER. (Student registration, the one former exception, goes through
+ * /api/student/register since Phase 13 / 08 A1.)
  *
  * Student-facing reads and writes moved to `src/services/api/student.js`, which
  * calls serverless handlers. They had to move: student documents are no longer
@@ -57,53 +56,13 @@ export const checkStudentExists = async (session, phoneNumber) => {
   }
 };
 
-/**
- * Open registration create. The four state fields below are not decoration —
- * `firestore.rules` rejects a create that omits them or that tries to
- * self-approve. Writing them here keeps the client and the rule in agreement.
- */
-export const registerStudent = async (session, phoneNumber, data) => {
-  try {
-    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
+// registerStudent (a direct client setDoc) was removed in Phase 13 / 08 A1:
+// registration goes through /api/student/register, which validates on the
+// server and is why public pages no longer load the Firestore SDK.
 
-    const studentData = {
-      studentName: data.studentName,
-      parentPhone: phoneNumber,
-      class: data.class,
-      subjects: data.subjects,
-      receiptMessage: data.receiptMessage,
-      registeredAt: serverTimestamp(),
-      lastAccessed: serverTimestamp(),
-      session: session,
-
-      // Mandated initial state — see isValidStudentCreate in firestore.rules.
-      blocked: false,
-      approvalStatus: 'pending',
-      receiptStatus: 'pending',
-      feeBalance: 0
-    };
-
-    await setDoc(docRef, studentData);
-    logger.info('registerStudent success', { session });
-
-    return { success: true };
-  } catch (error) {
-    logger.error('registerStudent failed', error);
-    throw error;
-  }
-};
-
-export const deleteStudent = async (session, phoneNumber) => {
-  try {
-    const docRef = doc(db, 'sessions', session, 'students', phoneNumber);
-    await deleteDoc(docRef);
-    logger.info('deleteStudent success', { session });
-    return { success: true };
-  } catch (error) {
-    logger.error('deleteStudent failed', error);
-    throw error;
-  }
-};
+// deleteStudent (a direct deleteDoc) was removed in Phase 13 / 03: Firestore
+// does not cascade, so it left the student's private notes behind. Deletes go
+// through /api/student/remove (removeStudent in src/services/api/sessions.js).
 
 export const blockStudent = async (session, phoneNumber, blockReason = '') => {
   try {
@@ -279,6 +238,34 @@ export const subscribeToStudents = (session, callback) => {
  * public to the internet. They now call /api/class/link, which checks their
  * state before returning a URL.
  */
+/**
+ * Live view of one session's class link — Phase 13 / 02 D3.
+ *
+ * `sessions/{slug}/private/classLink` is the ONLY link store; the dashboard
+ * reads it directly (teacher-readable in firestore.rules) so a link saved from
+ * any tab, or migrated by the bootstrap, appears without a reload.
+ *
+ * @param {string} slug
+ * @param {(link: {url: string, provider: string|null, updatedAt: any}|null) => void} callback
+ * @returns {() => void} unsubscribe
+ */
+export const subscribeToClassLink = (slug, callback) =>
+  onSnapshot(
+    doc(db, 'sessions', slug, 'private', 'classLink'),
+    (snap) => {
+      callback(snap.exists() ? { url: snap.data().url ?? '', provider: snap.data().provider ?? null, updatedAt: snap.data().updatedAt ?? null } : null);
+    },
+    (error) => {
+      logger.error('subscribeToClassLink error', error);
+      callback(null);
+    }
+  );
+
+/**
+ * Legacy class links (config/zoomLinks). Read ONCE by the dashboard as a
+ * display fallback for a session whose private link document does not exist
+ * yet — i.e. before the Phase 13 bootstrap has migrated it. Never written.
+ */
 export const getZoomLinks = async () => {
   try {
     const docRef = doc(db, 'config', 'zoomLinks');
@@ -296,18 +283,5 @@ export const getZoomLinks = async () => {
   }
 };
 
-export const updateZoomLink = async (session, url) => {
-  try {
-    const docRef = doc(db, 'config', 'zoomLinks');
-    await setDoc(docRef, {
-      [session]: url,
-      [`${session}LastUpdated`]: serverTimestamp()
-    }, { merge: true });
-
-    logger.info('updateZoomLink success', { session });
-    return { success: true };
-  } catch (error) {
-    logger.error('updateZoomLink failed', error);
-    throw error;
-  }
-};
+// updateZoomLink (a direct client write to config/zoomLinks) was removed in
+// Phase 13 / 02: links have one store, written only by /api/class/setLink.

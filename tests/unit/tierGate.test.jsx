@@ -120,20 +120,19 @@ describe('server tier requirements have a client gate', () => {
   const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
   /**
-   * Handlers a teacher never reaches from a gated panel.
-   *
-   * `daraja/credentials.js` is Gold and has no caller in src/ at all — the
-   * Phase 09 settings form was never built. Listed here so this test documents
-   * the gap instead of failing on it; remove the entry when the panel lands.
+   * Handlers a teacher never reaches from a gated panel. Empty.
+   * (`daraja/credentials.js` is no longer a teacher endpoint at all: M-Pesa
+   * credentials are operator-supplied environment variables, and the
+   * endpoint is superadmin-only diagnostics that refuses saves.)
    */
-  const NO_PANEL_YET = new Set(['daraja/credentials.js']);
+  const NO_PANEL_YET = new Set();
 
   it('finds the expected set of tier-gated endpoints', () => {
     const tiers = handlerTiers(join(ROOT, 'api'));
     expect([...tiers.keys()].sort()).toEqual([
       'calendar/feedToken.js',
       'calendar/manage.js',
-      'daraja/credentials.js',
+      'fees/annotate.js',
       'fees/config.js',
       'fees/generateInvoices.js',
       'fees/post.js',
@@ -152,6 +151,7 @@ describe('server tier requirements have a client gate', () => {
       'src/features/dashboard/components/DashboardLayout.jsx',
       'src/features/dashboard/components/StudentDrawer.jsx',
       'src/features/whatsapp/components/WhatsAppPanel.jsx',
+      'src/pages/BillingPage.jsx',
     ].map((p) => readFileSync(join(ROOT, p), 'utf8')).join('\n');
 
     // Two spellings count. `<TierGate>` is the general one; WhatsAppPanel

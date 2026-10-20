@@ -20,5 +20,10 @@ export default defineConfig({
     poolOptions: {
       forks: { singleFork: true },
     },
+    // Phase 13 / 02: with a second rules file, files ran in PARALLEL against
+    // the one emulator (Vitest 4 ignores poolOptions.forks.singleFork), and one
+    // file's clearFirestore() wiped another's seeded data mid-test. Serial
+    // files, as vitest.handlers.config.js already does.
+    fileParallelism: false,
   },
 });

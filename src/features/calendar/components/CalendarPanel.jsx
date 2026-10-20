@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import MonthGrid from './MonthGrid';
 import AgendaList from './AgendaList';
 import EventForm from './EventForm';
@@ -63,7 +63,7 @@ export default function CalendarPanel({ readOnly = false, session, phone }) {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 className="mb-0">
           <i className="bi bi-calendar3 me-2" aria-hidden="true" />
@@ -178,6 +178,6 @@ export default function CalendarPanel({ readOnly = false, session, phone }) {
           onClose={() => setEditing(null)}
         />
       )}
-    </motion.div>
+    </m.div>
   );
 }

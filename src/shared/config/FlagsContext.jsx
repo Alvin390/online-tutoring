@@ -1,49 +1,65 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '@services/firebase/config';
+import { useEffect, useSyncExternalStore } from 'react';
+import { getPublicBootstrap } from '@services/api/public';
 import { DEFAULT_FLAGS, resolveFlags } from './flags';
 import logger from '@utils/logger';
 
 /**
- * Flag provider — Phase 01 D6.
+ * Feature flags — Phase 01 D6, reworked in Phase 13 / 08 (A1, B4).
  *
- * One listener on one document for the whole app. Flags render against the
- * defaults immediately rather than blocking on the read: a flag fetch is not
- * worth a blank screen, and every default is the conservative (off) value, so
- * the worst case of rendering early is that a feature appears a beat late.
+ * WHERE THEY COME FROM. Every page reads them from /api/public/bootstrap —
+ * no Firebase on public pages (A1). Staff pages additionally mount
+ * <FlagsLiveSync> (in the staff shell), which keeps them live from Firestore.
+ * Flags render against the defaults until the first answer: every default is
+ * the conservative (off) value, so the worst case is a feature appearing a
+ * beat late.
+ *
+ * HOW THEY ARE READ. A tiny external store and `useSyncExternalStore` (B4):
+ * `useFlag(key)` re-renders a component only when THAT flag changes. The old
+ * context re-rendered every consumer whenever any flag document changed.
  */
 
-const FlagsContext = createContext(DEFAULT_FLAGS);
+let flags = DEFAULT_FLAGS;
+const listeners = new Set();
+
+export const flagsStore = {
+  get: () => flags,
+  /** @param {object|null} raw a config/flags document (or the bootstrap's flags) */
+  setFromRemote(raw) {
+    const next = resolveFlags(raw ?? null);
+    const changed = Object.keys(next).some((k) => next[k] !== flags[k]);
+    if (!changed) return;
+    flags = next;
+    listeners.forEach((listener) => listener());
+  },
+  subscribe(listener) {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  },
+  /** For tests. */
+  __reset() {
+    flags = DEFAULT_FLAGS;
+  },
+};
 
 export function FlagsProvider({ children }) {
-  const [flags, setFlags] = useState(DEFAULT_FLAGS);
-
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      doc(db, 'config', 'flags'),
-      (snap) => setFlags(resolveFlags(snap.exists() ? snap.data() : null)),
-      (error) => {
-        // Non-fatal: the app runs on defaults. `config/flags` is world-readable
-        // by design (booleans, no PII), so this should only fire on a genuine
-        // connectivity problem.
-        logger.warn('Flags listener failed; using defaults', { code: error?.code });
-      }
-    );
-    return unsubscribe;
+    getPublicBootstrap()
+      .then((data) => flagsStore.setFromRemote(data?.flags))
+      .catch((error) => {
+        // Non-fatal: the app runs on defaults.
+        logger.warn('Flags unavailable; using defaults', { code: error?.code });
+      });
   }, []);
-
-  return <FlagsContext.Provider value={flags}>{children}</FlagsContext.Provider>;
+  return children;
 }
 
 /** Returns the whole flag map. */
 export function useFlags() {
-  return useContext(FlagsContext);
+  return useSyncExternalStore(flagsStore.subscribe, flagsStore.get, flagsStore.get);
 }
 
-/** Returns one boolean, so a consumer does not re-render on unrelated flags. */
+/** Returns one boolean; re-renders only when that flag changes. */
 export function useFlag(key) {
-  const flags = useContext(FlagsContext);
-  return useMemo(() => flags[key] === true, [flags, key]);
+  const read = () => flagsStore.get()[key] === true;
+  return useSyncExternalStore(flagsStore.subscribe, read, read);
 }
-
-export { FlagsContext };

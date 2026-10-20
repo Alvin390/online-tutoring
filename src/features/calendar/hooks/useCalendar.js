@@ -15,26 +15,40 @@ import logger from '@utils/logger';
  *
  * Recurrence expansion is memoised on (events, window), so paging back to a
  * month already loaded is instant and does not re-expand every rule.
+ *
+ * S-cal-stale (Phase 13 / 07 D3): results are cached PER WINDOW. There used
+ * to be one `events` array plus a set of "already loaded" windows, so paging
+ * Oct → Nov → Oct skipped the refetch and kept showing November's events in
+ * October. Now the visible window always reads its own cache entry; going back
+ * renders from the cache with no request. Any mutation clears the cache.
+ * (Phase 08 moves this onto TanStack Query.)
  */
 export const useCalendar = ({ session, phone, enabled = true } = {}) => {
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
-  const [events, setEvents] = useState([]);
+  // windowKey -> events. State (not a ref) so a late response re-renders.
+  const [cache, setCache] = useState(() => new Map());
   const [calendarEnabled, setCalendarEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const { showSuccess, showError } = useToast();
 
-  // Avoids re-fetching a window already in flight or already loaded.
-  const loadedWindows = useRef(new Set());
+  // Windows with a request in flight, so a double render does not refetch.
+  const inFlight = useRef(new Set());
+  // Bumped by a mutation, so a response that raced it is not cached.
+  const generation = useRef(0);
 
   const windowStart = useMemo(() => addDays(startOfMonth(month), -7), [month]);
   const windowEnd = useMemo(() => addDays(endOfMonth(month), 7), [month]);
+  const windowKey = `${session ?? ''}|${phone ?? ''}|${windowStart.getTime()}:${windowEnd.getTime()}`;
+  const events = useMemo(() => cache.get(windowKey) ?? [], [cache, windowKey]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ force = false } = {}) => {
     if (!enabled) return;
 
-    const key = `${windowStart.getTime()}:${windowEnd.getTime()}`;
-    if (loadedWindows.current.has(key)) return;
+    const key = windowKey;
+    if (!force && (cache.has(key) || inFlight.current.has(key))) return;
+    inFlight.current.add(key);
+    const gen = generation.current;
 
     setLoading(true);
     try {
@@ -46,15 +60,17 @@ export const useCalendar = ({ session, phone, enabled = true } = {}) => {
       });
 
       setCalendarEnabled(result.calendarEnabled);
-      setEvents(result.events ?? []);
-      loadedWindows.current.add(key);
+      if (gen === generation.current) {
+        setCache((prev) => new Map(prev).set(key, result.events ?? []));
+      }
     } catch (error) {
       logger.error('Calendar load failed', error);
       showError(error?.message ?? 'Could not load the calendar.');
     } finally {
+      inFlight.current.delete(key);
       setLoading(false);
     }
-  }, [enabled, windowStart, windowEnd, session, phone, showError]);
+  }, [enabled, windowKey, cache, windowStart, windowEnd, session, phone, showError]);
 
   useEffect(() => {
     load();
@@ -68,10 +84,16 @@ export const useCalendar = ({ session, phone, enabled = true } = {}) => {
 
   const occurrencesByDay = useMemo(() => groupByDay(occurrences), [occurrences]);
 
+  const invalidate = useCallback(() => {
+    generation.current += 1;
+    inFlight.current.clear();
+    setCache(new Map());
+  }, []);
+
   const refresh = useCallback(() => {
-    loadedWindows.current.clear();
-    load();
-  }, [load]);
+    invalidate();
+    load({ force: true });
+  }, [invalidate, load]);
 
   const mutate = useCallback(
     async (payload, successMessage) => {
@@ -79,8 +101,8 @@ export const useCalendar = ({ session, phone, enabled = true } = {}) => {
       try {
         const result = await manageCalendarEvent(payload);
         if (successMessage) showSuccess(successMessage);
-        loadedWindows.current.clear();
-        await load();
+        invalidate();
+        await load({ force: true });
         return { success: true, result };
       } catch (error) {
         logger.error(`Calendar ${payload.action} failed`, error);
@@ -90,7 +112,7 @@ export const useCalendar = ({ session, phone, enabled = true } = {}) => {
         setSaving(false);
       }
     },
-    [load, showSuccess, showError]
+    [invalidate, load, showSuccess, showError]
   );
 
   return {

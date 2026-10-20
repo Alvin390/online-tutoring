@@ -1,9 +1,9 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 
 export default function LoadingFallback() {
   return (
     <div className="min-vh-100 d-flex align-items-center justify-content-center">
-      <motion.div
+      <m.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         className="text-center"
@@ -12,7 +12,7 @@ export default function LoadingFallback() {
           <span className="visually-hidden">Loading...</span>
         </div>
         <p className="text-muted">Loading...</p>
-      </motion.div>
+      </m.div>
     </div>
   );
 }

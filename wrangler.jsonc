@@ -19,6 +19,15 @@
   // Phase 12 replaced it with REST shims. See api/_lib/firestoreRest.js.)
   "compatibility_flags": ["nodejs_compat"],
 
+  // Phase 13 / 08 C1 — Smart Placement (available on every plan, Free included).
+  // Each API call makes several sequential round trips to Firestore, which
+  // lives in Google's nam5 region, while a Worker normally runs at the colo
+  // nearest the USER (Nairobi). Smart Placement moves execution next to the
+  // backend it talks to most: ~4 long round trips become 1 long + 4 short.
+  // Cloudflare needs up to ~15 min of traffic after a deploy to decide; the
+  // effect is measured live in phase 09 (phase 01 harness, /api/health).
+  "placement": { "mode": "smart" },
+
   "assets": {
     "directory": "./dist/",
     "binding": "ASSETS",

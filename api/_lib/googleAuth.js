@@ -1,3 +1,4 @@
+import { countExternalSubrequest, simulatedGoogleRtt } from './firestoreRest.js';
 /**
  * Google service-account credentials without the Admin SDK — Phase 12 D1.
  *
@@ -344,6 +345,8 @@ export async function getAccessToken(scopes) {
       exp: now + TOKEN_TTL_SECONDS,
     });
 
+    countExternalSubrequest();
+  await simulatedGoogleRtt();
     const response = await fetch(OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

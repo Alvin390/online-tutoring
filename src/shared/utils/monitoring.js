@@ -15,6 +15,20 @@ import { redactSentryEvent, redactString, redact } from './redact';
 
 let sentryRef = null;
 
+/**
+ * A coarse page name for tagging — Phase 13 / 08 D2. Low cardinality on
+ * purpose: every class page is one value, never its slug or a student's
+ * number, so dashboards can group by page and nothing identifying leaves.
+ */
+const STATIC_ROUTES = {
+  '/': 'home', '/login': 'login', '/dashboard': 'dashboard', '/billing': 'billing',
+  '/superadmin': 'superadmin', '/403': 'forbidden', '/404': 'not-found',
+};
+export function routeTag(pathname = '/') {
+  const path = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
+  return STATIC_ROUTES[path] ?? (/^\/[a-z0-9-]+$/.test(path) ? 'session-page' : 'other');
+}
+
 export async function initMonitoring() {
   if (!import.meta.env.PROD || !import.meta.env.VITE_SENTRY_DSN) return null;
 
@@ -57,8 +71,13 @@ export async function initMonitoring() {
 
     enableLogs: true,
 
-    // Phase 01 D3 redaction, applied on the way out.
-    beforeSend: redactSentryEvent,
+    // Phase 01 D3 redaction, applied on the way out — plus the page the error
+    // happened on (Phase 13 / 08 D2), read at send time so no router wiring
+    // is needed.
+    beforeSend: (event, hint) => redactSentryEvent(
+      { ...event, tags: { ...(event.tags ?? {}), route: routeTag(window.location.pathname) } },
+      hint
+    ),
     sendDefaultPii: false,
 
     /**
@@ -164,4 +183,35 @@ export async function reportWebVitals() {
   } catch {
     // web-vitals is optional; absence is not an error.
   }
+  observeLongTasks();
+}
+
+/**
+ * Long tasks — Phase 13 / 08 D2. Any main-thread task over 200 ms (the
+ * point at which a tap visibly lags) becomes a breadcrumb with its page, so
+ * an error or a slow-INP report shows what was blocking just before it.
+ * Breadcrumbs, not events: they cost nothing unless something is reported.
+ */
+export function observeLongTasks(Observer = globalThis.PerformanceObserver) {
+  if (!sentryRef || !Observer?.supportedEntryTypes?.includes?.('longtask')) return null;
+  const observer = new Observer((list) => {
+    for (const entry of list.getEntries()) {
+      if (entry.duration < LONG_TASK_MS) continue;
+      sentryRef.addBreadcrumb?.({
+        category: 'perf.longtask',
+        level: 'info',
+        message: `Long task ${Math.round(entry.duration)} ms`,
+        data: { ms: Math.round(entry.duration), route: routeTag(window.location.pathname) },
+      });
+    }
+  });
+  observer.observe({ type: 'longtask', buffered: true });
+  return observer;
+}
+
+const LONG_TASK_MS = 200;
+
+/** For tests. */
+export function __setSentryForTest(sentry) {
+  sentryRef = sentry;
 }

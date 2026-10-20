@@ -1,24 +1,15 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import app from './app';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import {
+  connectFirestoreEmulator,
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager
+  persistentMultipleTabManager,
+  terminate,
+  clearIndexedDbPersistence,
 } from 'firebase/firestore';
-import { getAnalytics, isSupported } from 'firebase/analytics';
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// The app itself is created in ./app.js (Phase 13 / 08 A2).
 
 // Initialize services
 export const auth = getAuth(app);
@@ -31,24 +22,44 @@ export const auth = getAuth(app);
 // - Multi-tab support (works across multiple browser tabs)
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
+    tabManager: persistentMultipleTabManager(),
+    // Phase 13 / 08 B5: an explicit ceiling (the SDK default is also 40 MB,
+    // but stating it keeps a shared school computer's footprint deliberate).
+    cacheSizeBytes: 40 * 1024 * 1024,
   })
 });
 
-// Initialize analytics conditionally
-let analytics = null;
-if (import.meta.env.VITE_ENABLE_ANALYTICS === 'true') {
-  isSupported().then(supported => {
-    if (supported) {
-      analytics = getAnalytics(app);
-    }
-  }).catch(() => {
-    // Analytics is unsupported in this browser (or blocked). Non-fatal, and
-    // deliberately silent — this fires on every privacy-extension user.
-  });
+/**
+ * Deletes this browser's offline copy of the data — Phase 13 / 08 B5.
+ *
+ * The persistent cache holds the class roster (names, parents' phone numbers,
+ * payment state). On a shared school or cyber-café computer that must not
+ * outlive the teacher's session. Terminating the instance is required before
+ * the IndexedDB data can be cleared, and a terminated instance cannot be
+ * reused — so the caller reloads the page afterwards.
+ */
+export async function wipeLocalData() {
+  await terminate(db);
+  await clearIndexedDbPersistence(db);
 }
 
-export { analytics };
+/**
+ * Local full-stack mode — Phase 13 / 07 (layout checks) and 08 (authenticated
+ * Lighthouse). Only when the BUILD sets VITE_USE_EMULATORS=true AND the page
+ * is served from this machine: a bundle built that way by mistake and
+ * deployed would otherwise send real users' sign-ins to localhost. A normal
+ * build never sets the variable, so this block is removed as dead code.
+ */
+if (
+  import.meta.env.VITE_USE_EMULATORS === 'true'
+  && typeof window !== 'undefined'
+  && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8085);
+}
+
+// Analytics moved to ./analytics.js and loads only on demand (Phase 13 / 08 A2).
 export default app;
 
 // No startup logging. The previous three console.log calls here printed the

@@ -2,7 +2,13 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, tierSchema } from '../_lib/validate.js';
 import { badRequest, notFound } from '../_lib/errors.js';
-import { disableSubscription, TIER_PRICE_KES } from '../_lib/paystack.js';
+import {
+  disableSubscription,
+  enableSubscription,
+  createSubscription,
+  planCodeForTier,
+  TIER_PRICE_KES,
+} from '../_lib/paystack.js';
 import { STATUS, publicProjection, toMillis } from '../_lib/subscription.js';
 import { setUserClaims } from '../_lib/claims.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
@@ -23,7 +29,7 @@ import { TIER_RANK } from '../_lib/auth.js';
 
 const schema = z
   .object({
-    action: z.enum(['cancel', 'resume', 'schedule_downgrade', 'grant']),
+    action: z.enum(['cancel', 'resume', 'schedule_downgrade', 'cancel_downgrade', 'grant']),
     tier: tierSchema.optional(),
   })
   .strict();
@@ -173,9 +179,71 @@ export default createHandler({
             'not_a_downgrade'
           );
         }
+        if (sub.scheduledTierChange?.tier) {
+          throw badRequest(
+            'A plan change is already scheduled. Keep your current plan first, then choose again.',
+            'already_scheduled'
+          );
+        }
+
+        const effectiveAt = sub.currentPeriodEnd ?? null;
+        const schedule = { tier, effectiveAt };
+
+        /*
+         * Phase 13 / 05 D1 — a CARD downgrade really changes the plan.
+         *
+         * Before, this only wrote `scheduledTierChange`; Paystack kept billing
+         * the old, higher plan, and the renewal webhook then set the LOWER tier
+         * (validated: charged KES 9,999 for Gold, landed as Bronze). Now:
+         *
+         *   1. create the cheaper subscription, first debit at period end;
+         *   2. disable the current one (already paid to period end, so access
+         *      continues);
+         *   3. if (2) fails, disable what (1) created — there is never a moment
+         *      with two live subscriptions that both charge.
+         *
+         * `paystackSubscriptionCode` keeps pointing at the paid one until the
+         * cheaper plan's first charge arrives (webhook).
+         */
+        const card = sub.renewalMode === 'auto'
+          && sub.paystackSubscriptionCode && sub.paystackEmailToken
+          && sub.paystackAuthorizationCode && sub.paystackCustomerCode;
+
+        if (card) {
+          const created = await createSubscription({
+            customer: sub.paystackCustomerCode,
+            plan: planCodeForTier(tier),
+            authorization: sub.paystackAuthorizationCode,
+            startDate: toMillis(effectiveAt) ?? Date.now(),
+          });
+
+          try {
+            await disableSubscription({ code: sub.paystackSubscriptionCode, token: sub.paystackEmailToken });
+          } catch (err) {
+            log.error('Could not disable the current subscription; rolling back the new one', err);
+            try {
+              await disableSubscription({ code: created.subscription_code, token: created.email_token });
+            } catch (rollbackErr) {
+              log.error('Rollback of the new subscription ALSO failed', rollbackErr);
+              await tryWriteAudit(
+                { action: AuditAction.SUBSCRIPTION_CHANGED, actor: user.uid, actorRole: user.role,
+                  target: 'subscription/current',
+                  after: { orphanedSubscription: created.subscription_code, reason: 'downgrade_rollback_failed' },
+                  context: { requestId: log.requestId, needsManualAction: true } },
+                log
+              );
+            }
+            throw err;
+          }
+
+          schedule.newSubscriptionCode = created.subscription_code;
+          schedule.newEmailToken = created.email_token ?? null;
+          schedule.previousSubscriptionCode = sub.paystackSubscriptionCode;
+          schedule.previousEmailToken = sub.paystackEmailToken;
+        }
 
         const patch = {
-          scheduledTierChange: { tier, effectiveAt: sub.currentPeriodEnd ?? null },
+          scheduledTierChange: schedule,
           updatedAt: FieldValue.serverTimestamp(),
         };
         await ref.set(patch, { merge: true });
@@ -187,7 +255,7 @@ export default createHandler({
             actor: user.uid,
             actorRole: user.role,
             before,
-            after: patch,
+            after: { scheduledTier: tier, effectiveAt: toMillis(effectiveAt), paystackPlanSwitched: Boolean(card) },
             context: { requestId: log.requestId, change: 'downgrade_scheduled' },
           },
           log
@@ -196,10 +264,80 @@ export default createHandler({
         return {
           ok: true,
           scheduledTier: tier,
-          effectiveAt: toMillis(sub.currentPeriodEnd),
+          effectiveAt: toMillis(effectiveAt),
           // Reassurance that matters: a downgrade must never read as data loss.
           note: 'Your data from the higher tier is kept and hidden, and comes back if you upgrade again.',
           newPriceKes: TIER_PRICE_KES[tier],
+        };
+      }
+
+      // Phase 13 / 05 D3 — undo a scheduled downgrade before it takes effect.
+      case 'cancel_downgrade': {
+        const scheduled = sub.scheduledTierChange;
+        if (!scheduled?.tier) throw badRequest('No plan change is scheduled.', 'nothing_scheduled');
+
+        let manualRenewalNeeded = false;
+
+        if (scheduled.newSubscriptionCode) {
+          try {
+            await disableSubscription({ code: scheduled.newSubscriptionCode, token: scheduled.newEmailToken });
+          } catch (err) {
+            log.error('Could not disable the scheduled replacement subscription', err);
+            await tryWriteAudit(
+              { action: AuditAction.SUBSCRIPTION_CHANGED, actor: user.uid, actorRole: user.role,
+                target: 'subscription/current',
+                after: { subscription: scheduled.newSubscriptionCode, disabled: false, reason: 'undo_disable_failed' },
+                context: { requestId: log.requestId, needsManualAction: true } },
+              log
+            );
+            throw err;
+          }
+
+          try {
+            await enableSubscription({ code: scheduled.previousSubscriptionCode, token: scheduled.previousEmailToken });
+          } catch (err) {
+            // The cheaper plan is off, but the original could not be switched
+            // back on: no automatic renewal at period end. The teacher is told
+            // plainly and the case is flagged for a human.
+            log.error('Could not re-enable the original subscription', err);
+            manualRenewalNeeded = true;
+            await tryWriteAudit(
+              { action: AuditAction.SUBSCRIPTION_CHANGED, actor: user.uid, actorRole: user.role,
+                target: 'subscription/current',
+                after: { subscription: scheduled.previousSubscriptionCode, enabled: false, reason: 'undo_enable_failed' },
+                context: { requestId: log.requestId, needsManualAction: true } },
+              log
+            );
+          }
+        }
+
+        const patch = {
+          scheduledTierChange: null,
+          ...(manualRenewalNeeded ? { renewalMode: 'manual' } : {}),
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        await ref.set(patch, { merge: true });
+        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }), { merge: false });
+
+        await tryWriteAudit(
+          {
+            action: AuditAction.SUBSCRIPTION_CHANGED,
+            actor: user.uid,
+            actorRole: user.role,
+            before: { ...before, scheduledTier: scheduled.tier },
+            after: { scheduledTier: null, manualRenewalNeeded },
+            context: { requestId: log.requestId, change: 'downgrade_cancelled' },
+          },
+          log
+        );
+
+        return {
+          ok: true,
+          tier: sub.tier,
+          manualRenewalNeeded,
+          ...(manualRenewalNeeded
+            ? { note: 'Your plan stays as it is, but please renew manually at the end of this period.' }
+            : {}),
         };
       }
 

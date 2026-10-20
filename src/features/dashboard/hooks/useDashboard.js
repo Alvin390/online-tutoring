@@ -1,22 +1,24 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, startTransition } from 'react';
 import {
   subscribeToStudents,
   subscribeToPendingApprovals,
-  deleteStudent as deleteStudentService,
   getZoomLinks,
-  registerStudent as updateStudentService,
+  subscribeToClassLink,
   blockStudent as blockStudentService,
   unblockStudent as unblockStudentService,
   approveReceipt as approveReceiptService,
   declineReceipt as declineReceiptService,
 } from '@services/firebase/firestore';
 import { setClassLink, decideApproval } from '@services/api/teacher';
+import { removeStudent, updateStudentRecord } from '@services/api/sessions';
 import { approveReceiptWithPayment } from '@services/api/fees';
 import { useSessions } from '@features/sessions/hooks/useSessions';
+import { FALLBACK_SESSIONS } from '@shared/constants/sessions';
 import { useFlag } from '@shared/config/FlagsContext';
 import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
 import { trackStudentDelete, trackCSVExport } from '@utils/analytics';
+import { buildStudentsPdf } from './studentsPdf';
 
 // jsPDF is NOT imported statically — see exportToPDF. Phase 10 item 8.
 
@@ -36,32 +38,50 @@ export const useDashboard = () => {
    */
   const [studentsBySession, setStudentsBySession] = useState({});
   const [pendingApprovals, setPendingApprovals] = useState([]);
-  const [zoomLinks, setZoomLinks] = useState({ morning: '', evening: '' });
+  const [classLinkDocs, setClassLinkDocs] = useState({});
+  const [legacyLinks, setLegacyLinks] = useState({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('morning');
+  const [activeTab, setActiveTabState] = useState(() => {
+    try { return sessionStorage.getItem('dashboard.activeTab'); } catch { return null; }
+  });
   const feesEnabled = useFlag('fees.enabled');
   const { showSuccess, showError } = useToast();
 
-  const { activeSessions, loading: sessionsLoading } = useSessions();
+  // Phase 13 / 02 D1: an empty list on the dashboard triggers the server-side
+  // bootstrap of the default sessions.
+  const { sessions: allSessions, loading: sessionsLoading } = useSessions({ bootstrap: true });
 
   /**
-   * Session ids to watch.
-   *
-   * Falls back to the two original sessions when the sessions collection is
-   * empty — a deployment that has not run `npm run seed:sessions` must still
-   * show its students, exactly as SessionRoutePage falls back for the student
-   * side.
+   * Every session the dashboard knows about — active AND hidden (Phase 13 /
+   * 02 D7), because a hidden session can still hold students the teacher needs
+   * to see. Until the bootstrap has created the default documents, the two
+   * original sessions stand in, exactly as SessionRoutePage falls back for the
+   * student side.
    */
-  const sessionIds = useMemo(() => {
-    if (activeSessions.length > 0) return activeSessions.map((s) => s.id);
-    return sessionsLoading ? [] : ['morning', 'evening'];
-  }, [activeSessions, sessionsLoading]);
+  const sessions = useMemo(() => {
+    if (allSessions.length > 0) return allSessions;
+    return sessionsLoading ? [] : FALLBACK_SESSIONS;
+  }, [allSessions, sessionsLoading]);
+
+  const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions]);
 
   // Joined into a primitive so the effect below depends on the CONTENT of the
   // list rather than the array identity, which changes on every snapshot.
   const sessionKey = sessionIds.join(',');
 
   const unsubscribers = useRef(new Map());
+
+  /**
+   * Payment notifications — Phase 13 / 04 D2. Uses the student listeners the
+   * dashboard already holds: a student's `lastPaymentAt` moving forward means
+   * money just landed (an M-Pesa callback, or a payment recorded elsewhere).
+   * The first snapshot of each session only records the baseline, so opening
+   * the dashboard never replays old payments. No extra listeners.
+   */
+  const lastPaymentSeen = useRef(new Map());
+  const notifyPayment = useRef(null);
+  notifyPayment.current = (name) => showSuccess(`Payment received for ${name}.`, 'Fees');
+
 
   useEffect(() => {
     const ids = sessionKey ? sessionKey.split(',') : [];
@@ -86,6 +106,18 @@ export const useDashboard = () => {
       live.set(
         id,
         subscribeToStudents(id, (students) => {
+          const seen = lastPaymentSeen.current;
+          const baseline = !seen.has(id);
+          if (baseline) seen.set(id, new Map());
+          const bySession = seen.get(id);
+          for (const student of students) {
+            const at = student.lastPaymentAt?.toMillis?.() ?? null;
+            const before = bySession.get(student.id);
+            if (!baseline && at && bySession.has(student.id) && (before == null || at > before)) {
+              notifyPayment.current?.(student.studentName ?? 'a student');
+            }
+            bySession.set(student.id, at);
+          }
           setStudentsBySession((prev) => ({ ...prev, [id]: students }));
           setLoading(false);
         })
@@ -106,12 +138,26 @@ export const useDashboard = () => {
   }, []);
 
   /**
-   * Back-compat accessors. The dashboard's tab UI is still session-keyed, and
-   * these keep every existing consumer working while the underlying shape is
-   * now dynamic.
+   * Tabs (Phase 13 / 02 D7): active sessions in the teacher's order, then any
+   * hidden session that still has students.
    */
-  const morningStudents = studentsBySession.morning ?? [];
-  const eveningStudents = studentsBySession.evening ?? [];
+  const tabs = useMemo(() => {
+    const active = sessions.filter((s) => s.active !== false);
+    const hiddenWithStudents = sessions.filter(
+      (s) => s.active === false && (studentsBySession[s.id]?.length ?? 0) > 0
+    );
+    return [...active, ...hiddenWithStudents];
+  }, [sessions, studentsBySession]);
+
+  // The remembered tab if it still exists, else the first one.
+  const currentTab = tabs.some((t) => t.id === activeTab) ? activeTab : (tabs[0]?.id ?? null);
+
+  const setActiveTab = useCallback((id) => {
+    // Phase 13 / 08 B2: a transition, so rendering a large class's table
+    // never blocks the click that asked for it (the tab responds at once).
+    startTransition(() => setActiveTabState(id));
+    try { sessionStorage.setItem('dashboard.activeTab', id); } catch { /* storage unavailable */ }
+  }, []);
 
   // Pending approvals — one collection-group listener across all sessions.
   useEffect(() => {
@@ -119,41 +165,68 @@ export const useDashboard = () => {
     return () => unsubscribe();
   }, []);
 
-  // Load class links
+  /**
+   * Class links — Phase 13 / 02 D3/D4.
+   *
+   * One live listener per session on `sessions/{slug}/private/classLink`, the
+   * single link store, opened and closed with the session list — so a session
+   * created a moment ago gets its link slot immediately, and a link saved from
+   * another tab appears without a reload.
+   */
   useEffect(() => {
-    const loadLinks = async () => {
-      try {
-        const links = await getZoomLinks();
-        setZoomLinks(links);
-      } catch (error) {
-        logger.error('Load class links failed', error);
-      }
-    };
-    loadLinks();
+    const ids = sessionKey ? sessionKey.split(',') : [];
+    const unsubscribers = ids.map((id) =>
+      subscribeToClassLink(id, (link) => {
+        setClassLinkDocs((prev) => ({ ...prev, [id]: link }));
+      })
+    );
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [sessionKey]);
+
+  // Legacy links, read once: shown only for a session whose private document
+  // does not exist yet (before the bootstrap migrates it). Never written.
+  useEffect(() => {
+    getZoomLinks()
+      .then((links) => setLegacyLinks(links ?? {}))
+      .catch((error) => logger.warn('Legacy class links unavailable', { code: error?.code }));
   }, []);
+
+  /** { [slug]: { url, provider, updatedAt } | null } for every known session. */
+  const classLinks = useMemo(() => {
+    const out = {};
+    for (const id of sessionIds) {
+      const linkDoc = classLinkDocs[id];
+      if (linkDoc?.url) out[id] = linkDoc;
+      else if (legacyLinks[id]) {
+        out[id] = {
+          url: legacyLinks[id],
+          provider: legacyLinks[`${id}Provider`] ?? null,
+          updatedAt: legacyLinks[`${id}LastUpdated`] ?? null,
+          legacy: true,
+        };
+      } else out[id] = null;
+    }
+    return out;
+  }, [sessionIds, classLinkDocs, legacyLinks]);
 
   /**
    * Saves a class link through the serverless handler, which re-validates it
    * with the server copy of parseClassLink. The client validates too, for
-   * immediate feedback — but that check is advice, not a control.
+   * immediate feedback — but that check is advice, not a control. The saved
+   * value arrives back through the listener above.
    */
-  const updateZoomLink = useCallback(async (session, url) => {
+  const updateClassLink = useCallback(async (session, url) => {
     try {
-      const result = await setClassLink(session, url);
-      setZoomLinks(prev => ({
-        ...prev,
-        [session]: result.url,
-        [`${session}Provider`]: result.provider,
-        [`${session}LastUpdated`]: new Date(),
-      }));
-      showSuccess(`${session.charAt(0).toUpperCase() + session.slice(1)} link updated!`);
+      await setClassLink(session, url);
+      const name = sessions.find((s) => s.id === session)?.name ?? session;
+      showSuccess(`${name} link updated!`);
       return { success: true };
     } catch (error) {
       logger.error('Update class link failed', error);
       showError(error?.message ?? 'Failed to update link. Please try again.');
       return { success: false };
     }
-  }, [showSuccess, showError]);
+  }, [sessions, showSuccess, showError]);
 
   const approveStudents = useCallback(async (session, phones) => {
     try {
@@ -187,9 +260,14 @@ export const useDashboard = () => {
     }
   }, [showSuccess, showError]);
 
+  /**
+   * Deletes through /api/student/remove (Phase 13 / 03 D2), which also deletes
+   * the student's private notes — a direct deleteDoc left them behind,
+   * orphaned. The fee record is kept, marked deleted.
+   */
   const deleteStudent = useCallback(async (session, phoneNumber, studentName) => {
     try {
-      await deleteStudentService(session, phoneNumber);
+      await removeStudent(session, phoneNumber);
       trackStudentDelete(session);
       showSuccess(`${studentName} deleted successfully`);
       return { success: true };
@@ -200,32 +278,40 @@ export const useDashboard = () => {
     }
   }, [showSuccess, showError]);
 
+  /**
+   * Edits through /api/student/update — Phase 13 / 03 D1.
+   *
+   * This used to call the open registration create, which the rules refuse for
+   * an existing student (every edit failed), and a phone change deleted the
+   * record and re-registered it as pending, unblocked, with balance 0. Now only
+   * the four editable fields are sent, and a phone change MOVES the record with
+   * its notes and fee history. A large move can stop at the server's
+   * per-request budget and report `partial`; it is resumed automatically.
+   */
   const updateStudent = useCallback(async (session, phoneNumber, studentData, originalPhone) => {
-    try {
-      // If phone number changed, we need to delete old and create new
-      if (originalPhone && originalPhone !== phoneNumber) {
-        await deleteStudentService(session, originalPhone);
-      }
+    const changes = {};
+    for (const field of ['studentName', 'class', 'subjects', 'receiptMessage']) {
+      if (typeof studentData?.[field] === 'string') changes[field] = studentData[field].trim();
+    }
+    const from = originalPhone ?? phoneNumber;
+    const to = String(phoneNumber ?? '').replace(/[\s-]/g, '');
 
-      await updateStudentService(session, phoneNumber, studentData);
-      showSuccess('Student updated successfully');
+    try {
+      let result = await updateStudentRecord(session, from, changes, to);
+      for (let attempt = 0; result?.partial && attempt < 5; attempt += 1) {
+        result = await updateStudentRecord(session, from, changes, to);
+      }
+      if (result?.partial) throw new Error('The move is taking longer than usual. Please press Save again to finish it.');
+      showSuccess(to !== from ? 'Student updated — notes and fee history moved to the new number.' : 'Student updated successfully');
       return { success: true };
     } catch (error) {
       logger.error('Update student failed', error);
-      showError('Failed to update student. Please try again.');
+      showError(error?.message ?? 'Failed to update student. Please try again.');
       return { success: false };
     }
   }, [showSuccess, showError]);
 
-  /**
-   * PDF export — Phase 10 item 8.
-   *
-   * jsPDF and jspdf-autotable are loaded ON DEMAND rather than imported at
-   * module scope. Statically, jsPDF drags in html2canvas (197 KB) and its
-   * canvas/DOM helpers (155 KB) — roughly 350 KB that every teacher downloaded
-   * on every dashboard load to support a button most of them press rarely, if
-   * ever.
-   */
+  /** PDF export — Phase 10 item 8. The document is built in studentsPdf.js. */
   const exportToPDF = useCallback(async (session) => {
     const students = studentsBySession[session] ?? [];
 
@@ -234,98 +320,15 @@ export const useDashboard = () => {
       return;
     }
 
-    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
-      import('jspdf'),
-      import('jspdf-autotable'),
-    ]);
-
-    // Create new PDF document
-    const doc = new jsPDF();
-
-    // Add title
-    doc.setFontSize(18);
-    doc.setTextColor(102, 126, 234);
-    doc.text(`${session.charAt(0).toUpperCase() + session.slice(1)} Session - Student List`, 14, 22);
-
-    // Add date
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')} ${new Date().toLocaleTimeString('en-GB')}`, 14, 30);
-
-    // Prepare table data
-    const tableData = students.map((student, index) => {
-      const regDate = student.registeredAt?.toDate?.()
-        .toLocaleDateString('en-GB') || 'N/A';
-
-      // Guarded: an unguarded .substring() on a missing receiptMessage threw
-      // and broke the entire export, not just that one row.
-      const receipt = student.receiptMessage ?? '';
-
-      return [
-        index + 1,
-        student.studentName ?? '—',
-        student.parentPhone ?? '—',
-        student.class ?? '—',
-        student.subjects ?? '—',
-        receipt.substring(0, 50) + (receipt.length > 50 ? '...' : ''),
-        regDate
-      ];
-    });
-
-    // Add table
-    autoTable(doc, {
-      head: [['#', 'Student Name', 'Parent Phone', 'Class', 'Subjects', 'Payment Receipt', 'Registered']],
-      body: tableData,
-      startY: 35,
-      theme: 'striped',
-      headStyles: {
-        fillColor: [102, 126, 234],
-        textColor: 255,
-        fontSize: 10,
-        fontStyle: 'bold',
-        halign: 'center'
-      },
-      bodyStyles: {
-        fontSize: 9,
-        cellPadding: 3
-      },
-      columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 35 },
-        2: { cellWidth: 30 },
-        3: { cellWidth: 15, halign: 'center' },
-        4: { cellWidth: 30 },
-        5: { cellWidth: 45 },
-        6: { cellWidth: 25, halign: 'center' }
-      },
-      margin: { top: 35 },
-      styles: {
-        overflow: 'linebreak',
-        cellPadding: 2,
-        fontSize: 8
-      }
-    });
-
-    // Add footer
-    const pageCount = doc.internal.getNumberOfPages();
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.text(
-        `Page ${i} of ${pageCount} | Total Students: ${students.length}`,
-        doc.internal.pageSize.getWidth() / 2,
-        doc.internal.pageSize.getHeight() - 10,
-        { align: 'center' }
-      );
-    }
+    const sessionName = sessions.find((s) => s.id === session)?.name ?? session;
+    const doc = await buildStudentsPdf({ sessionName, students });
 
     // Download
     doc.save(`${session}-students-${new Date().toISOString().split('T')[0]}.pdf`);
 
     trackCSVExport(session, students.length);
     showSuccess('PDF exported successfully');
-  }, [studentsBySession, showSuccess, showError]);
+  }, [studentsBySession, sessions, showSuccess, showError]);
 
   const blockStudent = useCallback(async (session, phoneNumber, studentName, blockReason) => {
     try {
@@ -407,18 +410,17 @@ export const useDashboard = () => {
   }, [showSuccess, showError]);
 
   return {
-    // Dynamic, session-keyed — the shape new code should use.
     studentsBySession,
-    sessions: activeSessions,
-    // Retained so existing consumers keep working.
-    morningStudents,
-    eveningStudents,
+    // Every session (active and hidden), in the teacher's order.
+    sessions,
+    // The sessions that get a tab: active ones, then hidden ones with students.
+    tabs,
     pendingApprovals,
-    zoomLinks,
+    classLinks,
     loading,
-    activeTab,
+    activeTab: currentTab,
     setActiveTab,
-    updateZoomLink,
+    updateClassLink,
     deleteStudent,
     updateStudent,
     exportToPDF,

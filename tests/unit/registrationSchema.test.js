@@ -60,7 +60,9 @@ describe('Registration Schemas', () => {
       const result = registrationSchema.safeParse(invalidData);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error.issues[0].message).toContain('letters and spaces');
+        // Phase 13 / 03 D5: apostrophes, hyphens and full stops are allowed now;
+        // digits still are not.
+        expect(result.error.issues[0].message).toMatch(/letters, spaces, apostrophes, hyphens or full stops/);
       }
     });
 

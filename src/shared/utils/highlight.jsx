@@ -37,7 +37,6 @@ export function highlight(text, term) {
   return parts.map((part, index) =>
     // split() with a capture group puts matches at odd indices.
     index % 2 === 1 ? (
-      // eslint-disable-next-line react/no-array-index-key
       <mark key={index} className="px-0">
         {part}
       </mark>

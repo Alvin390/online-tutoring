@@ -1,10 +1,20 @@
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useLayoutEffect } from 'react';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
+import { m, AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
 import Modal from '@components/ui/Modal';
 import { SkeletonTable } from '@components/ui/Skeleton';
 import { postLedgerEntry } from '@services/api/fees';
 import logger from '@utils/logger';
+import { useFlag } from '@shared/config/FlagsContext';
+import { useAuthState } from '@features/auth/context/AuthContext';
+import { TIER_RANK } from '@shared/constants/tiers';
+
+const VIRTUALIZE_ABOVE = 50;
+const OVERSCAN = 8;
+// Measured in Chromium: 91 px on desktop, ~141 px on a phone. Each row is
+// measured once rendered; the estimate only sizes rows not yet seen.
+const ROW_ESTIMATE_PX = 90;
 
 export default function StudentTable({
   session,
@@ -28,9 +38,53 @@ export default function StudentTable({
   const [blocking, setBlocking] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [blockReason, setBlockReason] = useState('');
+  /**
+   * Phase 13 / 04 D5. A fee block posts a ledger charge through /api/fees/post,
+   * which needs the fees feature ON and the Silver tier. It used to be the
+   * default for everyone — a Bronze teacher's block failed with 403, and with
+   * fees off a charge was still posted silently. Now the fee option is the
+   * default only when it can actually work; otherwise it is shown disabled.
+   */
+  const feesFlag = useFlag('fees.enabled');
+  const { tierRank, isSuperadmin } = useAuthState();
+  const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
+  const defaultBlockKind = feesUsable ? 'fees' : 'other';
+
   // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;
   // 'other' is the free-text block that existed before.
-  const [blockKind, setBlockKind] = useState('fees');
+  const [blockKind, setBlockKind] = useState(defaultBlockKind);
+
+  // Row virtualisation — Phase 13 / 08 B2. Above VIRTUALIZE_ABOVE rows only
+  // the rows near the viewport are in the DOM (plus OVERSCAN either side);
+  // spacer rows keep the scrollbar honest and the table a real <table>. Below
+  // it the plain table renders: for a small class virtualisation costs more
+  // than it saves. The table scrolls with the page, hence the WINDOW variant.
+  const tbodyRef = useRef(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const virtual = students.length > VIRTUALIZE_ABOVE;
+  // Where the table starts on the page. Content above it (stats, links, the
+  // calendar) loads late and changes height, so this is re-measured whenever
+  // the page resizes — a stale offset renders the wrong rows for the scroll.
+  useLayoutEffect(() => {
+    if (!virtual || !tbodyRef.current) return undefined;
+    const measure = () => {
+      if (!tbodyRef.current) return;
+      const top = Math.round(tbodyRef.current.getBoundingClientRect().top + window.scrollY);
+      setScrollMargin((prev) => (prev === top ? prev : top));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, [virtual]);
+  const virtualizer = useWindowVirtualizer({
+    count: virtual ? students.length : 0,
+    estimateSize: () => ROW_ESTIMATE_PX,
+    overscan: OVERSCAN,
+    scrollMargin,
+    getItemKey: (i) => students[i]?.id ?? i,
+  });
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
 
@@ -54,7 +108,7 @@ export default function StudentTable({
   const handleBlockClick = (student) => {
     setSelectedStudent(student);
     setBlockReason('');
-    setBlockKind('fees');
+    setBlockKind(defaultBlockKind);
     setBlockAmount('');
     setBlockError(null);
     setShowBlockModal(true);
@@ -74,8 +128,10 @@ export default function StudentTable({
     if (!selectedStudent) return;
 
     setSaving(true);
-    await onEdit(session, editForm.parentPhone, editForm, selectedStudent.id);
+    const result = await onEdit(session, editForm.parentPhone, editForm, selectedStudent.id);
     setSaving(false);
+    // Keep the form open on failure, so the teacher's typing is not lost.
+    if (result?.success === false) return;
     setShowEditModal(false);
     setSelectedStudent(null);
   };
@@ -105,7 +161,7 @@ export default function StudentTable({
 
     setBlockError(null);
 
-    if (blockKind === 'fees') {
+    if (blockKind === 'fees' && feesUsable) {
       const amount = Number(blockAmount);
       if (!Number.isInteger(amount) || amount < 1) {
         setBlockError('Enter the amount owed, in whole shillings.');
@@ -137,7 +193,7 @@ export default function StudentTable({
       session,
       selectedStudent.id,
       selectedStudent.studentName,
-      blockKind === 'fees' ? '' : blockReason
+      blockKind === 'fees' && feesUsable ? '' : blockReason
     );
 
     setBlocking(false);
@@ -197,24 +253,57 @@ export default function StudentTable({
               <th style={{ width: '100px' }}>Action</th>
             </tr>
           </thead>
-          <tbody>
-            <AnimatePresence>
-              {students.map((student, index) => (
-                <StudentRow
-                  key={student.id}
-                  student={student}
-                  index={index}
-                  session={session}
-                  onDelete={() => handleDeleteClick(student)}
-                  onEdit={() => handleEditClick(student)}
-                  onView={onView ? () => onView(student) : undefined}
-                  onBlock={() => handleBlockClick(student)}
-                  onUnblock={onUnblock}
-                  onApprove={onApprove}
-                  onDecline={onDecline}
-                />
-              ))}
-            </AnimatePresence>
+          <tbody ref={tbodyRef}>
+            {virtual ? (() => {
+              const items = virtualizer.getVirtualItems();
+              const top = items.length ? items[0].start - scrollMargin : 0;
+              const bottom = items.length ? virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin) : 0;
+              return (
+                <>
+                  {top > 0 && <tr aria-hidden="true" style={{ height: top }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
+                  {items.map((item) => {
+                    const student = students[item.index];
+                    return (
+                      <StudentRow
+                        key={student.id}
+                        student={student}
+                        index={item.index}
+                        session={session}
+                        animated={false}
+                        measureRef={virtualizer.measureElement}
+                        dataIndex={item.index}
+                        onDelete={() => handleDeleteClick(student)}
+                        onEdit={() => handleEditClick(student)}
+                        onView={onView ? () => onView(student) : undefined}
+                        onBlock={() => handleBlockClick(student)}
+                        onUnblock={onUnblock}
+                        onApprove={onApprove}
+                        onDecline={onDecline}
+                      />
+                    );
+                  })}
+                  {bottom > 0 && <tr aria-hidden="true" style={{ height: bottom }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
+                </>
+              );
+            })() : (
+              <AnimatePresence>
+                {students.map((student, index) => (
+                  <StudentRow
+                    key={student.id}
+                    student={student}
+                    index={index}
+                    session={session}
+                    onDelete={() => handleDeleteClick(student)}
+                    onEdit={() => handleEditClick(student)}
+                    onView={onView ? () => onView(student) : undefined}
+                    onBlock={() => handleBlockClick(student)}
+                    onUnblock={onUnblock}
+                    onApprove={onApprove}
+                    onDecline={onDecline}
+                  />
+                ))}
+              </AnimatePresence>
+            )}
           </tbody>
         </table>
       </div>
@@ -247,13 +336,14 @@ export default function StudentTable({
               <i className="bi bi-exclamation-triangle" />
             </div>
             <p className="mb-3">
-              Are you sure you want to delete <strong>{selectedStudent.studentName}</strong> from {session} session?
+              Are you sure you want to delete <strong>{selectedStudent.studentName}</strong>?
             </p>
             <p className="text-muted mb-3">
               <small>Parent Phone: {selectedStudent.id}</small>
             </p>
             <div className="alert alert-warning text-start">
-              This action cannot be undone. The student will need to register again to rejoin the class.
+              This cannot be undone. Their <strong>private notes are deleted too</strong>, and they will
+              need to register again to rejoin. Their fee history is kept for your records.
             </div>
           </div>
         </Modal>
@@ -287,13 +377,17 @@ export default function StudentTable({
               Parent Phone
             </label>
             <input
-              type="text"
+              type="tel"
+              inputMode="tel"
               className="form-control"
               value={editForm.parentPhone || ''}
               onChange={(e) => setEditForm({ ...editForm, parentPhone: e.target.value })}
-              placeholder="+1234567890"
+              placeholder="+254712345678"
             />
-            <small className="text-muted">Format: +[country code][number]</small>
+            <small className="text-muted">
+              International format without the leading 0, e.g. +254712345678. Changing it moves the
+              student&apos;s notes and fee history to the new number.
+            </small>
           </div>
 
           <div className="mb-3">
@@ -374,11 +468,14 @@ export default function StudentTable({
                   type="button"
                   role="radio"
                   aria-checked={blockKind === 'fees'}
+                  aria-describedby={feesUsable ? undefined : 'block-fees-unavailable'}
                   className={`btn ${blockKind === 'fees' ? 'btn-primary' : 'btn-outline-primary'}`}
                   onClick={() => setBlockKind('fees')}
+                  disabled={!feesUsable}
                 >
                   <i className="bi bi-cash-coin me-1" aria-hidden="true" />
                   Unpaid fees
+                  {!feesUsable && <i className="bi bi-lock-fill ms-1" aria-hidden="true" />}
                 </button>
                 <button
                   type="button"
@@ -392,7 +489,15 @@ export default function StudentTable({
                 </button>
               </div>
 
-              {blockKind === 'fees' ? (
+              {!feesUsable && (
+                <div id="block-fees-unavailable" className="form-text mb-2">
+                  {feesFlag
+                    ? 'Blocking for unpaid fees records the amount owed, which needs the Silver plan.'
+                    : 'Turn on fee tracking to block for unpaid fees and let students pay by M-Pesa.'}
+                </div>
+              )}
+
+              {blockKind === 'fees' && feesUsable ? (
                 <>
                   <label className="form-label small fw-semibold" htmlFor="block-amount">
                     Amount owed (KES)
@@ -435,7 +540,7 @@ export default function StudentTable({
             <div className="alert alert-warning text-start">
               <i className="bi bi-exclamation-triangle me-2" />
               <small>
-                {blockKind === 'fees'
+                {blockKind === 'fees' && feesUsable
                   ? 'The student sees the balance owed and can clear it by M-Pesa to regain access.'
                   : 'The student will be blocked until you unblock them from this dashboard.'}
               </small>

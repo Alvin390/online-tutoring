@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 
 /**
  * Inactivity warning — Phase 02 D3.
@@ -45,7 +45,7 @@ export default function IdleWarningModal({ open, msRemaining, onStaySignedIn, on
     <AnimatePresence>
       {open && (
         <>
-          <motion.div
+          <m.div
             className="modal-backdrop show"
             initial={{ opacity: 0 }}
             animate={{ opacity: 0.5 }}
@@ -61,7 +61,7 @@ export default function IdleWarningModal({ open, msRemaining, onStaySignedIn, on
             aria-describedby="idle-desc"
           >
             <div className="modal-dialog modal-dialog-centered modal-sm">
-              <motion.div
+              <m.div
                 className="modal-content"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -106,7 +106,7 @@ export default function IdleWarningModal({ open, msRemaining, onStaySignedIn, on
                     </button>
                   </div>
                 </div>
-              </motion.div>
+              </m.div>
             </div>
           </div>
         </>

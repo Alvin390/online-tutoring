@@ -1,10 +1,11 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
-import { z, phoneSchema, sessionSchema, receiptSchema } from '../_lib/validate.js';
+import { z, phoneSchema, sessionSchema, receiptSchema, studentNameSchema } from '../_lib/validate.js';
 import { authenticate } from '../_lib/auth.js';
 import { forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
+import { effectiveApprovalStatus } from '../_lib/studentState.js';
 
 /**
  * Resubmission after a rejection — Phase 04 Part A.
@@ -20,7 +21,7 @@ const schema = z
   .object({
     session: sessionSchema,
     phone: phoneSchema,
-    studentName: z.string().trim().min(2).max(100),
+    studentName: studentNameSchema,
     class: z.string().trim().min(1).max(60),
     subjects: z.string().trim().min(3).max(200),
     receiptMessage: receiptSchema,
@@ -28,6 +29,8 @@ const schema = z
   .strict();
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist and be shown to students.
+  sessions: 'active',
   method: 'POST',
   schema,
   rateLimit: { bucket: 'student_resubmit_ip', limit: 10, windowSeconds: 3600, keyBy: 'ip' },
@@ -62,7 +65,7 @@ export default createHandler({
 
       const data = snap.data();
 
-      if ((data.approvalStatus ?? 'approved') !== 'rejected') {
+      if (effectiveApprovalStatus(data) !== 'rejected') {
         throw forbidden(
           'There is nothing to resubmit — your registration is not in a rejected state.',
           'not_rejected'

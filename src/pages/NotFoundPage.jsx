@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 
 export default function NotFoundPage() {
   return (
@@ -12,13 +12,13 @@ export default function NotFoundPage() {
       <div className="container position-relative">
         <div className="row min-vh-100 align-items-center justify-content-center">
           <div className="col-md-6 text-center">
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="glass-card"
             >
               <div className="py-5">
-                <motion.div
+                <m.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', delay: 0.2 }}
@@ -39,7 +39,7 @@ export default function NotFoundPage() {
                   >
                     <i className="bi bi-exclamation-triangle" />
                   </div>
-                </motion.div>
+                </m.div>
 
                 <h1 className="display-1 fw-bold mb-3">404</h1>
                 <h2 className="fw-bold mb-3">Page Not Found</h2>
@@ -52,7 +52,7 @@ export default function NotFoundPage() {
                   Go Back Home
                 </Link>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         </div>
       </div>

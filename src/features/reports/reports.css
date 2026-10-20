@@ -1,0 +1,159 @@
+/* Phase 13 / 06 — Help & feedback form and the superadmin inboxes.
+   Loaded with the lazy chunks that use it, never on first paint. */
+
+.report-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+@media (max-width: 575.98px) {
+  .report-choice-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.report-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.75rem;
+  border: 2px solid var(--bs-border-color, #dee2e6);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.report-choice:hover {
+  border-color: #93c5fd;
+}
+
+.report-choice.is-selected {
+  border-color: var(--bs-primary, #0d6efd);
+  background: rgba(13, 110, 253, 0.06);
+}
+
+.report-choice:focus-within {
+  outline: 2px solid var(--bs-primary, #0d6efd);
+  outline-offset: 2px;
+}
+
+.report-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4rem;
+  padding: 0.75rem;
+  border: 2px dashed var(--bs-border-color, #ced4da);
+  border-radius: 0.75rem;
+  color: #6b7280;
+  cursor: pointer;
+  text-align: center;
+}
+
+.report-dropzone:focus-visible {
+  outline: 2px solid var(--bs-primary, #0d6efd);
+  outline-offset: 2px;
+}
+
+.report-dropzone.is-dragging {
+  border-color: var(--bs-primary, #0d6efd);
+  background: rgba(13, 110, 253, 0.06);
+}
+
+.report-dropzone.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.report-thumb {
+  position: relative;
+  width: 96px;
+  height: 72px;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+}
+
+.report-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.report-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+}
+
+.report-thumb-progress {
+  position: absolute;
+  left: 0.25rem;
+  right: 0.25rem;
+  bottom: 0.25rem;
+  height: 0.35rem;
+}
+
+.report-thumb-error {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  text-align: center;
+}
+
+.report-thumb-remove {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  padding: 0 0.3rem;
+  line-height: 1.2;
+}
+
+/* Superadmin inbox */
+.report-due-ok {
+  color: #4b5563;
+}
+
+.report-due-soon {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.report-due-overdue {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.report-list-item {
+  cursor: pointer;
+}
+
+.report-list-item.active {
+  background: rgba(13, 110, 253, 0.08);
+}
+
+.report-shot {
+  border: 0;
+  padding: 0;
+  background: none;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.report-shot img {
+  width: 120px;
+  height: 90px;
+  object-fit: cover;
+  display: block;
+}
+
+.report-lightbox img {
+  max-width: 100%;
+  max-height: 70vh;
+  display: block;
+  margin: 0 auto;
+}

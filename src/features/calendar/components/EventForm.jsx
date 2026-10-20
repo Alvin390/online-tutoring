@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { nairobiParts, fromNairobi, formatDayLong, WEEKDAY_LABELS } from '@utils/dates';
 
 /**
@@ -146,7 +146,7 @@ export default function EventForm({
         aria-hidden="true"
       />
 
-      <motion.div
+      <m.div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
@@ -176,7 +176,9 @@ export default function EventForm({
             {[
               { id: 'occurrence', label: 'Only this occurrence' },
               { id: 'future', label: 'This and all future occurrences' },
-              { id: 'all', label: 'Every occurrence, including past ones' },
+              // S-cal (Phase 13 / 07): an "all" edit shifts the whole series by
+              // the change made here; it never moves the series' first date.
+              { id: 'all', label: 'Every occurrence — changes the time for every class in this series' },
             ].map((option) => (
               <div className="form-check" key={option.id}>
                 <input
@@ -382,7 +384,7 @@ export default function EventForm({
             )}
           </div>
         </form>
-      </motion.div>
+      </m.div>
     </>
   );
 }

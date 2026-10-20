@@ -5,6 +5,7 @@ import {
   loadServiceAccount,
   signJwt,
 } from './googleAuth.js';
+import { countExternalSubrequest, simulatedGoogleRtt } from './firestoreRest.js';
 
 /**
  * Firebase Authentication over REST — Phase 12 D3.
@@ -63,6 +64,8 @@ function identityBase() {
 async function identityRequest(path, { method = 'POST', body } = {}) {
   const url = `${identityBase()}${path}`;
 
+  countExternalSubrequest();
+  await simulatedGoogleRtt();
   const response = await fetch(url, {
     method,
     headers: {
@@ -182,6 +185,8 @@ async function getSigningKeys() {
   const now = Date.now();
   if (jwkCache.keys && jwkCache.expiresAt > now) return jwkCache.keys;
 
+  countExternalSubrequest();
+  await simulatedGoogleRtt();
   const response = await fetch(JWK_URL);
   if (!response.ok) {
     throw new AuthError('auth/internal-error', 'Could not fetch Google signing keys.');
@@ -442,6 +447,8 @@ export async function listUsers(maxResults = 1000, pageToken) {
   url.searchParams.set('maxResults', String(Math.min(maxResults, 1000)));
   if (pageToken) url.searchParams.set('nextPageToken', pageToken);
 
+  countExternalSubrequest();
+  await simulatedGoogleRtt();
   const response = await fetch(url.toString(), {
     headers: { Authorization: await identityToolkitAuthHeader() },
   });

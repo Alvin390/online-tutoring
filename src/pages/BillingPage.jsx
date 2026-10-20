@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useBilling } from '@features/billing/context/BillingContext';
 import { useToast } from '@/context/ToastContext';
 import { TIERS, TIER_ORDER, TIER_RANK, formatKes } from '@shared/constants/tiers';
@@ -9,8 +9,11 @@ import {
   cancelSubscription,
   resumeSubscription,
   scheduleDowngrade,
+  cancelDowngrade,
 } from '@services/api/billing';
 import logger from '@utils/logger';
+import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
+
 
 /**
  * Billing page — Phase 03 D3/D6/D8.
@@ -155,6 +158,25 @@ export default function BillingPage() {
     }
   };
 
+  /** Phase 13 / 05 D3: keep the current plan instead of the scheduled downgrade. */
+  const handleKeepPlan = async () => {
+    setBusy(true);
+    try {
+      const result = await cancelDowngrade();
+      if (result.manualRenewalNeeded) {
+        showError(result.note ?? 'Your plan stays as it is, but please renew manually at the end of this period.');
+      } else {
+        showSuccess(`You stay on ${TIERS[tier]?.name ?? 'your current plan'}. The scheduled change is cancelled.`);
+      }
+      await refresh();
+    } catch (err) {
+      logger.error('Cancel downgrade failed', err);
+      showError(err?.message ?? 'Could not cancel the scheduled change.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleCancel = async () => {
     setBusy(true);
     try {
@@ -191,12 +213,17 @@ export default function BillingPage() {
           <h1 className="fw-bold h3 mb-1">Your plan</h1>
           <p className="text-muted mb-0">Manage your subscription and billing.</p>
         </div>
-        {!isLocked && (
-          <Link to="/dashboard" className="btn btn-outline-secondary">
-            <i className="bi bi-arrow-left me-2" aria-hidden="true" />
-            Back to dashboard
-          </Link>
-        )}
+        <div className="d-flex gap-2 flex-wrap">
+          {/* Shown even when locked: a teacher stuck at renewal is exactly
+              who needs a way to reach us. */}
+          <HelpFeedbackButton className="btn btn-outline-primary" />
+          {!isLocked && (
+            <Link to="/dashboard" className="btn btn-outline-secondary">
+              <i className="bi bi-arrow-left me-2" aria-hidden="true" />
+              Back to dashboard
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Lockout notice. Never says "you didn't pay" to anyone but the teacher,
@@ -217,7 +244,7 @@ export default function BillingPage() {
 
       {/* Current status */}
       {!loading && statusCopy && (
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           className="card mb-4"
@@ -273,14 +300,20 @@ export default function BillingPage() {
           </div>
 
           {subscription?.scheduledTierChange?.tier && (
-            <div className="card-footer bg-light small">
-              <i className="bi bi-info-circle me-2" aria-hidden="true" />
-              Changing to <strong>{TIERS[subscription.scheduledTierChange.tier]?.name}</strong> on{' '}
-              {formatDate(subscription.currentPeriodEnd)}. Your data from this plan is kept
-              and comes back if you upgrade again.
+            <div className="card-footer bg-light small d-flex flex-wrap align-items-center gap-2" data-testid="scheduled-change">
+              <span className="flex-grow-1">
+                <i className="bi bi-info-circle me-2" aria-hidden="true" />
+                Downgrade to <strong>{TIERS[subscription.scheduledTierChange.tier]?.name}</strong> scheduled for{' '}
+                {formatDate(subscription.scheduledTierChange.effectiveAt ?? subscription.currentPeriodEnd)}
+                {' '}({formatKes(TIERS[subscription.scheduledTierChange.tier]?.priceKes ?? 0)}/month from then).
+                Your data from this plan is kept and comes back if you upgrade again.
+              </span>
+              <button type="button" className="btn btn-outline-primary btn-sm" onClick={handleKeepPlan} disabled={busy}>
+                Keep {TIERS[tier]?.name ?? 'my plan'} instead
+              </button>
             </div>
           )}
-        </motion.div>
+        </m.div>
       )}
 
       {/* Cancel confirmation — states the exact date, per Q8. */}
@@ -356,7 +389,10 @@ export default function BillingPage() {
           <div className="col-md-4" key={c.id}>
             <button
               type="button"
-              className={`card h-100 w-100 text-start border-2 ${
+              // p-0: a <button> styled as a card. The old global
+              // `* { padding: 0 }` reset used to strip the browser's button
+              // padding; without it "M-Pesa" wrapped (Phase 13 / 07 D5).
+              className={`card h-100 w-100 text-start border-2 p-0 ${
                 channel === c.id ? 'border-primary' : 'border-light'
               }`}
               onClick={() => setChannel(c.id)}
@@ -477,6 +513,7 @@ export default function BillingPage() {
           );
         })}
       </div>
+
     </div>
   );
 }

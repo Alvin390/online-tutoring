@@ -39,9 +39,84 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "dueAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "submittedBy.uid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
+    {
+      "collectionGroup": "notes",
+      "fieldPath": "body",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "audit",
+      "fieldPath": "context",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "audit",
+      "fieldPath": "before",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "audit",
+      "fieldPath": "after",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "notes",
+      "fieldPath": "deletedAt",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "description",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "steps",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "internalNotes",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "context",
+      "indexes": []
+    },
     {
       "collectionGroup": "ledger",
       "fieldPath": "occurredAt",

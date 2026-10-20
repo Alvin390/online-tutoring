@@ -8,7 +8,78 @@ runbook nobody can find during an incident is not a runbook.
 
 ---
 
-## 1. Deployment order
+## 0. Releasing an update to the live app (Phase 13 onward)
+
+Production already exists, so an update is a different procedure from the
+first launch in §1. **Order matters:** the rules check that session documents
+exist, and the live client keeps running the old code until the new Worker is
+promoted.
+
+```
+ 1. Secrets       npm run cf:secrets -- --dry-run --only NAME1,NAME2   then without --dry-run
+                  (Phase 13 adds GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_SENDER)
+                  npx wrangler secret list  -> compare with the §2 table; PUBLIC_BASE_URL must be
+                  the HTTPS workers.dev URL (the Daraja callback refuses to build without it)
+ 2. Indexes       npx firebase-tools deploy --only firestore:indexes --project online-tutoring-6d71a
+                  wait until every index shows "Enabled" (Firebase console -> Firestore -> Indexes)
+ 3. Worker        from master:  npm run deploy           (uploads a version; no traffic yet)
+                  open the version's preview URL, check /api/health and /api/public/bootstrap
+                  npx wrangler versions deploy           (promote; 10% then 100% if you like)
+ 4. Rules         npx firebase-tools deploy --only firestore:rules --project online-tutoring-6d71a
+                  ONLY after step 3: the old client is still live until then
+ 5. Storage rules unchanged (deny-all); no deploy
+ 6. Smoke tests   §0.1
+ 7. Superadmin    confirm the report recipient; press "Send test email"
+```
+
+**If `wrangler secret put` refuses** ("latest version isn't currently
+deployed"), add secrets to a new, undeployed version instead:
+`npx wrangler versions secret bulk secrets.json` (a JSON object of name →
+value; delete the file afterwards). Versions uploaded later inherit them.
+
+**Cloudflare Workers Builds** (the GitHub connection under Workers →
+online-tutoring → Settings → Builds) builds every push. It needs:
+
+- **Build command:** `npm run build:quiet` (Workers Builds installs the
+  dependencies itself, before the build command). Without one, `dist/`
+  never exists and the upload fails with "assets.directory … does not exist".
+- **Deploy command:** `npx wrangler versions upload`. It uploads without
+  sending traffic, so a merge to `master` is NOT a production deploy;
+  promotion stays `npx wrangler versions deploy`.
+- **Build variables:** the `VITE_*` values from `.env.local`. The build
+  inlines them into the browser bundle; without them the app has no
+  Firebase config.
+
+**Never run a bare `npm run cf:secrets` from a dev machine** without
+`--dry-run` first: it uploads every non-blank runtime value in `.dev.vars` /
+`.env.local`. Localhost URLs are skipped automatically, but sandbox keys and
+`EXPOSE_DEV_OTP` are not.
+
+### 0.1 Post-deploy smoke tests
+
+- [ ] `/`, `/morning`, `/evening` and every custom session load; the homepage lists every active session
+- [ ] `/api/health` → `{ status: 'ok', credentials: 'ok' }`; `/api/public/bootstrap` → 200, sessions carry `classes`
+- [ ] Dashboard: tabs list every session; the class-link manager has one slot per session; a saved link is served to a student
+- [ ] Session editor: change a session's class list; the registration dropdown shows it (allow up to 60 s for the cache)
+- [ ] Edit a student's class; edit a test student's phone (notes and balance follow)
+- [ ] M-Pesa (Gold): a payment against a test student updates the statement live with the receipt chip
+- [ ] One bug report and one feature request: both emails arrive (not in Spam); both show in their superadmin tabs
+- [ ] Phone: a student's popup is centred; a toast appears bottom-centre
+- [ ] Sentry: no new error groups for 24 hours
+
+### 0.2 Rollback
+
+- **Worker:** `npx wrangler rollback` (instant; static assets roll back with it)
+- **Rules:** redeploy `firestore.rules` from the previous commit
+- **Indexes:** additive, leave them
+- **Data:** Phase 13 writes are additive, and the previous Worker ignores `reports`, `meta/activity`,
+  `ownerUid`, `classes` and the bootstrap marker. **Exception:** a card downgrade scheduled under
+  Phase 13/05 (`subscription/current.scheduledTierChange.newSubscriptionCode` set) creates Paystack
+  state the old code does not understand; reconcile it in the Paystack dashboard before rolling back.
+
+---
+
+## 1. Deployment order (first launch)
 
 The phases have dependencies, and getting the order wrong locks the teacher out
 of their own dashboard. Follow it exactly.
@@ -68,6 +139,9 @@ with the runtime half of `.env.local`.
 | `PAYSTACK_PLAN_BRONZE/_SILVER/_GOLD` `_TEST/_LIVE` | billing | Plan codes from the Paystack dashboard |
 | `DARAJA_*_SANDBOX/_LIVE` | M-Pesa | Selected by `DARAJA_MODE` |
 | `DARAJA_CALLBACK_IPS` | M-Pesa | Optional override; Safaricom has changed these historically. An override that parses to nothing falls back to the published defaults rather than emptying the allowlist |
+| `GMAIL_CLIENT_ID` `GMAIL_CLIENT_SECRET` `GMAIL_REFRESH_TOKEN` `GMAIL_SENDER` | report emails | One-time setup: [`GMAIL_SETUP.md`](GMAIL_SETUP.md). Without them reports are still saved, just not emailed |
+| `DARAJA_CALLBACK_SECRET` | M-Pesa | Optional. Otherwise generated once and kept in `integrations/daraja` |
+| `DARAJA_CALLBACK_BASE_URL` | M-Pesa, local only | An HTTPS tunnel for real callbacks while testing locally |
 | `EXPOSE_DEV_OTP` | testing only | Returns the student OTP in the API response. **Leave blank anywhere real** — setting it to `true` defeats phone verification |
 
 Non-secret tuning knobs live in `wrangler.jsonc` under `vars`:
@@ -276,17 +350,15 @@ Stated plainly so nobody discovers them under pressure.
 
 | Gap | Impact | Where |
 |---|---|---|
-| **Daraja sandbox flow never executed** | Unknown whether Safaricom accepts our request shape | Phase 09 |
+| Daraja live mode not yet exercised | The sandbox STK push is verified end to end (Phase 13); live needs the production shortcode and passkey | Phase 13 |
 | Manual M-Pesa reconciliation UI not built | Unmatched payments are captured but need API access to attach | Phase 09 |
 | Invoice PDF rendering not built | Ledger and numbering work; no PDF file | Phase 06 |
 | Reminder queue has no drainer | Ladder computes and queues; no email provider configured | Phase 03 |
 | 90-day purge detects but does not delete | Flagged and audited; deliberate — see Phase 03 notes | Phase 03 |
-| E2E (Playwright) not written | Unit, rules and handler layers cover the logic | Phase 11 |
+| E2E (Playwright) covers layout only | `tests/layout/*` checks the phone popup and toast placement; flows are covered by unit, rules and handler tests | Phase 13 |
 | Load testing (k6) not run | Rate limits are unit-tested, not load-tested | Phase 11 |
-| `npm run lint` does not run | ESLint 9 needs `eslint.config.js`; predates this work | Phase 01 |
 | Initial JS 248.9 KB vs 180 KB target | Firebase SDK is ~131 KB of it | Phase 10 |
 | **Free-plan CPU ceiling untested under real load** | 10ms/invocation; sweeps are batched to fit but this is unproven in production | Phase 12 |
-| Cloudflare deploy not yet run against a live account | Verified end to end in local workerd via `wrangler dev` | Phase 12 |
 | `storageRest.js` has no automated tests | WhatsApp attachment upload and its signed URL are unverified against real GCS. Behind `whatsapp.advanced` (Gold), so not launch-blocking | Phase 12 |
 | Firestore queries do not paginate | `runQuery` takes one response page; results go silently partial past it. Fine at hundreds of students, a real ceiling at thousands | Phase 12 |
 
@@ -303,6 +375,18 @@ Stated plainly so nobody discovers them under pressure.
   margin
 - **Ongoing** — weekly Dependabot merges, quarterly key rotation, semi-annual
   restore test
+
+### Release follow-ups (after Phase 13 is live)
+
+Each is a **separate commit**, made only once its evidence exists:
+
+| Remove | When | Evidence |
+|---|---|---|
+| Transitional rules clause `session in ['morning','evening']` | the session bootstrap has run in production | `config/sessionsBootstrap` and both session documents exist (true as of 2026-10-20) |
+| `config/zoomLinks` fallback in `class/link`, and its client write rule | 7 days with no `legacy_link_fallback` | Workers Logs |
+| `sessions.teacherDefined` flag (still on in production) | Phase 13/02 shipped | no code reads it |
+| Rules open-create path for student registration | `/api/student/register` live for 7 days with no client-SDK registrations | logs / audit |
+| `VERCEL_*` GitHub secrets, `vercel.json` remnants | first green Cloudflare deploy | — |
 
 ---
 

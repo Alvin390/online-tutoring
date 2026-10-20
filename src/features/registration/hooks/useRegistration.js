@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { registerStudent } from '@services/firebase/firestore';
+import { registerStudentApi } from '@services/api/public';
 import {
   checkinStudent,
   submitReceipt as submitReceiptApi,
@@ -17,9 +17,9 @@ import { trackRegistration, trackZoomRedirect } from '@utils/analytics';
  * Phase 04 adds the approval-aware flow and replaces the silent redirect with
  * a visible, cancellable countdown.
  *
- * `registerStudent` stays a direct Firestore write: registration is the one
- * operation that precedes identity, and firestore.rules constrains its shape
- * tightly enough to be safe from an unauthenticated caller.
+ * Registration goes through /api/student/register since Phase 13 / 08 A1. It
+ * was a direct Firestore write — the one reason a student's phone downloaded
+ * the Firebase SDK — and is now validated on the server too.
  */
 
 const REDIRECT_SECONDS = 3;
@@ -87,22 +87,23 @@ export const useRegistration = (session) => {
   const register = useCallback(async (phoneNumber, formData) => {
     setLoading(true);
     try {
-      await registerStudent(session, phoneNumber, formData);
+      // The response carries the created record (the same projection as
+      // check-in), so the caller routes on the real approval state without a
+      // second request.
+      const { student } = await registerStudentApi({ session, phone: phoneNumber, ...formData });
       trackRegistration(session);
       showSuccess('Registration successful!');
-
-      // Read back the created record so the caller can route on the real
-      // approval state rather than assuming it.
-      const { student } = await checkinStudent(session, phoneNumber);
       setStudentData(student);
 
       return { success: true, student };
     } catch (error) {
       logger.error('Registration failed', error);
 
-      if (error.code === 'permission-denied') {
+      if (error.code === 'already_registered' || error.code === 'permission-denied') {
         showError('Registration failed. You may already be registered.');
-      } else if (error.code === 'unavailable') {
+      } else if (error.status === 400) {
+        showError(error.message || 'Please check the form and try again.');
+      } else if (error.code === 'unavailable' || error.code === 'network_error' || error.code === 'timeout') {
         showError('Connection error. Please check your internet.');
       } else {
         showError('Registration failed. Please try again.');

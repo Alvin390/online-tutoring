@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useFlag } from '@shared/config/FlagsContext';
 import TierGate from '@shared/components/TierGate';
+import { effectiveApprovalStatus } from '@utils/studentState';
 
 // Lazy: the notes tab carries a composer and tag UI the dashboard should not
 // pay for on first paint, and most dashboard sessions never open it.
@@ -96,7 +97,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
     <AnimatePresence>
       {open && (
         <>
-          <motion.div
+          <m.div
             className="position-fixed top-0 start-0 w-100 h-100"
             style={{ background: 'rgba(0,0,0,0.4)', zIndex: 1045 }}
             initial={{ opacity: 0 }}
@@ -106,7 +107,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
             aria-hidden="true"
           />
 
-          <motion.div
+          <m.div
             ref={panelRef}
             tabIndex={-1}
             role="dialog"
@@ -168,7 +169,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
 
                     <dt className="col-5 text-muted fw-normal">Approval</dt>
                     <dd className="col-7 text-capitalize">
-                      {student.approvalStatus ?? 'approved'}
+                      {effectiveApprovalStatus(student)}
                     </dd>
 
                     <dt className="col-5 text-muted fw-normal">Access</dt>
@@ -255,7 +256,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
                 </div>
               )}
             </div>
-          </motion.div>
+          </m.div>
         </>
       )}
     </AnimatePresence>

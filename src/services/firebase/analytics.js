@@ -1,5 +1,5 @@
-import { logEvent as firebaseLogEvent } from 'firebase/analytics';
-import { analytics } from './config';
+import { getAnalytics, isSupported, logEvent as firebaseLogEvent } from 'firebase/analytics';
+import app from './app';
 import logger from '@utils/logger';
 
 /**
@@ -12,8 +12,18 @@ import logger from '@utils/logger';
  * anything the aggregate count does not.
  */
 
-export const logEvent = (eventName, params = {}) => {
-  if (!analytics || import.meta.env.VITE_ENABLE_ANALYTICS !== 'true') {
+// Created on first load of this module, which only happens when analytics is
+// enabled (see @utils/analytics). Unsupported or blocked → events are dropped.
+let analytics = null;
+const ready = import.meta.env.VITE_ENABLE_ANALYTICS === 'true'
+  ? isSupported()
+    .then((supported) => { if (supported) analytics = getAnalytics(app); })
+    .catch(() => {})
+  : Promise.resolve();
+
+export const logEvent = async (eventName, params = {}) => {
+  await ready;
+  if (!analytics) {
     logger.debug('Analytics (disabled)', { eventName, params });
     return;
   }

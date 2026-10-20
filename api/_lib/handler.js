@@ -4,6 +4,9 @@ import { sendError, badRequest, methodNotAllowed, payloadTooLarge } from './erro
 import { authenticate, requireRole, requireTier } from './auth.js';
 import { enforceRateLimit, clientIp } from './rateLimit.js';
 import { validate } from './validate.js';
+import { subrequestsSpent } from './firestoreRest.js';
+import { getDb } from './firebaseAdmin.js';
+import { assertSessionExists } from './sessions.js';
 
 /**
  * The middleware chain — Phase 01 D4.
@@ -23,6 +26,36 @@ import { validate } from './validate.js';
  */
 
 const MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * Server-Timing instrumentation — Phase 13 / 01 D3.
+ *
+ * Off unless PERF_TIMING=1, which is set for local measurement only. When on,
+ * every response carries `Server-Timing: total;dur=…, auth;dur=…, subreq;desc=N`
+ * so scripts/perf/apiLatency.mjs can attribute latency without a profiler.
+ * `subreq` is the number of Firestore REST calls the request made (the same
+ * counter the subrequest budget uses).
+ */
+function perfTimingEnabled() {
+  return process.env.PERF_TIMING === '1';
+}
+
+/**
+ * Phase 13 / 08 D2: `total` is sent on EVERY response, in production too, so
+ * real-user tooling (Sentry, DevTools) can tell server time from network
+ * time. Nothing internal is exposed by it. The breakdown (`auth`, `subreq`)
+ * stays behind PERF_TIMING.
+ */
+function writeServerTiming(res, perf) {
+  if (!perf || res.headersSent) return;
+  const total = performance.now() - perf.start;
+  const parts = [`total;dur=${total.toFixed(1)}`];
+  if (perf.detailed) {
+    if (perf.auth != null) parts.push(`auth;dur=${perf.auth.toFixed(1)}`);
+    parts.push(`subreq;desc="${subrequestsSpent() - perf.subreqStart}"`);
+  }
+  res.setHeader('Server-Timing', parts.join(', '));
+}
 
 /**
  * Reads the raw request body.
@@ -68,6 +101,25 @@ function parseJsonBody(req, raw) {
 }
 
 /**
+ * Runs `promise` after the response without blocking it — Phase 13 / 06 D5.
+ *
+ * On Cloudflare the promise is handed to `ctx.waitUntil`, so the runtime keeps
+ * the invocation alive until it settles. A bare un-awaited promise (what the
+ * class-link audit, the check-in heartbeat and the feed stamp used to be) can
+ * be cancelled the moment the response is sent. Outside a Worker (Node tests,
+ * scripts) the promise simply runs. Failures are logged, never thrown.
+ *
+ * @returns {Promise<void>} settles when the task does (tests may await it)
+ */
+export function backgroundTask(req, promise, log) {
+  const guarded = Promise.resolve()
+    .then(() => promise)
+    .then(() => undefined, (err) => log?.error?.('Background task failed', err));
+  if (typeof req?.waitUntil === 'function') req.waitUntil(guarded);
+  return guarded;
+}
+
+/**
  * @param {object} opts
  * @param {string|string[]} opts.method        allowed HTTP method(s)
  * @param {boolean} [opts.auth]                require a verified ID token
@@ -76,6 +128,10 @@ function parseJsonBody(req, raw) {
  * @param {object}  [opts.schema]              Zod schema for the body
  * @param {object}  [opts.rateLimit]           { bucket, limit, windowSeconds, keyBy }
  * @param {boolean} [opts.rawBody]             pass raw bytes instead of parsed JSON
+ * @param {'active'|'any'} [opts.sessions]     Phase 13 / 02 D6: after validation,
+ *        every session slug in the body (`session`, `sessions[]`, `sessionIds[]`)
+ *        must exist — 'active' additionally requires it to be shown to students.
+ *        Unknown → 404. Exposed as `handler.sessionPolicy` for the policy test.
  * @param {Function} opts.handle               (ctx) => Promise<any>
  */
 export function createHandler(opts) {
@@ -87,14 +143,30 @@ export function createHandler(opts) {
     schema = null,
     rateLimit = null,
     rawBody = false,
+    sessions = null,
     handle,
   } = opts;
 
   const allowedMethods = Array.isArray(method) ? method : [method];
 
-  return async function vercelHandler(req, res) {
+  async function checkSessions(body) {
+    const slugs = new Set();
+    if (typeof body?.session === 'string') slugs.add(body.session);
+    for (const key of ['sessions', 'sessionIds']) {
+      if (Array.isArray(body?.[key])) body[key].forEach((s) => slugs.add(s));
+    }
+    if (slugs.size === 0) return;
+    const db = getDb();
+    await Promise.all(
+      [...slugs].map((slug) => assertSessionExists(db, slug, { requireActive: sessions === 'active' }))
+    );
+  }
+
+  async function vercelHandler(req, res) {
     const requestId = randomUUID();
     const log = createLogger(requestId);
+    const detailed = perfTimingEnabled();
+    const perf = { start: performance.now(), subreqStart: subrequestsSpent(), auth: null, detailed };
     res.setHeader('X-Request-Id', requestId);
 
     // These endpoints are same-origin only. No CORS headers are emitted at all,
@@ -149,7 +221,9 @@ export function createHandler(opts) {
       // 5. Auth
       let user = null;
       if (auth) {
+        const authStart = perf.detailed ? performance.now() : 0;
         user = await authenticate(req);
+        if (perf.detailed) perf.auth = performance.now() - authStart;
         if (role) requireRole(user, role);
         if (tier) requireTier(user, tier);
       }
@@ -163,16 +237,28 @@ export function createHandler(opts) {
         body = validate(schema, req.query ?? {});
       }
 
+      // 6b. Session existence (Phase 13 / 02 D6) — after validation, so the
+      //     slugs are already well-formed and not reserved.
+      if (sessions) await checkSessions(body);
+
       // 7. Handle
-      const result = await handle({ req, res, body, raw, user, log, ip, requestId });
+      const waitUntil = (promise) => backgroundTask(req, promise, log);
+      const result = await handle({ req, res, body, raw, user, log, ip, requestId, waitUntil });
 
       if (!res.writableEnded) {
+        writeServerTiming(res, perf);
         res.status(200).json(result ?? { ok: true });
       }
     } catch (err) {
-      if (!res.writableEnded) sendError(res, err, log);
+      if (!res.writableEnded) {
+        writeServerTiming(res, perf);
+        sendError(res, err, log);
+      }
     }
-  };
+  }
+
+  vercelHandler.sessionPolicy = sessions;
+  return vercelHandler;
 }
 
 export { MAX_BODY_BYTES };

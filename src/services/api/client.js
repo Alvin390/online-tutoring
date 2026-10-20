@@ -1,4 +1,3 @@
-import { auth } from '@services/firebase/config';
 import logger from '@utils/logger';
 
 /**
@@ -25,11 +24,27 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Where ID tokens come from — Phase 13 / 08 A1.
+ *
+ * This module used to import the Firebase Auth instance directly, which put
+ * the whole Firebase SDK (~130 KB gz) on every page that makes an API call —
+ * including the student pages, which never sign in. Now the staff shell's
+ * AuthProvider registers a token source when it mounts; public pages have
+ * none and simply send no Authorization header.
+ */
+let tokenSource = null;
+
+/** @param {(() => Promise<string|null>)|null} source */
+export function setAuthTokenSource(source) {
+  tokenSource = source;
+}
+
 async function authHeader() {
-  const user = auth.currentUser;
-  if (!user) return {};
+  if (!tokenSource) return {};
   try {
-    return { Authorization: `Bearer ${await user.getIdToken()}` };
+    const token = await tokenSource();
+    return token ? { Authorization: `Bearer ${token}` } : {};
   } catch {
     // An unrefreshable token is the same as no token; the endpoint will decide
     // whether that is acceptable.

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import logger from './shared/utils/logger';
+import { installChunkReload } from './shared/utils/chunkReload';
 
 // Import styles
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -9,6 +10,10 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import './styles/index.css';
 import './styles/animations.css';
 import './styles/dashboard.css';
+
+// A tab left open across a deploy reloads once instead of going blank when a
+// lazy chunk it references no longer exists (Phase 13 / 08 C6b).
+installChunkReload();
 
 // Monitoring — Phase 01 D3 redaction plus Phase 11 D2 release/tag context.
 // Dynamically imported so neither Sentry nor web-vitals enters the dev bundle.

@@ -1,7 +1,8 @@
 import { useState, useMemo, lazy, Suspense } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { resolveBlockReason, formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
+import { useMpesaAvailable } from '@features/payments/hooks/useMpesaAvailable';
 
 // Lazy: only a Gold deployment with an outstanding balance ever renders this,
 // so the payment code should not be in every student's first paint.
@@ -13,13 +14,16 @@ export default function BlockedStudentScreen({
   phoneNumber,
   onSubmitReceipt,
   onBack,
-  loading
+  // Called with the payment result when an M-Pesa payment succeeds.
+  onPaid,
 }) {
   const [newReceipt, setNewReceipt] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const feesEnabled = useFlag('fees.enabled');
-  const darajaEnabled = useFlag('payments.daraja');
+  // Flag + Gold plan + credentials, decided on the server — so a Bronze or
+  // Silver deployment never offers an STK push it would refuse.
+  const mpesaAvailable = useMpesaAvailable();
 
   // Shared with the dashboard's blocked badge, so the teacher sees exactly
   // what the student sees.
@@ -41,14 +45,14 @@ export default function BlockedStudentScreen({
   };
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="glass-card"
     >
       <div className="text-center py-4">
         {/* Blocked Icon */}
-        <motion.div
+        <m.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.2, type: 'spring' }}
@@ -70,10 +74,10 @@ export default function BlockedStudentScreen({
           >
             <i className="bi bi-slash-circle" />
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Message */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
@@ -84,7 +88,7 @@ export default function BlockedStudentScreen({
           <p className="text-muted mb-4">
             Hi <strong>{studentData.studentName}</strong>, your account has been temporarily blocked.
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Reason — DERIVED, not stored (Phase 06 D5).
             When a balance is outstanding the first line reads
@@ -126,12 +130,13 @@ export default function BlockedStudentScreen({
         {/* Pay now — Phase 09. Sits ALONGSIDE the receipt form below rather
             than replacing it: a student without M-Pesa on this handset still
             needs the manual route. */}
-        {darajaEnabled && blockState.balance > 0 && (
+        {mpesaAvailable && blockState.balance > 0 && (
           <Suspense fallback={null}>
             <PayNowPanel
               session={session}
               phone={phoneNumber ?? studentData.parentPhone ?? studentData.id}
               balance={blockState.balance}
+              onPaid={onPaid}
             />
           </Suspense>
         )}
@@ -229,6 +234,6 @@ export default function BlockedStudentScreen({
           </button>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

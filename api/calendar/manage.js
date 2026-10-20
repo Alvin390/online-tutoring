@@ -49,6 +49,8 @@ const schema = z
 const collectionPath = 'calendar/events/items';
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   auth: true,
   role: 'teacher',
@@ -153,6 +155,23 @@ export default createHandler({
 
     if (patch.start && patch.end && patch.end < patch.start) {
       throw badRequest('The event cannot end before it starts.');
+    }
+
+    // S-cal (Phase 13 / 07 D3). An "every occurrence" edit is made from ONE
+    // occurrence, so `start` is that occurrence's (possibly moved) time.
+    // Writing it as the series start moved the series' first date forward and
+    // silently deleted every earlier occurrence. Instead, apply the SHIFT the
+    // teacher made (moved 16:00 → 17:00 = +1 h) to the existing series start;
+    // a title-only edit is a zero shift and leaves the start alone.
+    if (scope === 'all' && existing.isRecurring && body.occurrenceStart && body.start) {
+      const shiftMs = new Date(body.start).getTime() - new Date(body.occurrenceStart).getTime();
+      const seriesStartMs = existing.start?.toMillis?.() ?? new Date(existing.start).getTime();
+      const existingDurationMs = (existing.end?.toMillis?.() ?? seriesStartMs) - seriesStartMs;
+      const durationMs = body.end
+        ? new Date(body.end).getTime() - new Date(body.start).getTime()
+        : existingDurationMs;
+      patch.start = new Date(seriesStartMs + shiftMs);
+      patch.end = new Date(patch.start.getTime() + durationMs);
     }
 
     // 'occurrence' and 'future' on a recurring series become a SPLIT: the

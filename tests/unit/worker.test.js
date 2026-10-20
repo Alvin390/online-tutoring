@@ -108,7 +108,7 @@ describe('cron wiring', () => {
   });
 
   it('every mapped sweep resolves to a real handler', () => {
-    for (const name of Object.values(worker.CRON_SCHEDULE_TO_SWEEP)) {
+    for (const name of Object.values(worker.CRON_SCHEDULE_TO_SWEEP).flat()) {
       expect(typeof routes.CRON_HANDLERS[name]).toBe('function');
     }
   });
@@ -122,9 +122,15 @@ describe('cron wiring', () => {
   });
 
   it('each cron sweep is also reachable over HTTP for a manual run', () => {
-    for (const name of Object.values(worker.CRON_SCHEDULE_TO_SWEEP)) {
+    for (const name of Object.values(worker.CRON_SCHEDULE_TO_SWEEP).flat()) {
       expect(routes.STATIC_ROUTES[`/api/cron/${name}`]).toBeDefined();
     }
+  });
+
+  // Phase 13 / 06: report-email retries ride the ten-minute trigger, after the
+  // M-Pesa sweep, rather than using a cron trigger of their own.
+  it('runs notificationsSweep after mpesaReconcile on the ten-minute trigger', () => {
+    expect(worker.CRON_SCHEDULE_TO_SWEEP['*/10 * * * *']).toEqual(['mpesaReconcile', 'notificationsSweep']);
   });
 });
 

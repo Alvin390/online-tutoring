@@ -593,6 +593,60 @@ describe('queries', () => {
 
   const ids = (snap) => snap.docs.map((d) => d.id);
 
+  // Phase 13 / 07: collection-group queries (the deleted-notes purge).
+  it('collectionGroup() finds a collection at any depth, with filters, like admin', async () => {
+    const group = `p13notes${Date.now()}`;
+    const old = new Date('2026-01-01');
+    const fresh = new Date('2026-06-01');
+    await Promise.all([
+      adminDb.doc(`${PREFIX}/s1/students/a/${group}/n1`).set({ deletedAt: old }),
+      adminDb.doc(`${PREFIX}/s1/students/b/${group}/n2`).set({ deletedAt: fresh }),
+      adminDb.doc(`${PREFIX}/s2/students/c/${group}/n3`).set({ deletedAt: old }),
+      adminDb.doc(`${PREFIX}/s2/students/c/${group}/n4`).set({ deletedAt: null }),
+    ]);
+    const q = (db) => db.collectionGroup(group).where('deletedAt', '<', new Date('2026-03-01')).orderBy('deletedAt');
+    const [a, r] = await Promise.all([q(adminDb).get(), q(restDb).get()]);
+    expect(ids(r).sort()).toEqual(ids(a).sort());
+    expect(ids(r).sort()).toEqual(['n1', 'n3']);
+    expect(r.docs.map((d) => d.ref.path).sort()).toEqual(a.docs.map((d) => d.ref.path).sort());
+  });
+
+  // Phase 13 / 05: a dotted string path is a NESTED field in firebase-admin;
+  // the shim used to escape it as one literal field name and match nothing.
+  it('treats a dotted where()/orderBy() path as a nested field, like admin', async () => {
+    const nested = `${PREFIX}/nestedQuery/items`;
+    await Promise.all([
+      adminDb.doc(`${nested}/x`).set({ context: { flag: true, rank: 2 } }),
+      adminDb.doc(`${nested}/y`).set({ context: { flag: false, rank: 1 } }),
+      adminDb.doc(`${nested}/z`).set({ context: { flag: true, rank: 1 } }),
+    ]);
+    const [a, r] = await Promise.all([
+      adminDb.collection(nested).where('context.flag', '==', true).orderBy('context.rank').get(),
+      restDb.collection(nested).where('context.flag', '==', true).orderBy('context.rank').get(),
+    ]);
+    expect(ids(r)).toEqual(ids(a));
+    expect(ids(r)).toEqual(['z', 'x']);
+  });
+
+  // Phase 13 / 06: startAfter used to be recorded and never sent — page two
+  // came back identical to page one.
+  it('paginates with startAfter (value and snapshot) identically to admin', async () => {
+    const page = (db) => db.collection(collection).orderBy('order').limit(2);
+    const [a1, r1] = await Promise.all([page(adminDb).get(), page(restDb).get()]);
+    expect(ids(r1)).toEqual(ids(a1));
+    expect(ids(r1)).toEqual(['b', 'c']);
+
+    const [a2, r2] = await Promise.all([
+      page(adminDb).startAfter(2).get(),
+      page(restDb).startAfter(2).get(),
+    ]);
+    expect(ids(r2)).toEqual(ids(a2));
+    expect(ids(r2)).toEqual(['a', 'd']);
+
+    const r3 = await page(restDb).startAfter(r1.docs[r1.docs.length - 1]).get();
+    expect(ids(r3)).toEqual(['a', 'd']);
+  });
+
   it('filters on equality identically to admin', async () => {
     const [a, r] = await Promise.all([
       adminDb.collection(collection).where('status', '==', 'pending').get(),
@@ -707,7 +761,52 @@ describe('listing and recursive delete', () => {
 // Subrequest budget
 // ---------------------------------------------------------------------------
 
+describe('incrementAndGet (Phase 13 / 08 C2)', () => {
+  it('creates, increments and returns the new value in one call; concurrent calls never repeat a value', async () => {
+    const ref = restDb.doc(`${PREFIX}/counters/items/c${Date.now()}`);
+    expect(await ref.incrementAndGet('count', 1, { bucket: 'x' })).toBe(1);
+    expect(await ref.incrementAndGet('count', 1, { bucket: 'x' })).toBe(2);
+    const values = await Promise.all(Array.from({ length: 20 }, () => ref.incrementAndGet('count', 1, { bucket: 'x' })));
+    expect([...values].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 3));
+    const snap = await adminDb.doc(ref.path).get();
+    expect(snap.data()).toMatchObject({ count: 22, bucket: 'x' });
+  });
+
+  it('costs exactly one subrequest', async () => {
+    const rest = await import('../../api/_lib/firestoreRest.js');
+    const ref = restDb.doc(`${PREFIX}/counters/items/one${Date.now()}`);
+    const spent = await rest.runWithSubrequestBudget(10, async () => {
+      await ref.incrementAndGet('count', 1, { bucket: 'y' });
+      return rest.subrequestsSpent();
+    });
+    expect(spent).toBe(1);
+  });
+});
+
 describe('subrequest budget', () => {
+  // Phase 13 / 08 C9. The counter was module-scoped: a second request in the
+  // same isolate re-armed it, and the first ran past its own limit.
+  it('two interleaved invocations each stop at their OWN limit', async () => {
+    const rest = await import('../../api/_lib/firestoreRest.js');
+    const tick = () => new Promise((r) => setTimeout(r, 5));
+    const run = (label) => rest.runWithSubrequestBudget(3, async () => {
+      let done = 0;
+      try {
+        for (let i = 0; i < 6; i += 1) {
+          await restDb.doc(`${PREFIX}/budget/${label}/${i}`).get();
+          done += 1;
+          await tick();
+        }
+      } catch (err) {
+        if (!(err instanceof rest.SubrequestBudgetExceeded)) throw err;
+      }
+      return { done, spent: rest.subrequestsSpent() };
+    });
+    const [a, b] = await Promise.all([run('a'), run('b')]);
+    expect(a).toEqual({ done: 3, spent: 4 });
+    expect(b).toEqual({ done: 3, spent: 4 });
+  });
+
   it('stops cleanly instead of being killed by the platform', async () => {
     const rest = await import('../../api/_lib/firestoreRest.js');
     const path = freshPath();

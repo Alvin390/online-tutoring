@@ -3,10 +3,10 @@ import { createLogger } from '../../_lib/log.js';
 import { readRawBody } from '../../_lib/handler.js';
 import { getDb, FieldValue } from '../../_lib/firebaseAdmin.js';
 import { safeCompare } from '../../_lib/crypto.js';
-import { isSafaricomIp, parseCallbackMetadata, interpretResultCode } from '../../_lib/daraja.js';
+import { isSafaricomIp, parseCallbackMetadata, interpretResultCode, expectedCallbackSecret } from '../../_lib/daraja.js';
 import { fromDarajaAmount, parseDarajaTimestamp } from '../../_lib/money.js';
 import { clientIp } from '../../_lib/rateLimit.js';
-import { postEntry } from '../../_lib/ledger.js';
+import { postEntry, fillMissingReference } from '../../_lib/ledger.js';
 import { shouldAutoUnblock } from '../../_lib/feeState.js';
 import { tryWriteAudit } from '../../_lib/audit.js';
 
@@ -72,8 +72,8 @@ export default async function handler(req, res) {
 
   // --- 2. Path secret, compared in constant time.
   const db = getDb();
-  const integrationSnap = await db.doc('integrations/daraja').get();
-  const expectedSecret = integrationSnap.exists ? integrationSnap.data().callbackSecret : null;
+  // Phase 13 / 04 D1: env override or the stored secret (never created here).
+  const expectedSecret = await expectedCallbackSecret(db);
   const providedSecret = req.query?.secret ?? '';
 
   if (!expectedSecret || !safeCompare(providedSecret, expectedSecret)) {
@@ -122,6 +122,29 @@ export default async function handler(req, res) {
 
     // --- 4. Idempotency. Safaricom retries; a duplicate must be a no-op.
     if (tx.status !== 'pending') {
+      // Phase 13 / 04 D3 — a LATE callback for a payment the reconcile cron
+      // already posted. That posting has no receipt (Daraja's status query
+      // returns none), and this callback carries it: fill it in, once. Still
+      // a no-op for money — the amount was posted already and is never
+      // re-posted.
+      if (tx.status === 'success' && !tx.mpesaReceipt
+          && interpretResultCode(callback.ResultCode).status === 'success') {
+        const meta = parseCallbackMetadata(callback);
+        const lateReceipt = meta.MpesaReceiptNumber ?? null;
+        const lateAmount = fromDarajaAmount(meta.Amount);
+        if (lateReceipt && lateAmount === tx.expectedAmount) {
+          const filled = await fillMissingReference({
+            phone: tx.phone,
+            entryId: tx.ledgerEntryId ?? `mpesa_${checkoutRequestId}`,
+            reference: String(lateReceipt),
+            addedBy: 'system:daraja-late-callback',
+          });
+          await txRef.set({ mpesaReceipt: String(lateReceipt), receivedAmount: lateAmount }, { merge: true });
+          log.info('Late M-Pesa callback filled in the receipt', { checkoutRequestId, filled: filled.filled });
+          return res.status(200).json(ACCEPTED);
+        }
+      }
+
       log.info('Duplicate M-Pesa callback ignored', { checkoutRequestId, status: tx.status });
       return res.status(200).json(ACCEPTED);
     }
@@ -212,23 +235,13 @@ export default async function handler(req, res) {
       idempotencyKey: `mpesa_${checkoutRequestId}`,
     });
 
-    await txRef.set(
-      {
-        status: 'success',
-        resultCode: 0,
-        resultDesc: callback.ResultDesc ?? null,
-        mpesaReceipt: receipt,
-        receivedAmount: amount,
-        ledgerEntryId: posted.entryId,
-        balanceAfter: posted.balance,
-        completedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
     // --- Auto-unblock, which is precisely the Phase 06 D5 rule reached
     // automatically. A PARTIAL payment leaves the student blocked, and the
     // derived block reason updates itself to the new, smaller balance.
+    //
+    // BEFORE the transaction is marked 'success': the student's screen polls
+    // that status and, on success, re-checks the student and takes them to
+    // class. Marking success first let that re-check see the old block.
     let unblocked = false;
     if (!posted.duplicate && shouldAutoUnblock(posted.balance)) {
       const studentRef = db.doc(`sessions/${tx.session}/students/${tx.phone}`);
@@ -247,6 +260,20 @@ export default async function handler(req, res) {
         unblocked = true;
       }
     }
+
+    await txRef.set(
+      {
+        status: 'success',
+        resultCode: 0,
+        resultDesc: callback.ResultDesc ?? null,
+        mpesaReceipt: receipt,
+        receivedAmount: amount,
+        ledgerEntryId: posted.entryId,
+        balanceAfter: posted.balance,
+        completedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
     log.info('M-Pesa payment posted', {
       checkoutRequestId,

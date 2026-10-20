@@ -176,7 +176,8 @@ describe('EXDATE', () => {
         }),
       ],
     });
-    expect(ics).toContain('EXDATE:20260316T060000Z');
+    // Phase 13 / 07: same zone as the recurring DTSTART (06:00Z = 09:00 EAT).
+    expect(ics).toContain('EXDATE;TZID=Africa/Nairobi:20260316T090000');
   });
 
   it('omits EXDATE when there are no exceptions', () => {

@@ -3,7 +3,8 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { postEntry, reverseEntry, PAYMENT_METHODS } from '../_lib/ledger.js';
 import { shouldAutoUnblock } from '../_lib/feeState.js';
-import { badRequest, notFound } from '../_lib/errors.js';
+import { badRequest, notFound, forbidden } from '../_lib/errors.js';
+import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
 /**
@@ -33,6 +34,8 @@ const schema = z
   .strict();
 
 export default createHandler({
+  // Phase 13 / 02 D6: every session slug in the body must exist.
+  sessions: 'any',
   method: 'POST',
   auth: true,
   role: 'teacher',
@@ -40,6 +43,13 @@ export default createHandler({
   schema,
   rateLimit: { bucket: 'fees_post', limit: 300, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {
+    // Phase 13 / 04 D5: the flag is enforced here too. With fees off, the UI
+    // used to be the only thing preventing a silent ledger charge (the block
+    // modal posted one by default).
+    if (!(await isEnabled('fees.enabled'))) {
+      throw forbidden('Fees are not enabled.', 'feature_disabled');
+    }
+
     const { session, phone, type } = body;
     const db = getDb();
 

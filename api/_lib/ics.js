@@ -63,6 +63,15 @@ function formatUtc(date) {
   return `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}Z`;
 }
 
+/**
+ * Nairobi wall-clock form, for use with `;TZID=Africa/Nairobi`:
+ * 20261005T010000. Kenya is UTC+3 with no DST, so this is a fixed offset.
+ */
+function formatNairobi(date) {
+  const iso = new Date(new Date(date).getTime() + 3 * 60 * 60 * 1000).toISOString();
+  return `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}`;
+}
+
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
 function buildRrule(recurrence) {
@@ -120,13 +129,25 @@ export function buildIcs({ events, calendarName = 'Class Calendar', domain = 'on
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${escapeText(event.id)}@${escapeText(domain)}`);
     lines.push(`DTSTAMP:${stamp}`);
-    lines.push(`DTSTART:${formatUtc(start)}`);
-    lines.push(`DTEND:${formatUtc(end)}`);
+
+    // S-ics (Phase 13 / 07 D3). RFC 5545 evaluates BYDAY in DTSTART's zone.
+    // With a UTC DTSTART, a Monday 01:00 EAT class is Sunday 22:00 UTC — so
+    // calendar apps repeated it on the wrong weekday for anything between
+    // 00:00 and 03:00 Nairobi time. Recurring events now carry local time
+    // with TZID (the VTIMEZONE above); UNTIL stays UTC, as the RFC requires
+    // when DTSTART has a TZID. One-off events have no BYDAY and keep UTC.
+    const rrule = buildRrule(event.recurrence);
+    if (rrule) {
+      lines.push(`DTSTART;TZID=Africa/Nairobi:${formatNairobi(start)}`);
+      lines.push(`DTEND;TZID=Africa/Nairobi:${formatNairobi(end)}`);
+    } else {
+      lines.push(`DTSTART:${formatUtc(start)}`);
+      lines.push(`DTEND:${formatUtc(end)}`);
+    }
     lines.push(fold(`SUMMARY:${escapeText(event.title)}`));
 
     if (event.description) lines.push(fold(`DESCRIPTION:${escapeText(event.description)}`));
 
-    const rrule = buildRrule(event.recurrence);
     if (rrule) lines.push(`RRULE:${rrule}`);
 
     const exceptions = (event.recurrenceExceptions ?? [])
@@ -134,7 +155,10 @@ export function buildIcs({ events, calendarName = 'Class Calendar', domain = 'on
       .filter((d) => !Number.isNaN(d.getTime()));
 
     if (exceptions.length > 0) {
-      lines.push(`EXDATE:${exceptions.map(formatUtc).join(',')}`);
+      // Same zone as DTSTART, or strict clients ignore the exclusion.
+      lines.push(rrule
+        ? fold(`EXDATE;TZID=Africa/Nairobi:${exceptions.map(formatNairobi).join(',')}`)
+        : fold(`EXDATE:${exceptions.map(formatUtc).join(',')}`));
     }
 
     lines.push('STATUS:CONFIRMED');
@@ -147,4 +171,4 @@ export function buildIcs({ events, calendarName = 'Class Calendar', domain = 'on
   return `${lines.join(CRLF)}${CRLF}`;
 }
 
-export { escapeText, fold, formatUtc, buildRrule };
+export { escapeText, fold, formatUtc, formatNairobi, buildRrule };
