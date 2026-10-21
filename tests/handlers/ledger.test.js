@@ -91,6 +91,44 @@ describe('sequential postings', () => {
   });
 });
 
+describe('collected this month', () => {
+  const aggregates = async () => (await db().doc('aggregates/dashboard').get()).data();
+
+  it('adds up payments within the month and stamps the month', async () => {
+    await post({ type: 'invoice', amount: 3000 });
+    await post({ type: 'payment', amount: 1000, method: 'cash' });
+    await post({ type: 'payment', amount: 500, method: 'mpesa' });
+    const agg = await aggregates();
+    expect(agg.collectedThisMonth).toBe(1500);
+    expect(agg.collectedMonth).toBe(ledger.collectedMonthKey());
+  });
+
+  it("the first payment of a new month starts again instead of adding to last month's", async () => {
+    await db().doc('aggregates/dashboard').set({ collectedThisMonth: 9000, collectedMonth: '2000-01', totalOutstanding: 0 });
+    await post({ type: 'payment', amount: 700, method: 'cash' });
+    const agg = await aggregates();
+    expect(agg.collectedThisMonth).toBe(700);
+    expect(agg.collectedMonth).toBe(ledger.collectedMonthKey());
+  });
+
+  it('a total written before the month stamp existed also starts again', async () => {
+    await db().doc('aggregates/dashboard').set({ collectedThisMonth: 2003, totalOutstanding: 0 });
+    await post({ type: 'payment', amount: 100, method: 'cash' });
+    expect((await aggregates()).collectedThisMonth).toBe(100);
+  });
+
+  it('invoices leave the collected total alone', async () => {
+    await post({ type: 'payment', amount: 400, method: 'cash' });
+    await post({ type: 'invoice', amount: 3000 });
+    expect((await aggregates()).collectedThisMonth).toBe(400);
+  });
+
+  it('the month key is in Nairobi time (UTC+3)', () => {
+    expect(ledger.collectedMonthKey(new Date('2026-10-31T20:59:59Z'))).toBe('2026-10');
+    expect(ledger.collectedMonthKey(new Date('2026-10-31T21:00:00Z'))).toBe('2026-11');
+  });
+});
+
 /**
  * CONCURRENCY — the Phase 06 deferral, restated in Phase 12.
  *

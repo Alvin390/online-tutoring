@@ -5,6 +5,7 @@ import { ApiError } from '../_lib/errors.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { projectStudent } from '../_lib/studentProjection.js';
 import { sessionClasses } from '../_lib/sessions.js';
+import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
 
 /**
  * Student registration — Phase 13 / 08 A1.
@@ -30,7 +31,12 @@ const schema = z
     phone: phoneSchema,
     studentName: studentNameSchema,
     class: text(1, 60),
-    subjects: text(3, 200),
+    // Phase 14: the checked subjects (an array), or free text for a class
+    // without a subject list. Stored as comma-separated text either way.
+    subjects: z.union([
+      text(3, MAX_SUBJECTS_TEXT),
+      z.array(text(1, MAX_SUBJECT_NAME)).min(1).max(MAX_SUBJECTS),
+    ]),
     receiptMessage: text(10, 500),
   })
   .strict();
@@ -53,10 +59,14 @@ export default createHandler({
     // The class must be one this session offers (the teacher edits the list
     // per session). A session with no document yet offers the defaults.
     const sessionSnap = await db.doc(`sessions/${session}`).get();
-    const offered = sessionClasses(sessionSnap.exists ? sessionSnap.data() : null);
+    const sessionDoc = sessionSnap.exists ? sessionSnap.data() : null;
+    const offered = sessionClasses(sessionDoc);
     if (!offered.includes(body.class)) {
       throw new ApiError(400, 'invalid_class', 'Please choose a class from the list.');
     }
+    const subjects = checkSubjectChoice(subjectsForClass(sessionDoc, body.class), body.subjects, body.class);
+    if (!subjects.ok) throw new ApiError(400, 'invalid_subjects', subjects.message);
+    if (subjects.text.length > MAX_SUBJECTS_TEXT) throw new ApiError(400, 'invalid_subjects', 'Too many subjects.');
 
     // Mandated initial state — identical to the rules: never blocked, never
     // pre-approved, no receipt approved, no balance.
@@ -64,7 +74,7 @@ export default createHandler({
       studentName: body.studentName,
       parentPhone: phone,
       class: body.class,
-      subjects: body.subjects,
+      subjects: subjects.text,
       receiptMessage: body.receiptMessage,
       registeredAt: FieldValue.serverTimestamp(),
       session,

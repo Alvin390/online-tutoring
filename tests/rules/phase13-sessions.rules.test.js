@@ -76,6 +76,14 @@ describe('registration into teacher-defined sessions', () => {
     );
   });
 
+  it('Phase 14: subjects up to 500 characters (every subject of a class, joined); 501 refused', async () => {
+    await seed(env, 'sessions/weekend', sessionDoc('weekend'));
+    await assertSucceeds(setDoc(doc(anon(env), 'sessions/weekend/students/+254711000026'),
+      { ...registration('+254711000026', 'weekend'), subjects: 'x'.repeat(500) }));
+    await assertFails(setDoc(doc(anon(env), 'sessions/weekend/students/+254711000027'),
+      { ...registration('+254711000027', 'weekend'), subjects: 'x'.repeat(501) }));
+  });
+
   it('still requires the body session to match the path', async () => {
     await seed(env, 'sessions/weekend', sessionDoc('weekend'));
     await assertFails(
@@ -110,6 +118,13 @@ describe('session document shape (D8)', () => {
     await assertFails(setDoc(doc(teacher(env), 'sessions/saturday'), sessionDoc('saturday', { classes: [] })));
     await assertFails(setDoc(doc(teacher(env), 'sessions/saturday'),
       sessionDoc('saturday', { classes: Array.from({ length: 31 }, (_, i) => `Class ${i}`) })));
+  });
+
+  it('Phase 14: accepts subjectsByClass as a map, and refuses it as anything else', async () => {
+    await assertSucceeds(setDoc(doc(teacher(env), 'sessions/saturday'), sessionDoc('saturday', {
+      classes: ['Form 3'], subjectsByClass: { 'Form 3': [{ name: 'English', compulsory: true }] },
+    })));
+    await assertFails(setDoc(doc(teacher(env), 'sessions/sunday'), sessionDoc('sunday', { subjectsByClass: ['English'] })));
   });
 
   it('rejects an unknown key', async () => {

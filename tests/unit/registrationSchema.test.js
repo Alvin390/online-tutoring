@@ -130,7 +130,7 @@ describe('Registration Schemas', () => {
       const invalidData = {
         studentName: 'John Doe',
         class: 'Form Three',
-        subjects: 'A'.repeat(201),
+        subjects: 'A'.repeat(501), // Phase 14: the limit is 500 (every subject of a class)
         receiptMessage: 'Payment details here',
       };
 

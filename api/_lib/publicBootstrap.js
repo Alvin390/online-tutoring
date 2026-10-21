@@ -2,6 +2,7 @@ import { getDb } from './firebaseAdmin.js';
 import { getFlags } from './flags.js';
 import { mpesaAvailability } from './mpesaAvailability.js';
 import { sessionClasses } from './sessions.js';
+import { resolveSubjectsByClass } from './subjects.js';
 
 /**
  * Public bootstrap data and its per-isolate cache — Phase 13 / 08 A1.
@@ -39,6 +40,8 @@ async function load() {
       // The registration form's class dropdown (the defaults if the teacher
       // has not set a list for this session).
       out.classes = sessionClasses(data);
+      // Phase 14: each class's subjects, resolved (defaults by class name).
+      out.subjectsByClass = resolveSubjectsByClass(data, out.classes);
       return out;
     })
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));

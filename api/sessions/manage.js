@@ -13,6 +13,7 @@ import {
   MAX_CLASSES,
   MAX_CLASS_NAME,
 } from '../_lib/sessions.js';
+import { MAX_SUBJECTS, MAX_SUBJECT_NAME } from '../_lib/subjects.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
 /**
@@ -68,6 +69,36 @@ const classesSchema = z
   .refine((list) => new Set(list.map((c) => c.toLowerCase())).size === list.length, 'Each class may appear only once.')
   .optional();
 
+/**
+ * Phase 14: the subjects each class offers on the registration form, keyed by
+ * class name. A class with no entry offers its default subjects (by name); an
+ * empty list means the free-text subjects box. Keys that are not one of the
+ * session's classes are dropped on save.
+ */
+/** Keeps only the entries for the session's classes, in the classes' order. */
+function onlyClasses(map, classes) {
+  return Object.fromEntries(classes.filter((c) => Object.prototype.hasOwnProperty.call(map, c)).map((c) => [c, map[c]]));
+}
+
+const subjectSchema = z
+  .object({
+    name: z.string().trim().min(1, 'A subject name cannot be blank.').max(MAX_SUBJECT_NAME)
+      .transform((s) => s.replace(/\s+/g, ' ')),
+    compulsory: z.boolean().default(false),
+  })
+  .strict();
+
+const subjectsByClassSchema = z
+  .record(z.string().trim().min(1).max(MAX_CLASS_NAME), z.array(subjectSchema).max(MAX_SUBJECTS, `At most ${MAX_SUBJECTS} subjects per class.`))
+  .superRefine((map, ctx) => {
+    for (const [cls, list] of Object.entries(map)) {
+      if (new Set(list.map((s) => s.name.toLowerCase())).size !== list.length) {
+        ctx.addIssue({ code: 'custom', message: `Each subject may appear only once in ${cls}.` });
+      }
+    }
+  })
+  .optional();
+
 const schema = z
   .object({
     action: z.enum(['create', 'update', 'delete', 'reorder', 'setLink', 'bootstrap']),
@@ -79,6 +110,7 @@ const schema = z
     active: z.boolean().optional(),
     schedule: scheduleSchema,
     classes: classesSchema,
+    subjectsByClass: subjectsByClassSchema,
     url: z.string().trim().max(2048).optional(),
     order: z.array(z.string().trim().max(40)).max(50).optional(),
     reassignTo: z.string().trim().max(40).nullable().optional(),
@@ -126,6 +158,9 @@ export default createHandler({
           active: body.active ?? true,
           schedule: body.schedule ?? null,
           classes: body.classes ?? [...DEFAULT_CLASSES],
+          ...(body.subjectsByClass
+            ? { subjectsByClass: onlyClasses(body.subjectsByClass, body.classes ?? DEFAULT_CLASSES) }
+            : {}),
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -176,6 +211,13 @@ export default createHandler({
           && JSON.stringify(body.classes) !== JSON.stringify(current.classes ?? null)) {
         patch.classes = body.classes;
         changed.push('classes');
+      }
+      if (body.subjectsByClass !== undefined) {
+        const next = onlyClasses(body.subjectsByClass, body.classes ?? current.classes ?? DEFAULT_CLASSES);
+        if (JSON.stringify(next) !== JSON.stringify(current.subjectsByClass ?? null)) {
+          patch.subjectsByClass = next;
+          changed.push('subjectsByClass');
+        }
       }
 
       await ref.set(patch, { merge: true });

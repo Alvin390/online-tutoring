@@ -35,28 +35,34 @@ describe('SessionEditor: classes students can choose', () => {
 
   it('a session without its own list shows the defaults it has been offering', async () => {
     await renderEditor();
-    expect(listValues()).toEqual(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+    expect(listValues()).toEqual(['Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
   });
 
   it('add, rename, remove and reorder — and only the changed list is saved', async () => {
     const onSave = await renderEditor();
-    fireEvent.change(screen.getByLabelText('New class name'), { target: { value: '  Grade   7 ' } });
+    fireEvent.change(screen.getByLabelText('New class name'), { target: { value: '  Grade   9 ' } });
     fireEvent.keyDown(screen.getByLabelText('New class name'), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Form Four' }));
-    fireEvent.change(screen.getByLabelText('Class 1'), { target: { value: 'Form 1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Move Grade 7 up' }));
-    expect(listValues()).toEqual(['Form 1', 'Form Two', 'Grade 7', 'Form Three']);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Form 3' }));
+    fireEvent.change(screen.getByLabelText('Class 1'), { target: { value: 'Grade Seven' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Move Grade 9 up' }));
+    expect(listValues()).toEqual(['Grade Seven', 'Grade 8', 'Grade 9', 'Grade 10']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0]).toEqual({ classes: ['Form 1', 'Form Two', 'Grade 7', 'Form Three'] });
+    expect(onSave.mock.calls[0][0].classes).toEqual(['Grade Seven', 'Grade 8', 'Grade 9', 'Grade 10']);
+    // Phase 14: the subjects travel with the classes — renamed under the new
+    // name, the new class (no defaults for "Grade 9") with none.
+    expect(Object.keys(onSave.mock.calls[0][0].subjectsByClass)).toEqual(['Grade Seven', 'Grade 8', 'Grade 9', 'Grade 10']);
+    expect(onSave.mock.calls[0][0].subjectsByClass['Grade Seven']).toHaveLength(9);
+    expect(onSave.mock.calls[0][0].subjectsByClass['Grade 9']).toEqual([]);
+    expect(Object.keys(onSave.mock.calls[0][0]).sort()).toEqual(['classes', 'subjectsByClass']);
   });
 
   it('refuses a duplicate when adding (case-insensitive)', async () => {
     await renderEditor();
-    fireEvent.change(screen.getByLabelText('New class name'), { target: { value: 'form two' } });
+    fireEvent.change(screen.getByLabelText('New class name'), { target: { value: 'grade 8' } });
     fireEvent.click(screen.getByRole('button', { name: /Add/ }));
-    expect(screen.getByRole('alert')).toHaveTextContent('"form two" is already in the list.');
+    expect(screen.getByRole('alert')).toHaveTextContent('"grade 8" is already in the list.');
     expect(listValues()).toHaveLength(4);
   });
 
@@ -81,7 +87,7 @@ describe('SessionEditor: classes students can choose', () => {
     fireEvent.click(screen.getByRole('button', { name: /Reset to defaults/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0].classes).toEqual(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+    expect(onSave.mock.calls[0][0].classes).toEqual(['Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
   });
 });
 
@@ -97,7 +103,7 @@ describe('RegistrationForm: the class dropdown is the session\'s list', () => {
   });
 
   it('falls back to the defaults when the session has no list', async () => {
-    expect(await renderForm()).toEqual(['Select class...', 'Form One', 'Form Two', 'Form Three', 'Form Four']);
+    expect(await renderForm()).toEqual(['Select class...', 'Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
   });
 });
 

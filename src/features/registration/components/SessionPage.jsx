@@ -39,7 +39,7 @@ const PAID_RECHECK_INTERVAL_MS = 1500;
 const PAID_RECHECKS = 3;
 const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
-export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes }) {
+export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes, subjectsByClass }) {
   const timeLine = formatSchedule(schedule);
   const [step, setStep] = useState('checkin');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -227,6 +227,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   <RegistrationForm
                     session={session}
                     classes={classes}
+                    subjectsByClass={subjectsByClass}
                     phoneNumber={phoneNumber}
                     onSubmit={handleRegistration}
                     onBack={handleBack}
@@ -250,6 +251,8 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                 <RejectedScreen
                   key="rejected"
                   session={session}
+                  classes={classes}
+                  subjectsByClass={subjectsByClass}
                   studentData={studentData}
                   onResubmit={handleResubmit}
                   onBack={handleBack}

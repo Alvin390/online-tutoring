@@ -127,7 +127,7 @@ export const SESSION_TZ = 'Africa/Nairobi';
  * session created before this existed) offers these. Mirror of DEFAULT_CLASSES
  * in src/shared/constants/sessions.js (parity-tested).
  */
-export const DEFAULT_CLASSES = Object.freeze(['Form One', 'Form Two', 'Form Three', 'Form Four']);
+export const DEFAULT_CLASSES = Object.freeze(['Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
 export const MAX_CLASSES = 30;
 export const MAX_CLASS_NAME = 60;
 

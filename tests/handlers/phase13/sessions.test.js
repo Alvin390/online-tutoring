@@ -345,7 +345,7 @@ void setFlags;
 // teacher (sessions/manage `classes`); registration only accepts a listed class.
 describe('session class lists', () => {
   const manage = (body) => call('/api/sessions/manage', { token: gold, body });
-  const DEFAULTS = ['Form One', 'Form Two', 'Form Three', 'Form Four'];
+  const DEFAULTS = ['Grade 7', 'Grade 8', 'Grade 10', 'Form 3'];
   const register = (session, phone, cls) => call('/api/student/register', {
     body: { session, phone, studentName: 'Amina Wanjiru', class: cls, subjects: 'Mathematics', receiptMessage: 'QAB123XYZ9 Confirmed' },
   });

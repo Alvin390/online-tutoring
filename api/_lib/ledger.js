@@ -33,6 +33,14 @@ export const invoiceRef = (db, id) => db.doc(`fees/invoices/items/${id}`);
 export const counterRef = (db, name) => db.doc(`fees/counters/items/${name}`);
 
 /**
+ * `YYYY-MM` in Nairobi terms (UTC+3, no daylight saving) — the month that
+ * `collectedThisMonth` belongs to. The dashboard compares it with the current
+ * month, so the figure reads 0 from the 1st even before a payment arrives.
+ */
+export const collectedMonthKey = (date = new Date()) =>
+  new Date(date.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 7);
+
+/**
  * Posts one entry.
  *
  * Everything below happens inside a SINGLE Firestore transaction:
@@ -101,10 +109,11 @@ export async function postEntry(opts) {
 
   return db.runTransaction(async (tx) => {
     // ---- All reads must precede all writes in a Firestore transaction.
-    const [accountSnap, entrySnap, studentSnap] = await Promise.all([
+    const [accountSnap, entrySnap, studentSnap, aggregatesSnap] = await Promise.all([
       tx.get(account),
       tx.get(entry),
       tx.get(studentDoc),
+      tx.get(aggregates),
     ]);
 
     // Idempotency: a replayed Daraja callback or a double-clicked button must
@@ -180,12 +189,23 @@ export async function postEntry(opts) {
     }
 
     // ---- 4. Aggregates, so the KPI cards cost one document read regardless of
-    //         how many students there are.
+    //         how many students there are. The first payment of a new month
+    //         starts "collected this month" again rather than adding to the
+    //         last month's total.
+    let collected = {};
+    if (type === 'payment') {
+      const month = collectedMonthKey();
+      const sameMonth = aggregatesSnap.exists && aggregatesSnap.data().collectedMonth === month;
+      collected = {
+        collectedThisMonth: sameMonth ? FieldValue.increment(amount) : amount,
+        collectedMonth: month,
+      };
+    }
     tx.set(
       aggregates,
       {
         totalOutstanding: FieldValue.increment(delta),
-        ...(type === 'payment' ? { collectedThisMonth: FieldValue.increment(amount) } : {}),
+        ...collected,
         updatedAt: now,
       },
       { merge: true }

@@ -6,6 +6,8 @@ import { forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { effectiveApprovalStatus } from '../_lib/studentState.js';
+import { ApiError } from '../_lib/errors.js';
+import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
 
 /**
  * Resubmission after a rejection — Phase 04 Part A.
@@ -23,7 +25,10 @@ const schema = z
     phone: phoneSchema,
     studentName: studentNameSchema,
     class: z.string().trim().min(1).max(60),
-    subjects: z.string().trim().min(3).max(200),
+    subjects: z.union([
+      z.string().trim().min(3).max(MAX_SUBJECTS_TEXT),
+      z.array(z.string().trim().min(1).max(MAX_SUBJECT_NAME)).min(1).max(MAX_SUBJECTS),
+    ]),
     receiptMessage: receiptSchema,
   })
   .strict();
@@ -58,6 +63,17 @@ export default createHandler({
 
     const db = getDb();
     const ref = db.doc(`sessions/${session}/students/${phone}`);
+
+    // Phase 14: the same subject rules as registration, for the class given.
+    const sessionSnap = await db.doc(`sessions/${session}`).get();
+    const choice = checkSubjectChoice(
+      subjectsForClass(sessionSnap.exists ? sessionSnap.data() : null, details.class),
+      details.subjects,
+      details.class
+    );
+    if (!choice.ok) throw new ApiError(400, 'invalid_subjects', choice.message);
+    if (choice.text.length > MAX_SUBJECTS_TEXT) throw new ApiError(400, 'invalid_subjects', 'Too many subjects.');
+    details.subjects = choice.text;
 
     const result = await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
