@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@services/firebase/config';
 import { formatKes } from '@utils/blockReason';
+import { dayKey } from '@shared/utils/dates';
 import logger from '@utils/logger';
 
 /**
@@ -56,7 +57,13 @@ export default function FeeKpiCards() {
   return (
     <div className="row g-3 mb-4">
       {CARDS.map((card) => {
-        const raw = Number(aggregates[card.key] ?? 0);
+        // A total stamped with an earlier month is last month's: this month
+        // has collected nothing yet. (No stamp: written before the stamp
+        // existed, shown as is.)
+        const stale = card.key === 'collectedThisMonth'
+          && aggregates.collectedMonth
+          && aggregates.collectedMonth !== dayKey(new Date()).slice(0, 7);
+        const raw = stale ? 0 : Number(aggregates[card.key] ?? 0);
         // Outstanding can go negative if students are in credit; showing a
         // negative "outstanding" would read as a bug rather than as prepayment.
         const value = card.key === 'totalOutstanding' ? Math.max(0, raw) : raw;
