@@ -160,7 +160,7 @@ export default function RegistrationForm({
           <textarea
             className={`form-control ${errors.receiptMessage ? 'is-invalid' : ''}`}
             rows="3"
-            placeholder={`Example:\nM-Pesa Transaction Code: XYZ123456\nAmount Paid: KES 5,000\nPayment Date: October 20, 2025`}
+            placeholder="Please Paste Entire M-PESA receipt message here. You may remove your account balance"
             {...register('receiptMessage')}
           />
           <div className="form-text">

@@ -201,9 +201,17 @@ describe('blocked student: Pay now only when the server offers M-Pesa', () => {
     render(<BlockedStudentScreen session="morning" studentData={student} phoneNumber="+254711000009" onSubmitReceipt={vi.fn()} onBack={vi.fn()} />);
   }
 
-  it('Gold deployment: the Pay now panel is shown', async () => {
+  // STK push is commented out for the pilot (BlockedStudentScreen.jsx, "STK").
+  // Un-skip this, and drop the pilot test below, when it is switched back on.
+  it.skip('Gold deployment: the Pay now panel is shown', async () => {
     await renderBlocked({ mpesa: true });
     expect(await screen.findByTestId('pay-now')).toBeTruthy();
+  });
+
+  it('pilot: no Pay now even when the server offers M-Pesa; the receipt box stays', async () => {
+    await renderBlocked({ mpesa: true });
+    await expect(screen.findByTestId('pay-now', {}, { timeout: 1000 })).rejects.toThrow();
+    expect(screen.getByPlaceholderText(/Please Paste Entire M-PESA receipt message here/)).toBeTruthy();
   });
 
   it('Bronze/Silver deployment (server says no): no Pay now, even with the daraja flag on', async () => {

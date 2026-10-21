@@ -1,13 +1,21 @@
-import { useState, useMemo, lazy, Suspense } from 'react';
+// M-PESA STK PUSH IS SWITCHED OFF FOR THE PILOT: students pay manually and
+// paste the M-PESA message below. To switch it back on for the commercial
+// launch, uncomment the three marked "STK" blocks in this file (and put
+// `lazy, Suspense` back in the react import), then set the live Daraja keys
+// in the environment. Step by step: docs/STK_PUSH_PILOT.md.
+import { useState, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { resolveBlockReason, formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
-import { useMpesaAvailable } from '@features/payments/hooks/useMpesaAvailable';
+// STK (1/3):
+// import { useMpesaAvailable } from '@features/payments/hooks/useMpesaAvailable';
+//
+// // Lazy: only a Gold deployment with an outstanding balance ever renders this,
+// // so the payment code should not be in every student's first paint.
+// const PayNowPanel = lazy(() => import('@features/payments/components/PayNowPanel'));
 
-// Lazy: only a Gold deployment with an outstanding balance ever renders this,
-// so the payment code should not be in every student's first paint.
-const PayNowPanel = lazy(() => import('@features/payments/components/PayNowPanel'));
-
+/* eslint-disable no-unused-vars -- session, phoneNumber and onPaid are only
+   used by the STK panel, which is commented out for the pilot. */
 export default function BlockedStudentScreen({
   session,
   studentData,
@@ -17,13 +25,15 @@ export default function BlockedStudentScreen({
   // Called with the payment result when an M-Pesa payment succeeds.
   onPaid,
 }) {
+  /* eslint-enable no-unused-vars */
   const [newReceipt, setNewReceipt] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const feesEnabled = useFlag('fees.enabled');
-  // Flag + Gold plan + credentials, decided on the server — so a Bronze or
-  // Silver deployment never offers an STK push it would refuse.
-  const mpesaAvailable = useMpesaAvailable();
+  // STK (2/3):
+  // // Flag + Gold plan + credentials, decided on the server — so a Bronze or
+  // // Silver deployment never offers an STK push it would refuse.
+  // const mpesaAvailable = useMpesaAvailable();
 
   // Shared with the dashboard's blocked badge, so the teacher sees exactly
   // what the student sees.
@@ -127,9 +137,9 @@ export default function BlockedStudentScreen({
           </div>
         )}
 
-        {/* Pay now — Phase 09. Sits ALONGSIDE the receipt form below rather
-            than replacing it: a student without M-Pesa on this handset still
-            needs the manual route. */}
+        {/* STK (3/3): Pay now — Phase 09. Sits ALONGSIDE the receipt form
+            below rather than replacing it: a student without M-Pesa on this
+            handset still needs the manual route.
         {mpesaAvailable && blockState.balance > 0 && (
           <Suspense fallback={null}>
             <PayNowPanel
@@ -140,6 +150,7 @@ export default function BlockedStudentScreen({
             />
           </Suspense>
         )}
+        */}
 
         {/* Status Messages */}
         {isPending && (
@@ -196,7 +207,7 @@ export default function BlockedStudentScreen({
                   rows="6"
                   value={newReceipt}
                   onChange={(e) => setNewReceipt(e.target.value)}
-                  placeholder="Paste your M-PESA payment receipt here...&#10;Example:&#10;RK49HY5WQP Confirmed.&#10;You have received Ksh2,500.00 from..."
+                  placeholder="Please Paste Entire M-PESA receipt message here. You may remove your account balance"
                   required
                   disabled={submitting}
                 />

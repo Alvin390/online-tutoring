@@ -103,7 +103,8 @@ describe('M-Pesa clears the balance → straight to class', () => {
 });
 
 describe('the blocked screen passes onPaid to the payment panel', () => {
-  it('PayNowPanel receives the handler', async () => {
+  // STK push is commented out for the pilot (BlockedStudentScreen.jsx, "STK").
+  it.skip('PayNowPanel receives the handler', async () => {
     const seen = vi.fn();
     vi.doMock('@services/api/public', () => ({
       getPublicBootstrap: vi.fn().mockResolvedValue({ flags: {}, sessions: [], payments: { mpesa: true } }),
