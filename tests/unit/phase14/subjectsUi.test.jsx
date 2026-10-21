@@ -83,6 +83,12 @@ describe('RegistrationForm: subjects follow the class', () => {
   });
   const submit = () => act(async () => { fireEvent.click(screen.getByRole('button', { name: /Register & Join Class/ })); });
 
+  it('does not repeat the session badge the page already shows', async () => {
+    await renderForm();
+    expect(screen.queryByText(/Morning Session/)).toBeNull();
+    expect(document.querySelector('.session-badge')).toBeNull();
+  });
+
   it('no class yet: a prompt, no checkboxes', async () => {
     await renderForm();
     expect(screen.getByText('Choose a class to see its subjects.')).toBeTruthy();

@@ -8,7 +8,6 @@ import { subjectsForClass } from '@shared/constants/subjects';
 import SubjectPicker, { compulsoryNames } from './SubjectPicker';
 
 export default function RegistrationForm({
-  session,
   phoneNumber,
   onSubmit,
   onBack,
@@ -57,11 +56,9 @@ export default function RegistrationForm({
       animate={{ opacity: 1, x: 0 }}
       className="glass-card"
     >
+      {/* No session badge here: SessionPage already shows the session's real
+          name above this card (a second one, built from the slug, doubled it). */}
       <div className="text-center mb-4">
-        <div className={`session-badge ${session}-badge mb-3`}>
-          <i className={`bi bi-${session === 'morning' ? 'sunrise' : 'moon-stars'}-fill me-2`} />
-          {session.charAt(0).toUpperCase() + session.slice(1)} Session
-        </div>
         <h4 className="fw-bold">Complete Your Registration</h4>
         <p className="text-muted">Fill in your details to join the class</p>
       </div>
