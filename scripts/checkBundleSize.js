@@ -67,7 +67,9 @@ const ROUTES = [
   { route: '/', chunks: ['LandingPage'], budget: 120, publicRoute: true },
   { route: '/:slug', chunks: ['SessionRoutePage'], budget: 120, publicRoute: true },
   { route: '/login', chunks: ['StaffShell', 'LoginPage'], budget: 260 },
-  { route: '/dashboard', chunks: ['StaffShell', 'staffRoutes'], budget: 260 },
+  { route: '/dashboard', chunks: ['StaffShell', 'staffDashboard'], budget: 260 },
+  // Its own chunk since 001Fixes / 04 (it used to ride in the dashboard's).
+  { route: '/billing', chunks: ['StaffShell', 'staffBilling'], budget: 260 },
 ];
 const FIREBASE_CHUNK = /^vendor-firebase/;
 

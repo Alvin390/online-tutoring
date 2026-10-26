@@ -31,7 +31,11 @@ export default function StudentTable({
   onUnblock,
   onApprove,
   onDecline,
-  loading
+  loading,
+  // 001Fixes / 04: search terms to highlight, and the session's full count
+  // when `students` is a filtered subset ("12 of 70").
+  terms,
+  totalCount,
 }) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -286,6 +290,7 @@ export default function StudentTable({
                         onUnblock={onUnblock}
                         onApprove={onApprove}
                         onDecline={onDecline}
+                        terms={terms}
                       />
                     );
                   })}
@@ -307,6 +312,7 @@ export default function StudentTable({
                     onUnblock={onUnblock}
                     onApprove={onApprove}
                     onDecline={onDecline}
+                    terms={terms}
                   />
                 ))}
               </AnimatePresence>
@@ -316,9 +322,13 @@ export default function StudentTable({
       </div>
 
       <div className="d-flex justify-content-between align-items-center mt-3 p-3 bg-light rounded">
-        <span className="text-muted">
+        <span className="text-muted" data-testid="table-total">
           <i className="bi bi-people me-1" />
-          Total: <strong>{students.length}</strong> student{students.length !== 1 ? 's' : ''}
+          {totalCount != null && totalCount !== students.length ? (
+            <>Showing <strong>{students.length}</strong> of {totalCount} students</>
+          ) : (
+            <>Total: <strong>{students.length}</strong> student{students.length !== 1 ? 's' : ''}</>
+          )}
         </span>
         <button
           className="btn btn-outline-primary btn-sm"

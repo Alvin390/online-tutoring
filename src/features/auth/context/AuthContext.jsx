@@ -14,6 +14,7 @@ import {
   signOut as firebaseSignOut,
 } from '@services/firebase/auth';
 import { auth, db, wipeLocalData } from '@services/firebase/config';
+import { clearStoredSearch } from '@features/dashboard/search/searchStorage';
 import { trackLogin } from '@utils/analytics';
 import { recordLoginAttempt } from '@services/api/auth';
 import { setAuthTokenSource } from '@services/api/client';
@@ -189,6 +190,9 @@ export const AuthProvider = ({ children }) => {
       } catch (err) {
         logger.warn('signOut: could not clear the offline cache', { code: err?.code });
       }
+      // 001Fixes / 04: the student search (names) is kept per tab and would
+      // survive the reload below in this same tab.
+      clearStoredSearch();
       if (redirectTo) window.location.replace(redirectTo);
       else window.location.reload();
     } else {

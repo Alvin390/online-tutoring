@@ -30,6 +30,14 @@ export const MAX_TOKENS = 12;
 /** Status chips, in display order. */
 export const STATUS_KEYS = ['review', 'owes', 'blocked', 'awaiting', 'rejected'];
 
+export const STATUS_LABELS = Object.freeze({
+  review: 'Receipt to review',
+  owes: 'Owes fees',
+  blocked: 'Blocked',
+  awaiting: 'Awaiting approval',
+  rejected: 'Rejected',
+});
+
 export const SORTS = ['newest', 'oldest', 'name', 'name-desc', 'class', 'balance'];
 
 export const DEFAULT_SEARCH_STATE = Object.freeze({

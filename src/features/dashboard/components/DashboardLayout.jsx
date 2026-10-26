@@ -16,7 +16,7 @@ import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton'
 // dashboard should not pay for on first paint. It never enters the initial chunk.
 const CalendarPanel = lazy(() => import('@features/calendar/components/CalendarPanel'));
 const WhatsAppPanel = lazy(() => import('@features/whatsapp/components/WhatsAppPanel'));
-import StudentTable from './StudentTable';
+import StudentSearchPanel from './StudentSearchPanel';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
 import TierGate from '@shared/components/TierGate';
@@ -292,8 +292,7 @@ export default function DashboardLayout() {
           <div className="card-body p-0">
             <div className="tab-content p-4" id="session-tabpanel" role="tabpanel" aria-labelledby={activeTab ? `tab-${activeTab}` : undefined}>
               {activeTab ? (
-                <StudentTable
-                  key={activeTab}
+                <StudentSearchPanel
                   session={activeTab}
                   sessionDoc={sessions.find((s) => s.id === activeTab) ?? null}
                   students={currentStudents}

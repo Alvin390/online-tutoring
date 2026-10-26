@@ -507,6 +507,8 @@
    The tab row scrolls sideways rather than widening a phone page; the dot
    marks a tab whose fields stopped a Save. */
 .session-editor-tabs .nav-tabs {
+  /* Contains the tabs' visually-hidden labels (see .filter-chips). */
+  position: relative;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
@@ -558,5 +560,149 @@
   .session-row-actions .btn {
     min-height: 44px;
     min-width: 44px;
+  }
+}
+
+/* Student search — 001Fixes / 04. The box is full width; class chips wrap on
+   wider screens and scroll sideways on a phone; every target is at least
+   44 px on a phone. The summary line lists active filters as removable chips. */
+.student-search-controls {
+  display: grid;
+  /* minmax(0, 1fr), not the implicit auto track: an auto track grows to the
+     chip row's full width and widens a phone page instead of letting the
+     chips scroll. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.student-search-icon {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.student-search-input {
+  min-height: 44px;
+  padding-left: 2.25rem;
+  padding-right: 6rem;
+}
+
+/* Chromium and Safari draw their own clear button in a type="search" field;
+   the bar has its own (44 px, labelled), so hide the browser's. */
+.student-search-input::-webkit-search-cancel-button,
+.student-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+.student-search-hint {
+  position: absolute;
+  right: 2.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.student-search-clear {
+  position: absolute;
+  right: 0.125rem;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--text-secondary);
+}
+
+.filter-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.filter-chip-label {
+  flex: 0 0 auto;
+}
+
+.filter-chips {
+  /* position: relative makes the scroller the containing block of the chips'
+     visually-hidden labels (position: absolute). Without it those labels
+     escape the sideways scroll and widen a phone page: the Phase 13 / 07 I5
+     cause, found again here by measuring (586 px at 360). */
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.filter-chip {
+  min-height: 36px;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 999px;
+  background: var(--bs-body-bg);
+  white-space: nowrap;
+}
+
+.filter-chip.is-active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.filter-chip.is-empty {
+  opacity: 0.55;
+}
+
+.filter-chip-count {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 0.75em;
+}
+
+.filter-chip.is-active .filter-chip-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.student-search-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.active-filter {
+  border: 1px solid var(--primary-color);
+  border-radius: 999px;
+  color: var(--primary-color);
+  padding: 0.1rem 0.6rem;
+}
+
+@media (max-width: 575.98px) {
+  .student-search-input {
+    padding-right: 3rem;
+  }
+
+  .student-search-hint {
+    display: none;
+  }
+
+  .filter-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding-bottom: 2px;
+  }
+
+  .filter-chip,
+  .active-filter {
+    min-height: 44px;
   }
 }

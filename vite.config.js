@@ -51,7 +51,9 @@ export default defineConfig({
         // cached the first time they are actually used (runtime rule below).
         globIgnores: [
           '**/vendor-firebase*.js', '**/app-*.js', '**/analytics-*.js',
-          '**/StaffShell-*.js', '**/staffRoutes-*.js', '**/LoginPage-*.js', '**/SuperadminPage-*.js',
+          '**/StaffShell-*.js', '**/staffDashboard-*.js', '**/staffBilling-*.js', '**/LoginPage-*.js', '**/SuperadminPage-*.js',
+          // 001Fixes: the lazy session editor is staff-only too.
+          '**/SessionEditor-*.js',
           '**/AuthContext-*.js', '**/BillingContext-*.js', '**/DashboardPage-*.js', '**/BillingPage-*.js',
           '**/AuditLogViewer-*.js', '**/UserManager-*.js', '**/ReportsInbox-*.js', '**/NotificationsSettingsCard-*.js',
           '**/HelpFeedbackModal-*.js', '**/HelpFeedbackButton-*.js', '**/compressImage*.js',
