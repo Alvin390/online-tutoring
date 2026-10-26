@@ -140,13 +140,23 @@ export default function SessionEditor({
   busy = false,
   serverError = '',
   initialView = 'details',
+  // Optional control of the open tab (001Fixes / 02): SessionManager's row
+  // buttons switch tabs on an open editor without remounting it, so unsaved
+  // edits survive. Without these props the editor keeps its own tab state.
+  view: viewProp,
+  onViewChange,
 }) {
   const creating = !session;
   const initial = useMemo(() => toForm(session), [session]);
   const [form, setForm] = useState(initial);
   const [slugTouched, setSlugTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [view, setView] = useState(VIEWS.includes(initialView) ? initialView : 'details');
+  const [ownView, setOwnView] = useState(VIEWS.includes(initialView) ? initialView : 'details');
+  const view = VIEWS.includes(viewProp) ? viewProp : ownView;
+  const setView = (next) => {
+    setOwnView(next);
+    onViewChange?.(next);
+  };
   const tabRefs = useRef({});
 
   const errors = validateSessionForm(form, { creating });

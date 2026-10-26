@@ -521,3 +521,42 @@
   background-color: var(--bs-danger);
   vertical-align: middle;
 }
+
+/* Class editor — 001Fixes / 02. Two panes: the classes on the left, the
+   selected class's subjects on the right; stacked below md. minmax(0, …)
+   lets long class or subject names shrink instead of widening the page. */
+.class-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (min-width: 768px) {
+  .class-editor-grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+
+.class-editor-row.is-selected {
+  background: rgba(102, 126, 234, 0.08);
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+/* Session rows: the "N classes & subjects" button and the icon buttons wrap
+   under the name on a phone, the classes button full width, every target at
+   least 44 px. */
+@media (max-width: 575.98px) {
+  .session-row-actions {
+    width: 100%;
+  }
+
+  .session-row-actions .session-classes-btn {
+    flex: 1 1 100%;
+  }
+
+  .session-row-actions .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

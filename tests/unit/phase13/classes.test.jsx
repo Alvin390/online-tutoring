@@ -63,7 +63,9 @@ describe('SessionEditor: classes students can choose', () => {
   it('refuses a duplicate when adding (case-insensitive)', async () => {
     await renderEditor();
     fireEvent.change(screen.getByLabelText('New class name'), { target: { value: 'grade 8' } });
-    fireEvent.click(screen.getByRole('button', { name: /Add/ }));
+    // Exact name: since 001Fixes / 02 the subjects pane (with its own
+    // "Add subject" button) is always on screen beside the class list.
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(screen.getByRole('alert')).toHaveTextContent('"grade 8" is already in the list.');
     expect(listValues()).toHaveLength(4);
   });
