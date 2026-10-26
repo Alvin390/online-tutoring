@@ -29,6 +29,8 @@ describe('SessionEditor: classes students can choose', () => {
     const { default: SessionEditor } = await import('@/features/sessions/components/SessionEditor.jsx');
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<SessionEditor session={session} onSave={onSave} onCancel={vi.fn()} />);
+    // 001Fixes / 01: classes live on their own tab of the editor.
+    fireEvent.click(screen.getByRole('tab', { name: /Classes & subjects/ }));
     return onSave;
   }
   const listValues = () => within(screen.getByTestId('class-list')).getAllByRole('textbox').map((i) => i.value);
@@ -84,6 +86,7 @@ describe('SessionEditor: classes students can choose', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<SessionEditor onSave={onSave} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Session name'), { target: { value: 'Saturday Class' } });
+    fireEvent.click(screen.getByRole('tab', { name: /Classes & subjects/ }));
     fireEvent.click(screen.getByRole('button', { name: /Reset to defaults/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());

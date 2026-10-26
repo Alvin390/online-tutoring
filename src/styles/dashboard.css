@@ -501,3 +501,23 @@
 .dashboard-session-tabs .nav-item {
   scroll-snap-align: start;
 }
+
+/* Session editor tabs — 001Fixes / 01. "Details" and "Classes & subjects" as
+   tabs of one form, styled like the dashboard's other tabs (.nav-tabs above).
+   The tab row scrolls sideways rather than widening a phone page; the dot
+   marks a tab whose fields stopped a Save. */
+.session-editor-tabs .nav-tabs {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  min-width: 0;
+}
+
+.session-tab-error {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--bs-danger);
+  vertical-align: middle;
+}
