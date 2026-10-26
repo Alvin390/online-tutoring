@@ -52,8 +52,8 @@ export default defineConfig({
         globIgnores: [
           '**/vendor-firebase*.js', '**/app-*.js', '**/analytics-*.js',
           '**/StaffShell-*.js', '**/staffDashboard-*.js', '**/staffBilling-*.js', '**/LoginPage-*.js', '**/SuperadminPage-*.js',
-          // 001Fixes: the lazy session editor is staff-only too.
-          '**/SessionEditor-*.js',
+          // 001Fixes: the lazy session editor and student drawer are staff-only too.
+          '**/SessionEditor-*.js', '**/StudentDrawer-*.js',
           '**/AuthContext-*.js', '**/BillingContext-*.js', '**/DashboardPage-*.js', '**/BillingPage-*.js',
           '**/AuditLogViewer-*.js', '**/UserManager-*.js', '**/ReportsInbox-*.js', '**/NotificationsSettingsCard-*.js',
           '**/HelpFeedbackModal-*.js', '**/HelpFeedbackButton-*.js', '**/compressImage*.js',

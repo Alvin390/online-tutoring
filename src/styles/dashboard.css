@@ -706,3 +706,102 @@
     min-height: 44px;
   }
 }
+
+/* Status / subject / date / sort filters — 001Fixes / 05. Inline on wider
+   screens; behind the "Filters" button on a phone (shown when .is-open). */
+.more-filters-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.more-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.more-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.more-filters-field {
+  margin: 0;
+  min-width: 0;
+}
+
+.more-filters-field input[type="date"] {
+  min-width: 9.5rem;
+}
+
+.subject-filter-toggle.is-active {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.subject-filter-list {
+  /* Containing block for anything absolutely positioned inside (see
+     .filter-chips), and a scroll box for long subject lists. */
+  position: relative;
+  max-height: 14rem;
+  overflow-y: auto;
+  background: var(--bs-body-bg);
+  columns: 12rem;
+  column-gap: 1rem;
+}
+
+.subject-filter-list .form-check {
+  break-inside: avoid;
+}
+
+.subject-filter-list .is-empty {
+  opacity: 0.55;
+}
+
+@media (max-width: 575.98px) {
+  .more-filters {
+    display: none;
+  }
+
+  .more-filters.is-open {
+    display: grid;
+  }
+
+  .more-filters-toggle {
+    justify-self: start;
+    min-height: 44px;
+  }
+
+  .more-filters-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .more-filters-row > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .more-filters-field input[type="date"] {
+    min-width: 0;
+  }
+
+  .subject-filter-toggle,
+  .more-filters-field .form-control,
+  .more-filters-field .form-select {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .subject-filter-list .form-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+  }
+}

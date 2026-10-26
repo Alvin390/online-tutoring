@@ -2,8 +2,11 @@ import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef } from 
 import StudentTable from './StudentTable';
 import StudentSearchBar from './StudentSearchBar';
 import ClassChips from './ClassChips';
+import StudentFilters from './StudentFilters';
 import { useStudentFilters } from '../search/useStudentFilters';
-import { buildIndex, classOptions, searchStudents, STATUS_LABELS } from '../search/studentSearch';
+import {
+  buildIndex, classOptions, didYouMean, searchStudents, subjectOptions, STATUS_LABELS,
+} from '../search/studentSearch';
 import { highlightTerms } from '../search/highlightMatches';
 import { DEFAULT_CLASSES } from '@shared/constants/sessions';
 
@@ -29,7 +32,9 @@ export default function StudentSearchPanel({
   loading,
   ...tableProps
 }) {
-  const { state, activeCount, setQuery, toggleClass, toggleStatus, toggleSubject, setRange, clearAll } = useStudentFilters();
+  const {
+    state, activeCount, setQuery, toggleClass, toggleStatus, toggleSubject, setRange, setSort, clearAll,
+  } = useStudentFilters();
   const deferred = useDeferredValue(state);
   const searching = deferred !== state;
   const panelRef = useRef(null);
@@ -42,6 +47,13 @@ export default function StudentSearchPanel({
   );
   const terms = useMemo(() => highlightTerms(out.query), [out.query]);
   const options = useMemo(() => classOptions([doc], index), [doc, index]);
+  // Subject choices follow the selected classes (all classes when none is).
+  const subjects = useMemo(() => subjectOptions([doc], deferred.classes, index), [doc, deferred.classes, index]);
+  // Only worth computing when a search came back empty.
+  const suggestion = useMemo(
+    () => (out.total === 0 && deferred.q.trim() ? didYouMean(deferred.q, index) : null),
+    [out.total, deferred.q, index]
+  );
 
   // After a search or filter change, bring the top of the results into view
   // if the teacher has scrolled past it (never on first render or a tab switch).
@@ -81,6 +93,16 @@ export default function StudentSearchPanel({
       <div className="student-search-controls mb-3">
         <StudentSearchBar value={state.q} onChange={setQuery} searching={searching} onArrowDown={focusFirstRow} />
         <ClassChips options={options} selected={state.classes} counts={out.facets.class} onToggle={toggleClass} />
+        <StudentFilters
+          state={state}
+          statusCounts={out.facets.status}
+          subjectOptions={subjects}
+          subjectCounts={out.facets.subject}
+          onToggleStatus={toggleStatus}
+          onToggleSubject={toggleSubject}
+          onRange={setRange}
+          onSort={setSort}
+        />
         <div className="student-search-summary small" data-testid="search-summary" aria-live="polite">
           <span className="text-muted">
             {activeCount > 0
@@ -111,6 +133,15 @@ export default function StudentSearchPanel({
         <div className="alert alert-light border text-center py-4" data-testid="no-results">
           <i className="bi bi-search fs-4 d-block mb-2 text-muted" aria-hidden="true" />
           <p className="mb-2">No students match your search.</p>
+          {suggestion && (
+            <p className="mb-2">
+              Did you mean{' '}
+              <button type="button" className="btn btn-link p-0 align-baseline fw-semibold" onClick={() => setQuery(suggestion)}>
+                {suggestion}
+              </button>
+              ?
+            </p>
+          )}
           <button type="button" className="btn btn-sm btn-outline-primary" onClick={clearAll}>
             Clear search and filters
           </button>
