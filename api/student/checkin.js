@@ -51,9 +51,12 @@ export default createHandler({
   // Phase 13 / 02 D6: every session slug in the body must exist and be shown to students.
   sessions: 'active',
   method: 'POST',
+  // 002Fixes / 06: 30 → 120 an hour. Everyone behind one carrier NAT or family
+  // router shares this budget; at class time one address sent 34 check-ins in
+  // an hour on 26 Oct. Probing many numbers stays bounded at 120 an hour.
   rateLimit: {
     bucket: 'student_checkin',
-    limit: 30,
+    limit: 120,
     windowSeconds: 3600,
     keyBy: 'ip',
   },
@@ -83,13 +86,17 @@ export default createHandler({
     // document and its activity marker come back in ONE batchGet — one Google
     // round trip after the IP limiter instead of four. Nothing is returned
     // until the limiter has passed, so a limited caller still learns nothing.
+    //
+    // 002Fixes / 06: 20 per TEN MINUTES, not per hour. The same burst cap, but
+    // a refusal now lasts minutes: on 26 Oct three waiting students were
+    // locked out until the top of the hour, one until 80 minutes into class.
     const phoneLimit = authorized
       ? Promise.resolve()
       : import('../_lib/rateLimit.js').then(({ enforceRateLimit }) => enforceRateLimit({
         key: phone,
         bucket: 'student_checkin_phone',
         limit: 20,
-        windowSeconds: 3600,
+        windowSeconds: 600,
       }));
 
     const db = getDb();

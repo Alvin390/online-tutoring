@@ -55,7 +55,7 @@ describe('rate-limit refusals say which limiter refused', () => {
     }
     expect(res.status).toBe(429);
     const detail = rejections().at(-1).meta.detail;
-    expect(detail).toMatchObject({ bucket: 'student_checkin_phone', limit: 20 });
+    expect(detail).toMatchObject({ bucket: 'student_checkin_phone', limit: 20, windowSeconds: 600 });
     expect(detail.retryAfter).toBeGreaterThan(0);
     expect(JSON.stringify(rejections())).not.toContain(phone.slice(1));
   });
@@ -63,11 +63,12 @@ describe('rate-limit refusals say which limiter refused', () => {
   it('the per-IP limiter', async () => {
     const ip = '198.51.100.77';
     let res;
-    for (let i = 0; i < 31; i += 1) {
+    // 120 an hour since 002Fixes / 06 (was 30).
+    for (let i = 0; i < 121; i += 1) {
       res = await call('/api/student/checkin', { ip, body: { session: 'evening', phone: phoneN(5000 + i) } });
     }
     expect(res.status).toBe(429);
-    expect(rejections().at(-1).meta.detail).toMatchObject({ bucket: 'student_checkin', limit: 30 });
+    expect(rejections().at(-1).meta.detail).toMatchObject({ bucket: 'student_checkin', limit: 120, windowSeconds: 3600 });
     expect(JSON.stringify(rejections())).not.toContain(ip);
   });
 });

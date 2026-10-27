@@ -37,9 +37,12 @@ export default createHandler({
   // Phase 13 / 02 D6: every session slug in the body must exist.
   sessions: 'any',
   method: 'POST',
+  // 002Fixes / 06: 20 → 120 an hour, matching check-in. Every student behind
+  // one carrier NAT or family router shares this budget, and each is a caller
+  // who has already passed check-in.
   rateLimit: {
     bucket: 'class_link',
-    limit: 20,
+    limit: 120,
     windowSeconds: 3600,
     keyBy: 'ip',
   },
