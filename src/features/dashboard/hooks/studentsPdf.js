@@ -9,9 +9,21 @@
  *
  * Kept apart from useDashboard so the document itself can be tested.
  *
+ * 001Fixes / 06: an export of a filtered list names the filter under the
+ * title (`subtitle`), and an all-sessions export adds a Session column
+ * (`includeSession`, names from `sessionNames`). With neither, the document
+ * is exactly what it always was.
+ *
  * @returns {Promise<import('jspdf').jsPDF>} the finished document (not saved)
  */
-export async function buildStudentsPdf({ sessionName, students, now = new Date() }) {
+export async function buildStudentsPdf({
+  sessionName,
+  students,
+  now = new Date(),
+  subtitle = '',
+  includeSession = false,
+  sessionNames = {},
+}) {
   const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -25,10 +37,13 @@ export async function buildStudentsPdf({ sessionName, students, now = new Date()
   doc.setTextColor(102, 126, 234);
   doc.text(`${sessionName} - Student List`, 14, 22);
 
-  // Add date
+  // Add the filter (if any), then the date
   doc.setFontSize(10);
   doc.setTextColor(100);
-  doc.text(`Generated: ${now.toLocaleDateString('en-GB')} ${now.toLocaleTimeString('en-GB')}`, 14, 30);
+  const dateLine = subtitle ? 36 : 30;
+  if (subtitle) doc.text(`Filtered: ${subtitle}`, 14, 30);
+  doc.text(`Generated: ${now.toLocaleDateString('en-GB')} ${now.toLocaleTimeString('en-GB')}`, 14, dateLine);
+  const tableTop = dateLine + 5;
 
   // Prepare table data
   const tableData = students.map((student, index) => {
@@ -39,9 +54,13 @@ export async function buildStudentsPdf({ sessionName, students, now = new Date()
     // and broke the entire export, not just that one row.
     const receipt = student.receiptMessage ?? '';
 
+    const sessionCell = includeSession
+      ? [sessionNames[student.__session] ?? student.__session ?? '—']
+      : [];
     return [
       index + 1,
       student.studentName ?? '—',
+      ...sessionCell,
       student.parentPhone ?? '—',
       student.class ?? '—',
       student.subjects ?? '—',
@@ -51,10 +70,35 @@ export async function buildStudentsPdf({ sessionName, students, now = new Date()
   });
 
   // Add table
+  const head = includeSession
+    ? ['#', 'Student Name', 'Session', 'Parent Phone', 'Class', 'Subjects', 'Payment Receipt', 'Registered']
+    : ['#', 'Student Name', 'Parent Phone', 'Class', 'Subjects', 'Payment Receipt', 'Registered'];
+  // The same 190 mm either way; the Session column takes room from the receipt.
+  const columnStyles = includeSession
+    ? {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 32 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 28 },
+      4: { cellWidth: 15, halign: 'center' },
+      5: { cellWidth: 28 },
+      6: { cellWidth: 32 },
+      7: { cellWidth: 23, halign: 'center' },
+    }
+    : {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 35 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 15, halign: 'center' },
+      4: { cellWidth: 30 },
+      5: { cellWidth: 45 },
+      6: { cellWidth: 25, halign: 'center' },
+    };
+
   autoTable(doc, {
-    head: [['#', 'Student Name', 'Parent Phone', 'Class', 'Subjects', 'Payment Receipt', 'Registered']],
+    head: [head],
     body: tableData,
-    startY: 35,
+    startY: tableTop,
     theme: 'striped',
     headStyles: {
       fillColor: [102, 126, 234],
@@ -67,16 +111,8 @@ export async function buildStudentsPdf({ sessionName, students, now = new Date()
       fontSize: 9,
       cellPadding: 3
     },
-    columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 35 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 15, halign: 'center' },
-      4: { cellWidth: 30 },
-      5: { cellWidth: 45 },
-      6: { cellWidth: 25, halign: 'center' }
-    },
-    margin: { top: 35 },
+    columnStyles,
+    margin: { top: tableTop },
     styles: {
       overflow: 'linebreak',
       cellPadding: 2,

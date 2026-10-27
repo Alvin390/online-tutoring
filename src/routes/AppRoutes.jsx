@@ -14,8 +14,10 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 // in the public pages' module graph.
 const StaffShell = lazy(() => import('./StaffShell'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
-const StaffDashboard = lazy(() => import('./staffRoutes').then((m) => ({ default: m.StaffDashboard })));
-const StaffBilling = lazy(() => import('./staffRoutes').then((m) => ({ default: m.StaffBilling })));
+// One chunk per staff page (001Fixes / 04): the dashboard no longer carries
+// the billing page, and billing no longer carries the dashboard.
+const StaffDashboard = lazy(() => import('./staffDashboard'));
+const StaffBilling = lazy(() => import('./staffBilling'));
 const SuperadminPage = lazy(() => import('@/pages/SuperadminPage'));
 
 export default function AppRoutes() {

@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
@@ -8,7 +8,6 @@ import StatsCards from './StatsCards';
 import ClassLinkManager from './ClassLinkManager';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
 import SessionManager from './SessionManager';
-import StudentDrawer from './StudentDrawer';
 import FeeKpiCards from '@features/fees/components/FeeKpiCards';
 import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
 
@@ -16,7 +15,12 @@ import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton'
 // dashboard should not pay for on first paint. It never enters the initial chunk.
 const CalendarPanel = lazy(() => import('@features/calendar/components/CalendarPanel'));
 const WhatsAppPanel = lazy(() => import('@features/whatsapp/components/WhatsAppPanel'));
-import StudentTable from './StudentTable';
+// Lazy too (001Fixes / 05): the student drawer opens on a click, so it need not
+// be in the dashboard's first download. Fetched when the browser is idle after
+// the dashboard has loaded, so the first click rarely waits.
+const loadStudentDrawer = () => import('./StudentDrawer');
+const StudentDrawer = lazy(loadStudentDrawer);
+import StudentSearchPanel from './StudentSearchPanel';
 import { useDashboard } from '../hooks/useDashboard';
 import { useFlag } from '@shared/config/FlagsContext';
 import TierGate from '@shared/components/TierGate';
@@ -56,6 +60,18 @@ export default function DashboardLayout() {
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
+  // Mounted from the first open onwards, so its closing animation still plays.
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  useEffect(() => { if (drawerStudent) setDrawerMounted(true); }, [drawerStudent]);
+  useEffect(() => {
+    const prefetch = () => { loadStudentDrawer().catch(() => {}); };
+    if (typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(prefetch, { timeout: 5000 });
+      return () => window.cancelIdleCallback?.(handle);
+    }
+    const timer = setTimeout(prefetch, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -100,12 +116,17 @@ export default function DashboardLayout() {
         onSignOut={handleLogout}
       />
 
-      <StudentDrawer
-        open={Boolean(drawerStudent)}
-        student={drawerStudent}
-        session={drawerStudent?.session ?? activeTab}
-        onClose={() => setDrawerStudent(null)}
-      />
+      {drawerMounted && (
+        <Suspense fallback={null}>
+          <StudentDrawer
+            open={Boolean(drawerStudent)}
+            student={drawerStudent}
+            // The row's own session in the all-sessions view (001Fixes / 06).
+            session={drawerStudent?.__session ?? drawerStudent?.session ?? activeTab}
+            onClose={() => setDrawerStudent(null)}
+          />
+        </Suspense>
+      )}
 
       {/* Dashboard Header */}
       <div className="dashboard-header text-white py-3 sticky-top">
@@ -292,9 +313,10 @@ export default function DashboardLayout() {
           <div className="card-body p-0">
             <div className="tab-content p-4" id="session-tabpanel" role="tabpanel" aria-labelledby={activeTab ? `tab-${activeTab}` : undefined}>
               {activeTab ? (
-                <StudentTable
-                  key={activeTab}
+                <StudentSearchPanel
                   session={activeTab}
+                  sessions={tabs}
+                  studentsBySession={studentsBySession}
                   sessionDoc={sessions.find((s) => s.id === activeTab) ?? null}
                   students={currentStudents}
                   onDelete={deleteStudent}
