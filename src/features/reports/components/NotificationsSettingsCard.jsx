@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getNotificationSettings, sendTestEmail, setReportRecipient } from '@services/api/reports';
+import ClassAlertsSettings from './ClassAlertsSettings';
 
 /**
  * Superadmin Settings → Notifications — Phase 13 / 06 D7.
@@ -121,6 +122,9 @@ export default function NotificationsSettingsCard() {
             </ul>
           )}
         </div>
+
+        {/* 002Fixes / 09: where before-class reminders go, on/off, and a test. */}
+        <ClassAlertsSettings initial={settings.classAlerts} gmailConfigured={Boolean(gmail.configured)} />
       </div>
     </div>
   );

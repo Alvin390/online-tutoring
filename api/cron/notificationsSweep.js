@@ -5,6 +5,7 @@ import { safeCompare } from '../_lib/crypto.js';
 import { subrequestsRemaining, subrequestsSpent, SubrequestBudgetExceeded } from '../_lib/firestoreRest.js';
 import { gmailConfigured, getGmailAccessToken, GmailError } from '../_lib/gmail.js';
 import { MAX_EMAIL_ATTEMPTS, sendReportEmail } from '../_lib/reports.js';
+import { sendPreclassReminders } from '../_lib/preclassReminder.js';
 
 /**
  * Report email retries, Gmail keep-alive, orphan screenshot purge —
@@ -23,6 +24,8 @@ import { MAX_EMAIL_ATTEMPTS, sendReportEmail } from '../_lib/reports.js';
  *             superadmin card red before any report is affected.
  *   3. PURGE  screenshots uploaded for a report that was never submitted,
  *             after 24 hours. `reportUploads/{id}` only exists until submit.
+ *   4. PRE-CLASS  (002Fixes / 09) email the teacher 60 and 15 minutes before
+ *             a class while students wait for approval. See preclassReminder.js.
  */
 
 const MAX_SENDS = 5;
@@ -150,7 +153,9 @@ export default async function handler(req, res) {
   const result = { sent: 0, failed: 0, deferred: 0, purged: 0, tokenChecked: null };
 
   // Each step is independent: one failing must not starve the others.
-  for (const [name, step] of [['retry', retryEmails], ['keepalive', keepGmailAlive], ['purge', purgeOrphans]]) {
+  for (const [name, step] of [
+    ['retry', retryEmails], ['keepalive', keepGmailAlive], ['purge', purgeOrphans], ['preclass', sendPreclassReminders],
+  ]) {
     try {
       await step(db, now, log, result);
     } catch (err) {

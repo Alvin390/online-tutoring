@@ -38,3 +38,12 @@ export const getNotificationSettings = () => apiPost('/api/admin/notifications',
 export const setReportRecipient = (email) => apiPost('/api/admin/notifications', { action: 'setRecipient', email });
 
 export const sendTestEmail = () => apiPost('/api/admin/notifications', { action: 'sendTest' }, { timeoutMs: 30_000 });
+
+// Before-class reminders (002Fixes / 09).
+export const setClassAlertRecipient = (email) => apiPost('/api/admin/notifications', { action: 'setClassAlertRecipient', email });
+
+export const resetClassAlertRecipient = () => apiPost('/api/admin/notifications', { action: 'resetClassAlertRecipient' });
+
+export const setClassAlertsEnabled = (enabled) => apiPost('/api/admin/notifications', { action: 'setClassAlertsEnabled', enabled });
+
+export const sendClassAlertTest = () => apiPost('/api/admin/notifications', { action: 'sendClassAlertTest' }, { timeoutMs: 30_000 });
