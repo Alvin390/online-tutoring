@@ -1,5 +1,35 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
+import { nextClassWindow } from '@utils/classTime';
+
+/**
+ * Before-class urgency — 002Fixes / 08. On 26 Oct students were approved
+ * during the evening class (19:41, 19:50) while new ones sat on the waiting
+ * screen. From two hours before a class, a session with students waiting gets
+ * a banner with its own Approve-all; inside 30 minutes it turns amber.
+ */
+const BANNER_LEAD_MS = 2 * 60 * 60 * 1000;
+const URGENT_MS = 30 * 60 * 1000;
+
+/** "in 25 min", "in 1 h 05 min", "10 min ago" — whole minutes, never 0 for a future start. */
+export function relativeStart(start, now) {
+  const minutes = Math.round(Math.abs(start - now) / 60_000);
+  if (start <= now) return `started ${minutes} min ago`;
+  const shown = Math.max(1, minutes);
+  return shown >= 60
+    ? `starts in ${Math.floor(shown / 60)} h ${String(shown % 60).padStart(2, '0')} min`
+    : `starts in ${shown} min`;
+}
+
+/** Re-renders every 30 s so the minutes stay true. */
+function useClock() {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
 
 /**
  * Pending approvals queue — Phase 04 Part A.
@@ -17,11 +47,14 @@ import { m, AnimatePresence } from 'framer-motion';
  *     hard-to-reverse action that does not name what it affects is how people
  *     approve twenty students they meant to review.
  */
-export default function PendingApprovalsPanel({ pending, onApprove, onReject, loading }) {
+export default function PendingApprovalsPanel({ pending, onApprove, onReject, loading, sessions = [] }) {
   const [rejectingPhone, setRejectingPhone] = useState(null);
   const [reason, setReason] = useState('');
-  const [confirmBulk, setConfirmBulk] = useState(false);
+  // What a bulk approval would cover: null (none open), 'all', or one
+  // session's id (its pre-class banner, 002Fixes / 08).
+  const [confirmScope, setConfirmScope] = useState(null);
   const [busy, setBusy] = useState(false);
+  const now = useClock();
 
   const count = pending?.length ?? 0;
   const grouped = useMemo(() => {
@@ -32,6 +65,18 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
     }
     return map;
   }, [pending]);
+
+  // Sessions whose class is within two hours (or running) and have students waiting.
+  const soon = useMemo(() => sessions.flatMap((session) => {
+    const waiting = grouped.get(session.id);
+    if (!waiting?.length) return [];
+    const window = nextClassWindow(session.schedule, now);
+    if (!window || window.start - now > BANNER_LEAD_MS) return [];
+    return [{ session, waiting, window }];
+  }), [sessions, grouped, now]);
+
+  const confirmList = confirmScope === 'all' ? (pending ?? []) : (grouped.get(confirmScope) ?? []);
+  const scopeName = (id) => sessions.find((x) => x.id === id)?.name ?? id;
 
   const handleApprove = async (student) => {
     setBusy(true);
@@ -53,9 +98,10 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
     // One call per session, because the API is session-scoped — and because a
     // partial failure should not span sessions.
     for (const [session, students] of grouped.entries()) {
+      if (confirmScope !== 'all' && session !== confirmScope) continue;
       await onApprove(session, students.map((s) => s.id));
     }
-    setConfirmBulk(false);
+    setConfirmScope(null);
     setBusy(false);
   };
 
@@ -98,7 +144,7 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
         {count > 1 && (
           <button
             className="btn btn-sm btn-outline-success"
-            onClick={() => setConfirmBulk(true)}
+            onClick={() => setConfirmScope('all')}
             disabled={busy}
           >
             <i className="bi bi-check2-all me-1" aria-hidden="true" />
@@ -107,12 +153,44 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
         )}
       </div>
 
+      {/* Before-class banners (002Fixes / 08): one per session that is close. */}
+      {soon.map(({ session, waiting, window }) => {
+        const urgent = window.start - now <= URGENT_MS;
+        return (
+          <div
+            key={session.id}
+            className={`alert ${urgent ? 'alert-warning' : 'alert-info'} rounded-0 mb-0 border-0 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2`}
+            role="status"
+            data-testid="preclass-banner"
+          >
+            <span>
+              <i className={`bi ${urgent ? 'bi-alarm' : 'bi-clock'} me-2`} aria-hidden="true" />
+              <strong>{session.name ?? session.id} class {relativeStart(window.start, now)}</strong>
+              {' — '}
+              {waiting.length} student{waiting.length === 1 ? '' : 's'} {window.start <= now ? 'still ' : ''}waiting.
+            </span>
+            <button
+              className={`btn btn-sm ${urgent ? 'btn-warning' : 'btn-outline-primary'}`}
+              onClick={() => setConfirmScope(session.id)}
+              disabled={busy}
+            >
+              <i className="bi bi-check2-all me-1" aria-hidden="true" />
+              Approve {waiting.length === 1 ? waiting[0].studentName : `all ${waiting.length}`}
+            </button>
+          </div>
+        );
+      })}
+
       {/* Bulk confirmation names every student, per the destructive-action rule. */}
-      {confirmBulk && (
+      {confirmScope && (
         <div className="card-body border-bottom bg-light">
-          <p className="fw-semibold mb-2">Approve all {count} students?</p>
+          <p className="fw-semibold mb-2">
+            {confirmScope === 'all'
+              ? `Approve all ${count} students?`
+              : `Approve ${confirmList.length} student${confirmList.length === 1 ? '' : 's'} for ${scopeName(confirmScope)}?`}
+          </p>
           <ul className="small mb-3" style={{ maxHeight: 160, overflowY: 'auto' }}>
-            {pending.map((s) => (
+            {confirmList.map((s) => (
               <li key={`${s.session}-${s.id}`}>
                 {s.studentName} — {s.class} ({s.session})
               </li>
@@ -124,7 +202,7 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
             </button>
             <button
               className="btn btn-outline-secondary btn-sm"
-              onClick={() => setConfirmBulk(false)}
+              onClick={() => setConfirmScope(null)}
               disabled={busy}
             >
               Cancel

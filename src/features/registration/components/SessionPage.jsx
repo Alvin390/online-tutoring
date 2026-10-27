@@ -289,6 +289,17 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
               )}
             </div>
 
+            {/* 002Fixes / 08: new students learn to register in time. Only
+                where the teacher approves new students, and only before a
+                number is entered. */}
+            {step === 'checkin' && requireApproval && (
+              <p className="text-center text-white-50 small mb-3" data-testid="register-early-hint">
+                <i className="bi bi-info-circle me-1" aria-hidden="true" />
+                New here? Register <strong className="text-white">before class day</strong> — your teacher
+                approves new students before class starts.
+              </p>
+            )}
+
             <RetryWaitNotice secondsLeft={waitSeconds} until={waitUntil} />
 
             <AnimatePresence mode="wait">
