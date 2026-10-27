@@ -1,8 +1,24 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { m } from 'framer-motion';
 import { useSessions } from '@features/sessions/hooks/useSessions';
-import SessionEditor from '@features/sessions/components/SessionEditor';
 import { formatSchedule } from '@utils/formatSchedule';
+import { DEFAULT_CLASSES } from '@shared/constants/sessions';
+
+// Lazy (001Fixes / 02): the editor — form, class and subject panes, homepage
+// preview — is opened now and then, not on every dashboard load, and the
+// /dashboard route was within a kilobyte of its bundle budget. Pointing at or
+// focusing any button that opens it starts the download early.
+const loadEditor = () => import('@features/sessions/components/SessionEditor');
+const SessionEditor = lazy(loadEditor);
+const prefetchEditor = () => { loadEditor().catch(() => {}); };
+
+const editorFallback = (
+  <div className="text-center py-3"><span className="spinner-border spinner-border-sm text-muted" /></div>
+);
+
+/** How many classes a session's registration form offers (its own list, else the defaults). */
+const classCount = (session) =>
+  (Array.isArray(session.classes) && session.classes.length > 0 ? session.classes : DEFAULT_CLASSES).length;
 
 /**
  * Session management — Phase 05 Part A; full editing since Phase 13 / 02 D8.
@@ -19,6 +35,11 @@ import { formatSchedule } from '@utils/formatSchedule';
  * Delete requires typing the session name AND offers reassignment, because
  * deleting a session takes its students and their private notes with it. A
  * deleted default session is not recreated.
+ *
+ * Each row also has a "N classes & subjects" button (001Fixes / 02) that opens
+ * the same editor straight on its Classes & subjects tab; the pencil opens
+ * Details. The two buttons share one open editor: pressing the other one
+ * switches tab in place (unsaved edits kept), pressing the open one closes it.
  */
 export default function SessionManager() {
   const {
@@ -34,6 +55,7 @@ export default function SessionManager() {
 
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [view, setView] = useState('details');
   const [editorError, setEditorError] = useState('');
   const [deleting, setDeleting] = useState(null);
   const [confirmText, setConfirmText] = useState('');
@@ -51,6 +73,18 @@ export default function SessionManager() {
     const result = await updateSession(slug, patch);
     if (result.success) setEditing(null);
     else setEditorError(result.message ?? 'Could not save the session.');
+  };
+
+  /** The pencil ('details') and the classes button ('classes') share one editor. */
+  const openEditor = (id, nextView) => {
+    if (editing === id && view === nextView) {
+      setEditing(null);
+      return;
+    }
+    if (editing !== id) setEditorError('');
+    setEditing(id);
+    setView(nextView);
+    setCreating(false);
   };
 
   const handleDelete = async () => {
@@ -84,6 +118,8 @@ export default function SessionManager() {
             setEditing(null);
             setEditorError('');
           }}
+          onPointerEnter={prefetchEditor}
+          onFocus={prefetchEditor}
           disabled={busy}
         >
           <i className="bi bi-plus-lg me-1" aria-hidden="true" />
@@ -93,12 +129,14 @@ export default function SessionManager() {
 
       <div className="card-body">
         {creating && (
-          <SessionEditor
-            onSave={handleCreate}
-            onCancel={() => setCreating(false)}
-            busy={busy}
-            serverError={editorError}
-          />
+          <Suspense fallback={editorFallback}>
+            <SessionEditor
+              onSave={handleCreate}
+              onCancel={() => setCreating(false)}
+              busy={busy}
+              serverError={editorError}
+            />
+          </Suspense>
         )}
 
         {loading && <div className="text-center py-3"><span className="spinner-border spinner-border-sm" /></div>}
@@ -134,68 +172,85 @@ export default function SessionManager() {
                   </small>
                 </div>
 
-                <div className="btn-group btn-group-sm">
+                <div className="session-row-actions d-flex flex-wrap align-items-center gap-2">
                   <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => move(index, -1)}
-                    disabled={busy || index === 0}
-                    aria-label={`Move ${session.name} up`}
-                  >
-                    <i className="bi bi-arrow-up" aria-hidden="true" />
-                  </button>
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => move(index, 1)}
-                    disabled={busy || index === sessions.length - 1}
-                    aria-label={`Move ${session.name} down`}
-                  >
-                    <i className="bi bi-arrow-down" aria-hidden="true" />
-                  </button>
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => {
-                      setEditing(editing === session.id ? null : session.id);
-                      setCreating(false);
-                      setEditorError('');
-                    }}
+                    type="button"
+                    className="btn btn-sm btn-outline-primary text-nowrap session-classes-btn"
+                    onClick={() => openEditor(session.id, 'classes')}
+                    onPointerEnter={prefetchEditor}
+                    onFocus={prefetchEditor}
                     disabled={busy}
-                    aria-label={`Edit ${session.name}`}
-                    aria-expanded={editing === session.id}
+                    aria-label={`Classes & subjects for ${session.name} (${classCount(session)} classes)`}
+                    aria-expanded={editing === session.id && view === 'classes'}
                   >
-                    <i className="bi bi-pencil" aria-hidden="true" />
+                    <i className="bi bi-journal-bookmark me-1" aria-hidden="true" />
+                    {classCount(session)} classes &amp; subjects
                   </button>
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => toggleActive(session)}
-                    disabled={busy}
-                    aria-label={session.active === false ? `Show ${session.name}` : `Hide ${session.name}`}
-                  >
-                    <i className={`bi ${session.active === false ? 'bi-eye-slash' : 'bi-eye'}`} aria-hidden="true" />
-                  </button>
-                  <button
-                    className="btn btn-outline-danger"
-                    onClick={() => {
-                      setDeleting(session);
-                      setConfirmText('');
-                      setReassignTo('');
-                    }}
-                    disabled={busy}
-                    aria-label={`Delete ${session.name}`}
-                  >
-                    <i className="bi bi-trash" aria-hidden="true" />
-                  </button>
+                  <div className="btn-group btn-group-sm">
+                    <button
+                      className="btn btn-outline-secondary"
+                      onClick={() => move(index, -1)}
+                      disabled={busy || index === 0}
+                      aria-label={`Move ${session.name} up`}
+                    >
+                      <i className="bi bi-arrow-up" aria-hidden="true" />
+                    </button>
+                    <button
+                      className="btn btn-outline-secondary"
+                      onClick={() => move(index, 1)}
+                      disabled={busy || index === sessions.length - 1}
+                      aria-label={`Move ${session.name} down`}
+                    >
+                      <i className="bi bi-arrow-down" aria-hidden="true" />
+                    </button>
+                    <button
+                      className="btn btn-outline-secondary"
+                      onClick={() => openEditor(session.id, 'details')}
+                      onPointerEnter={prefetchEditor}
+                      onFocus={prefetchEditor}
+                      disabled={busy}
+                      aria-label={`Edit ${session.name}`}
+                      aria-expanded={editing === session.id && view === 'details'}
+                    >
+                      <i className="bi bi-pencil" aria-hidden="true" />
+                    </button>
+                    <button
+                      className="btn btn-outline-secondary"
+                      onClick={() => toggleActive(session)}
+                      disabled={busy}
+                      aria-label={session.active === false ? `Show ${session.name}` : `Hide ${session.name}`}
+                    >
+                      <i className={`bi ${session.active === false ? 'bi-eye-slash' : 'bi-eye'}`} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="btn btn-outline-danger"
+                      onClick={() => {
+                        setDeleting(session);
+                        setConfirmText('');
+                        setReassignTo('');
+                      }}
+                      disabled={busy}
+                      aria-label={`Delete ${session.name}`}
+                    >
+                      <i className="bi bi-trash" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
               {editing === session.id && (
                 <div className="mt-3">
-                  <SessionEditor
-                    session={session}
-                    onSave={handleEdit(session.id)}
-                    onCancel={() => setEditing(null)}
-                    busy={busy}
-                    serverError={editorError}
-                  />
+                  <Suspense fallback={editorFallback}>
+                    <SessionEditor
+                      session={session}
+                      onSave={handleEdit(session.id)}
+                      onCancel={() => setEditing(null)}
+                      busy={busy}
+                      serverError={editorError}
+                      view={view}
+                      onViewChange={setView}
+                    />
+                  </Suspense>
                 </div>
               )}
 

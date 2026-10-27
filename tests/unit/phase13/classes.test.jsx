@@ -29,6 +29,8 @@ describe('SessionEditor: classes students can choose', () => {
     const { default: SessionEditor } = await import('@/features/sessions/components/SessionEditor.jsx');
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<SessionEditor session={session} onSave={onSave} onCancel={vi.fn()} />);
+    // 001Fixes / 01: classes live on their own tab of the editor.
+    fireEvent.click(screen.getByRole('tab', { name: /Classes & subjects/ }));
     return onSave;
   }
   const listValues = () => within(screen.getByTestId('class-list')).getAllByRole('textbox').map((i) => i.value);
@@ -61,7 +63,9 @@ describe('SessionEditor: classes students can choose', () => {
   it('refuses a duplicate when adding (case-insensitive)', async () => {
     await renderEditor();
     fireEvent.change(screen.getByLabelText('New class name'), { target: { value: 'grade 8' } });
-    fireEvent.click(screen.getByRole('button', { name: /Add/ }));
+    // Exact name: since 001Fixes / 02 the subjects pane (with its own
+    // "Add subject" button) is always on screen beside the class list.
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(screen.getByRole('alert')).toHaveTextContent('"grade 8" is already in the list.');
     expect(listValues()).toHaveLength(4);
   });
@@ -84,6 +88,7 @@ describe('SessionEditor: classes students can choose', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<SessionEditor onSave={onSave} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Session name'), { target: { value: 'Saturday Class' } });
+    fireEvent.click(screen.getByRole('tab', { name: /Classes & subjects/ }));
     fireEvent.click(screen.getByRole('button', { name: /Reset to defaults/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());

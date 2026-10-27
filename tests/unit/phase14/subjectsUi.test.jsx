@@ -211,6 +211,8 @@ describe('session editor: subjects per class', () => {
     const { default: SessionEditor } = await import('@/features/sessions/components/SessionEditor.jsx');
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<SessionEditor session={session} onSave={onSave} onCancel={vi.fn()} />);
+    // 001Fixes / 01: classes and subjects live on their own tab of the editor.
+    fireEvent.click(screen.getByRole('tab', { name: /Classes & subjects/ }));
     return onSave;
   }
   const save = () => act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save changes' })); });
