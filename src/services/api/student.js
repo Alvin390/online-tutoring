@@ -9,8 +9,13 @@ import { apiPost } from './client';
  * that can hold one.
  */
 
+/**
+ * Reads, safe to repeat: one automatic retry after a timeout or a dropped
+ * connection (002Fixes / 04 — 15 such failures at class time on 26 Oct, all on
+ * the network, none on the server). Never after a refusal.
+ */
 export const checkinStudent = (session, phone) =>
-  apiPost('/api/student/checkin', { session, phone });
+  apiPost('/api/student/checkin', { session, phone }, { retry: 1 });
 
 export const submitReceipt = (session, phone, receiptMessage) =>
   apiPost('/api/student/receipt', { session, phone, receiptMessage });
@@ -22,7 +27,7 @@ export const submitReceipt = (session, phone, receiptMessage) =>
  * UI renders whatever it is told.
  */
 export const getClassLink = (session, phone) =>
-  apiPost('/api/class/link', { session, phone });
+  apiPost('/api/class/link', { session, phone }, { retry: 1 });
 
 /**
  * Resubmits corrected details after a rejection — Phase 04.
