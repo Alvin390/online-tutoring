@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import CheckinCard from './CheckinCard';
@@ -12,6 +12,7 @@ import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
 import { providerLabel } from '@utils/classLink';
 import { formatSchedule } from '@utils/formatSchedule';
+import { addFlowBreadcrumb } from '@utils/monitoring';
 
 // Phase 13 / 08: the registration form (react-hook-form + zod, ~20 KB gz) is
 // only needed by a first-time student, after the phone lookup. Loaded on
@@ -38,6 +39,13 @@ export const PAID_REDIRECT_DELAY_MS = 2000;
 const PAID_RECHECK_INTERVAL_MS = 1500;
 const PAID_RECHECKS = 3;
 const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/**
+ * What a breadcrumb may say about the number a request is about to use —
+ * 002Fixes / 01. Its length and whether it is empty, never the digits: on
+ * 26 Oct an emptied number was the whole story, and this shows it directly.
+ */
+const numberShape = (value) => ({ numberLength: String(value ?? '').length, numberEmpty: !value });
 
 export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes, subjectsByClass }) {
   const timeLine = formatSchedule(schedule);
@@ -70,7 +78,13 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     [requireApproval]
   );
 
+  // Every screen change, as a breadcrumb for the next error report.
+  useEffect(() => {
+    addFlowBreadcrumb('screen', { screen: step });
+  }, [step]);
+
   const handleCheckin = async (phone) => {
+    addFlowBreadcrumb('action', { action: 'checkin', ...numberShape(phone) });
     setPhoneNumber(phone);
     loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
     const { exists, data } = await checkStudent(phone);
@@ -86,6 +100,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   };
 
   const handleRegistration = async (formData) => {
+    addFlowBreadcrumb('action', { action: 'register', ...numberShape(phoneNumber) });
     const result = await register(phoneNumber, formData);
     if (!result.success) return;
 
@@ -100,6 +115,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   };
 
   const handleRedirect = async () => {
+    addFlowBreadcrumb('action', { action: 'join', ...numberShape(phoneNumber) });
     setStep('redirect');
     const result = await redirectToZoom();
     if (!result.success) {
@@ -111,6 +127,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   };
 
   const handleRefresh = async () => {
+    addFlowBreadcrumb('action', { action: 'refresh', ...numberShape(phoneNumber) });
     const { exists, data } = await checkStudent(phoneNumber);
     if (!exists) {
       setStep(GATE.REGISTER);
@@ -130,6 +147,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
    */
   const handlePaid = async (result) => {
     if (Number(result?.balanceAfter) > 0) return; // partial payment: still blocked
+    addFlowBreadcrumb('action', { action: 'paid', ...numberShape(phoneNumber) });
     await wait(PAID_REDIRECT_DELAY_MS);
     for (let attempt = 0; attempt < PAID_RECHECKS; attempt += 1) {
       const { exists, data } = await checkStudent(phoneNumber);
@@ -162,6 +180,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   };
 
   const handleBack = () => {
+    addFlowBreadcrumb('action', { action: 'back' });
     setStep('checkin');
     setPhoneNumber('');
   };

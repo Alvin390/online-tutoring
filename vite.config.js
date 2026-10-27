@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import { execSync } from 'node:child_process'
 import { visualizer } from 'rollup-plugin-visualizer'
 
 // https://vitejs.dev/config/
@@ -15,7 +16,26 @@ import { visualizer } from 'rollup-plugin-visualizer'
 const API_TARGET = process.env.DEV_API_URL ?? 'http://127.0.0.1:8787';
 const apiProxy = { '/api': { target: API_TARGET, changeOrigin: false } };
 
+/**
+ * Which commit and branch a build came from — 002Fixes / 01, for the Sentry
+ * release name. Workers Builds injects WORKERS_CI_COMMIT_SHA and
+ * WORKERS_CI_BRANCH at build time; a local build asks git, and an export with
+ * neither simply has no commit in its release name.
+ */
+function buildCommit() {
+  if (process.env.WORKERS_CI_COMMIT_SHA) return process.env.WORKERS_CI_COMMIT_SHA.slice(0, 7);
+  try {
+    return execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return '';
+  }
+}
+
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_APP_COMMIT': JSON.stringify(buildCommit()),
+    'import.meta.env.VITE_APP_BRANCH': JSON.stringify(process.env.WORKERS_CI_BRANCH ?? ''),
+  },
   server: { proxy: apiProxy },
   preview: { proxy: apiProxy },
   plugins: [

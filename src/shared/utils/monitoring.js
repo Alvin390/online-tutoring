@@ -29,6 +29,44 @@ export function routeTag(pathname = '/') {
   return STATIC_ROUTES[path] ?? (/^\/[a-z0-9-]+$/.test(path) ? 'session-page' : 'other');
 }
 
+/**
+ * The release name — 002Fixes / 01. Every build used to report
+ * `online-tutoring@2.0.0`, so Sentry could not say which deploy an error came
+ * from. The commit is baked in at build time (vite.config.js: Workers Builds'
+ * WORKERS_CI_COMMIT_SHA, else local git), giving `online-tutoring@2.0.0+5dd6570`.
+ */
+export function releaseName(version, commit) {
+  if (!version) return undefined;
+  return commit ? `online-tutoring@${version}+${commit}` : `online-tutoring@${version}`;
+}
+
+/**
+ * API failures grouped by WHAT failed — 002Fixes / 01.
+ *
+ * Without source maps every ApiError has the same minified top frame, so
+ * Sentry put timeouts, 429s and empty-phone 400s into one issue whose title
+ * was whichever came first (26 Oct: 1-1 and 1-2). Fingerprinting on endpoint
+ * and code gives each its own issue; the tags let them be filtered. Values are
+ * paths and codes, never anything a student typed.
+ */
+export function groupApiError(event, hint) {
+  const error = hint?.originalException;
+  if (!event || error?.name !== 'ApiError') return event;
+  const path = error.path || 'unknown';
+  const code = error.code || 'unknown';
+  return {
+    ...event,
+    fingerprint: ['api-error', path, code],
+    tags: { ...(event.tags ?? {}), api_path: path, api_code: code, api_status: String(error.status ?? 0) },
+  };
+}
+
+/** Everything an error event goes through on its way out. */
+export function prepareEvent(event, hint) {
+  const tagged = { ...event, tags: { ...(event?.tags ?? {}), route: routeTag(window.location.pathname) } };
+  return redactSentryEvent(groupApiError(tagged, hint), hint);
+}
+
 export async function initMonitoring() {
   if (!import.meta.env.PROD || !import.meta.env.VITE_SENTRY_DSN) return null;
 
@@ -37,10 +75,11 @@ export async function initMonitoring() {
   Sentry.init({
     dsn: import.meta.env.VITE_SENTRY_DSN,
     environment: import.meta.env.MODE,
-    // Release tracking, so a stack trace maps to the source map CI uploaded.
-    release: import.meta.env.VITE_APP_VERSION
-      ? `online-tutoring@${import.meta.env.VITE_APP_VERSION}`
-      : undefined,
+    // Release tracking, per commit (002Fixes / 01).
+    release: releaseName(import.meta.env.VITE_APP_VERSION, import.meta.env.VITE_APP_COMMIT),
+    // Which Workers Builds branch made this build: a preview and master are
+    // told apart without Sentry's `dist`, which source-map uploads must match.
+    initialScope: { tags: { build_branch: import.meta.env.VITE_APP_BRANCH || 'local' } },
 
     integrations: [
       // Console output as structured logs.
@@ -73,11 +112,8 @@ export async function initMonitoring() {
 
     // Phase 01 D3 redaction, applied on the way out — plus the page the error
     // happened on (Phase 13 / 08 D2), read at send time so no router wiring
-    // is needed.
-    beforeSend: (event, hint) => redactSentryEvent(
-      { ...event, tags: { ...(event.tags ?? {}), route: routeTag(window.location.pathname) } },
-      hint
-    ),
+    // is needed, and API failures grouped by endpoint and code (002Fixes / 01).
+    beforeSend: prepareEvent,
     sendDefaultPii: false,
 
     /**
@@ -160,6 +196,33 @@ export function captureCritical(message, error, context = {}) {
     tags: { critical_path: context.path ?? 'unknown' },
     extra: context,
   });
+}
+
+/**
+ * A failure the student screens HANDLED — 002Fixes / 01.
+ *
+ * Until now check-in failures reached Sentry only because nothing caught them
+ * (unhandled rejections). Once the screens catch them, this is how they keep
+ * being seen: an API failure at warning level (the network and the limits are
+ * expected to misbehave sometimes), anything else at error level (a bug).
+ * `action` and `screen` are fixed words chosen by the caller.
+ */
+export function reportApiFailure(error, { action = 'unknown', screen = 'unknown' } = {}) {
+  if (!sentryRef || !error) return;
+  sentryRef.captureException(error, {
+    level: error.name === 'ApiError' ? 'warning' : 'error',
+    tags: { flow_action: action, flow_screen: screen },
+  });
+}
+
+/**
+ * A step in the student check-in flow, as a breadcrumb — 002Fixes / 01. The
+ * next error then shows the path that led to it. Data must be lengths, flags
+ * and fixed words: it is redacted on the way out, but nothing identifying
+ * should be put in in the first place.
+ */
+export function addFlowBreadcrumb(message, data) {
+  sentryRef?.addBreadcrumb?.({ category: 'checkin.flow', level: 'info', message, data });
 }
 
 /**

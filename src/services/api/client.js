@@ -15,13 +15,26 @@ import logger from '@utils/logger';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/**
+ * `path` (002Fixes / 01) names the endpoint without its query string, so a
+ * report can say WHICH call failed; `retryAfter` is the server's Retry-After
+ * in seconds, so a refused student can be told how long to wait.
+ */
 export class ApiError extends Error {
-  constructor(message, { code, status } = {}) {
+  constructor(message, { code, status, path, retryAfter } = {}) {
     super(message);
     this.name = 'ApiError';
     this.code = code ?? 'unknown';
     this.status = status ?? 0;
+    this.path = path ? String(path).split('?')[0] : undefined;
+    this.retryAfter = retryAfter;
   }
+}
+
+/** Retry-After as whole seconds; the HTTP-date form is not sent by our API. */
+function retryAfterSeconds(response) {
+  const seconds = Number(response.headers?.get?.('Retry-After'));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
 }
 
 /**
@@ -81,7 +94,7 @@ export async function apiPost(path, body, { timeoutMs = DEFAULT_TIMEOUT_MS, sign
     if (!response.ok) {
       throw new ApiError(
         payload?.error?.message ?? 'Request failed. Please try again.',
-        { code: payload?.error?.code, status: response.status }
+        { code: payload?.error?.code, status: response.status, path, retryAfter: retryAfterSeconds(response) }
       );
     }
 
@@ -92,12 +105,14 @@ export async function apiPost(path, body, { timeoutMs = DEFAULT_TIMEOUT_MS, sign
     if (err?.name === 'AbortError') {
       throw new ApiError('The request timed out. Please check your connection.', {
         code: 'timeout',
+        path,
       });
     }
 
     logger.warn('API request failed', { path, name: err?.name });
     throw new ApiError('Unable to reach the server. Please check your connection.', {
       code: 'network_error',
+      path,
     });
   } finally {
     clearTimeout(timer);
@@ -126,7 +141,7 @@ export async function apiGet(path, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     if (!response.ok) {
       throw new ApiError(
         payload?.error?.message ?? 'Request failed. Please try again.',
-        { code: payload?.error?.code, status: response.status }
+        { code: payload?.error?.code, status: response.status, path, retryAfter: retryAfterSeconds(response) }
       );
     }
 
@@ -136,10 +151,12 @@ export async function apiGet(path, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     if (err?.name === 'AbortError') {
       throw new ApiError('The request timed out. Please check your connection.', {
         code: 'timeout',
+        path,
       });
     }
     throw new ApiError('Unable to reach the server. Please check your connection.', {
       code: 'network_error',
+      path,
     });
   } finally {
     clearTimeout(timer);
