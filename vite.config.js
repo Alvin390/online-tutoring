@@ -4,6 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 import { execSync } from 'node:child_process'
 import { visualizer } from 'rollup-plugin-visualizer'
+import { sentryPlugins } from './scripts/sentryBuild.js'
 
 // https://vitejs.dev/config/
 /**
@@ -31,9 +32,11 @@ function buildCommit() {
   }
 }
 
+const COMMIT = buildCommit();
+
 export default defineConfig({
   define: {
-    'import.meta.env.VITE_APP_COMMIT': JSON.stringify(buildCommit()),
+    'import.meta.env.VITE_APP_COMMIT': JSON.stringify(COMMIT),
     'import.meta.env.VITE_APP_BRANCH': JSON.stringify(process.env.WORKERS_CI_BRANCH ?? ''),
   },
   server: { proxy: apiProxy },
@@ -120,6 +123,9 @@ export default defineConfig({
           visualizer({ filename: 'dist/stats.json', gzipSize: true, template: 'raw-data' }),
         ]
       : []),
+    // 002Fixes / 10 — source maps to Sentry, only when Workers Builds has the
+    // SENTRY_AUTH_TOKEN build secret. Last, as Sentry's plugin requires.
+    ...sentryPlugins(process.env, COMMIT),
   ],
   resolve: {
     alias: {

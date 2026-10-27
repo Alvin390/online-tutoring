@@ -1,4 +1,5 @@
 import { redactSentryEvent, redactString, redact } from './redact';
+import { releaseName } from './releaseName';
 
 /**
  * Sentry configuration — Phase 11 D2.
@@ -34,11 +35,9 @@ export function routeTag(pathname = '/') {
  * `online-tutoring@2.0.0`, so Sentry could not say which deploy an error came
  * from. The commit is baked in at build time (vite.config.js: Workers Builds'
  * WORKERS_CI_COMMIT_SHA, else local git), giving `online-tutoring@2.0.0+5dd6570`.
+ * Shared with the source-map upload (002Fixes / 10) so the two always match.
  */
-export function releaseName(version, commit) {
-  if (!version) return undefined;
-  return commit ? `online-tutoring@${version}+${commit}` : `online-tutoring@${version}`;
-}
+export { releaseName };
 
 /**
  * API failures grouped by WHAT failed — 002Fixes / 01.
