@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { renderSessionPage, unmockSessionPage, PHONE } from './sessionPageHarness';
 
@@ -17,7 +17,7 @@ it('records screens and actions, and the number only as a shape', async () => {
   const addBreadcrumb = vi.fn();
   monitoring.__setSentryForTest({ addBreadcrumb });
 
-  await renderSessionPage({ checkStudent: vi.fn().mockResolvedValue({ exists: true, data: pendingStudent }) });
+  await renderSessionPage({ api: { checkinStudent: vi.fn().mockResolvedValue({ exists: true, student: pendingStudent }) } });
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check in' })); });
   await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Check again' })); });
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Use a different number' })); });

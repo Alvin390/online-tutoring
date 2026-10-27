@@ -35,6 +35,10 @@ async function renderPage({ afterPayment, paidResult = { status: 'success', bala
   reg = {
     loading: false,
     studentData: null,
+    // 002Fixes / 03: the hook owns the number and the flow generation.
+    phoneNumber: PHONE,
+    resetFlow: vi.fn(),
+    currentFlow: () => 0,
     classLink: null,
     provider: 'zoom',
     countdown: 0,

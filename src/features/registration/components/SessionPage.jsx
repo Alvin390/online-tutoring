@@ -50,13 +50,15 @@ const numberShape = (value) => ({ numberLength: String(value ?? '').length, numb
 export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes, subjectsByClass }) {
   const timeLine = formatSchedule(schedule);
   const [step, setStep] = useState('checkin');
-  const [phoneNumber, setPhoneNumber] = useState('');
 
   const requireApproval = useFlag('registration.requireApproval');
 
   const {
     loading,
     studentData,
+    phoneNumber,
+    resetFlow,
+    currentFlow,
     classLink,
     provider,
     countdown,
@@ -83,26 +85,45 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     addFlowBreadcrumb('screen', { screen: step });
   }, [step]);
 
+  /** Back to an empty check-in card; any reply still in flight is dropped. */
+  const startOver = useCallback(() => {
+    resetFlow();
+    setStep('checkin');
+  }, [resetFlow]);
+
+  /**
+   * One rule for every reply — 002Fixes / 03. A reply from a flow the student
+   * has left (STALE) changes nothing; no usable number (RESTART) means start
+   * over at the check-in card. Returns null in both cases.
+   */
+  const settle = (result) => {
+    if (result?.stale) return null;
+    if (result?.restart) {
+      startOver();
+      return null;
+    }
+    return result;
+  };
+
   const handleCheckin = async (phone) => {
     addFlowBreadcrumb('action', { action: 'checkin', ...numberShape(phone) });
-    setPhoneNumber(phone);
     loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
-    const { exists, data } = await checkStudent(phone);
+    const result = settle(await checkStudent(phone));
+    if (!result) return;
 
-    if (!exists) {
+    if (!result.exists) {
       setStep(GATE.REGISTER);
       return;
     }
 
-    const screen = routeTo(data);
     // Only an approved, unblocked student goes anywhere near the class link.
-    if (screen === GATE.WELCOME) return;
+    routeTo(result.data);
   };
 
   const handleRegistration = async (formData) => {
     addFlowBreadcrumb('action', { action: 'register', ...numberShape(phoneNumber) });
-    const result = await register(phoneNumber, formData);
-    if (!result.success) return;
+    const result = settle(await register(phoneNumber, formData));
+    if (!result?.success) return;
 
     // Route on the record that was actually written, not on an assumption.
     // With approval on, a new registration goes to the pending screen and the
@@ -110,30 +131,31 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     const screen = routeTo(result.student);
     if (screen === GATE.WELCOME) {
       setStep('redirect');
-      await redirectToZoom();
+      settle(await redirectToZoom());
     }
   };
 
   const handleRedirect = async () => {
     addFlowBreadcrumb('action', { action: 'join', ...numberShape(phoneNumber) });
     setStep('redirect');
-    const result = await redirectToZoom();
-    if (!result.success) {
+    const result = settle(await redirectToZoom());
+    if (result && !result.success) {
       // The server refused. Re-check so the screen reflects the real reason
       // rather than leaving the student on a spinner.
-      const { data } = await checkStudent(phoneNumber);
-      routeTo(data);
+      const check = settle(await checkStudent(phoneNumber));
+      if (check) routeTo(check.data);
     }
   };
 
   const handleRefresh = async () => {
     addFlowBreadcrumb('action', { action: 'refresh', ...numberShape(phoneNumber) });
-    const { exists, data } = await checkStudent(phoneNumber);
-    if (!exists) {
+    const result = settle(await checkStudent(phoneNumber));
+    if (!result) return;
+    if (!result.exists) {
       setStep(GATE.REGISTER);
       return;
     }
-    routeTo(data);
+    routeTo(result.data);
   };
 
   /**
@@ -148,14 +170,18 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const handlePaid = async (result) => {
     if (Number(result?.balanceAfter) > 0) return; // partial payment: still blocked
     addFlowBreadcrumb('action', { action: 'paid', ...numberShape(phoneNumber) });
+    // The loop waits between checks; leaving the screen stops it (002Fixes / 03).
+    const flow = currentFlow();
     await wait(PAID_REDIRECT_DELAY_MS);
     for (let attempt = 0; attempt < PAID_RECHECKS; attempt += 1) {
-      const { exists, data } = await checkStudent(phoneNumber);
-      if (!exists) {
+      if (flow !== currentFlow()) return;
+      const result = settle(await checkStudent(phoneNumber));
+      if (!result) return;
+      if (!result.exists) {
         setStep(GATE.REGISTER);
         return;
       }
-      const { screen } = resolveStudentGate(data, { requireApproval });
+      const { screen } = resolveStudentGate(result.data, { requireApproval });
       if (screen === GATE.WELCOME) {
         setStep(screen);
         await handleRedirect();
@@ -170,19 +196,18 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   };
 
   const handleSubmitReceipt = async (receiptMessage) => {
-    await submitReceipt(receiptMessage);
+    settle(await submitReceipt(receiptMessage));
   };
 
   const handleResubmit = async (details) => {
     const result = await resubmit(details);
-    if (result.success) setStep(GATE.PENDING);
+    if (settle(result)?.success) setStep(GATE.PENDING);
     return result;
   };
 
   const handleBack = () => {
     addFlowBreadcrumb('action', { action: 'back' });
-    setStep('checkin');
-    setPhoneNumber('');
+    startOver();
   };
 
   return (
