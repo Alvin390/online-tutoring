@@ -16,9 +16,42 @@ export function validate(schema, data) {
   if (!result.success) {
     const first = result.error.issues[0];
     const path = first?.path?.join('.') || 'body';
-    throw badRequest(`${path}: ${first?.message ?? 'invalid value'}`, 'validation_failed');
+    const err = badRequest(`${path}: ${first?.message ?? 'invalid value'}`, 'validation_failed');
+    // For the server log only (sendError); the response body is unchanged.
+    err.detail = { field: path, issue: first?.code ?? 'unknown', ...valueShape(valueAt(data, first?.path)) };
+    throw err;
   }
   return result.data;
+}
+
+function valueAt(data, path = []) {
+  return path.reduce((node, key) => (node == null ? undefined : node[key]), data);
+}
+
+/**
+ * The SHAPE of a rejected value, never the value — 002Fixes / 02.
+ *
+ * On 26 Oct an empty phone was only found because Cloudflare happened to log
+ * the request's size. These fields say what was wrong with any field, for any
+ * reason, without the value itself ever reaching a log: a kind, a length,
+ * whether it starts with "+", how many digits, whether it has whitespace, and
+ * whether it has a trunk "0" after a country code. Key names avoid "phone",
+ * which log.js redacts by key.
+ */
+export function valueShape(value) {
+  if (value === undefined) return { kind: 'missing' };
+  if (value === null) return { kind: 'null' };
+  if (typeof value === 'number') return { kind: 'number' };
+  if (typeof value !== 'string') return { kind: Array.isArray(value) ? 'array' : typeof value };
+  if (value.length === 0) return { kind: 'empty', len: 0 };
+  return {
+    kind: 'string',
+    len: value.length,
+    plus: value.startsWith('+'),
+    digits: (value.match(/\d/g) ?? []).length,
+    space: /\s/.test(value),
+    trunk0: trunkZeroCode(value.trim()) !== null,
+  };
 }
 
 // ---------------------------------------------------------------------------

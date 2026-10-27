@@ -78,6 +78,9 @@ export function sendError(res, err, log) {
     log?.warn(`Request rejected: ${apiError.code}`, {
       status: apiError.status,
       ...(apiError.expose ? { message: apiError.message } : {}),
+      // 002Fixes / 02: a validation failure's value SHAPE, or the limiter that
+      // refused. Built by validate() and enforceRateLimit(); log only.
+      ...(apiError.detail ? { detail: apiError.detail } : {}),
     });
   }
 

@@ -88,10 +88,16 @@ export async function checkRateLimit({ key, bucket, limit, windowSeconds }) {
 export async function enforceRateLimit(opts) {
   const result = await checkRateLimit(opts);
   if (!result.allowed) {
-    throw tooManyRequests(
+    const err = tooManyRequests(
       'Too many requests. Please wait a moment and try again.',
       result.retryAfter
     );
+    // Which limiter refused, for the server log only (002Fixes / 02). Never
+    // the key: it is an IP address or a phone number.
+    err.detail = {
+      bucket: opts.bucket, limit: opts.limit, windowSeconds: opts.windowSeconds, retryAfter: result.retryAfter,
+    };
+    throw err;
   }
   return result;
 }
