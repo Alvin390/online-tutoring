@@ -45,9 +45,15 @@ export function deferred() {
  * @param {object} opts
  * @param {object} [opts.api]             overrides for the API functions
  * @param {boolean} [opts.requireApproval]
+ * @param {string[]} [opts.real]          screens to render for real, e.g. ['PendingApprovalScreen']
  * @returns the render utils, plus `api`, `toast` and `nextPhone` (what "Check in" submits)
  */
-export async function renderSessionPage({ api: overrides = {}, requireApproval = true } = {}) {
+export async function renderSessionPage({ api: overrides = {}, requireApproval = true, real = [], schedule = null } = {}) {
+  const stub = (name, factory) => {
+    const id = `@/features/registration/components/${name}`;
+    if (real.includes(name)) vi.doUnmock(id);
+    else vi.doMock(id, factory);
+  };
   const api = {
     checkinStudent: vi.fn().mockResolvedValue({ exists: false, student: null }),
     submitReceipt: vi.fn().mockResolvedValue({ ok: true }),
@@ -80,7 +86,7 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
       </div>
     ),
   }));
-  vi.doMock('@/features/registration/components/PendingApprovalScreen', () => ({
+  stub('PendingApprovalScreen', () => ({
     default: ({ onRefresh, onBack, studentData }) => (
       <div data-testid="pending">
         <span>{studentData?.studentName}</span>
@@ -89,7 +95,7 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
       </div>
     ),
   }));
-  vi.doMock('@/features/registration/components/WelcomeBackCard', () => ({
+  stub('WelcomeBackCard', () => ({
     default: ({ onJoinNow, onBack, studentData }) => (
       <div data-testid="welcome">
         <span data-testid="welcome-name">{studentData?.studentName}</span>
@@ -109,7 +115,7 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
   vi.doMock('@/features/registration/components/SuccessScreen', () => ({ default: () => <div data-testid="to-class">Opening class</div> }));
 
   const { default: SessionPage } = await import('@/features/registration/components/SessionPage.jsx');
-  const utils = render(<MemoryRouter><SessionPage session="evening" label="Evening" icon="bi-moon" gradient="#000" /></MemoryRouter>);
+  const utils = render(<MemoryRouter><SessionPage session="evening" label="Evening" icon="bi-moon" gradient="#000" schedule={schedule} /></MemoryRouter>);
   return { ...utils, api, toast, typed };
 }
 

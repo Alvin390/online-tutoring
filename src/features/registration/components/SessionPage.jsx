@@ -11,8 +11,10 @@ import { useRegistration } from '../hooks/useRegistration';
 import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
 import { providerLabel } from '@utils/classLink';
-import { formatSchedule } from '@utils/formatSchedule';
-import { addFlowBreadcrumb } from '@utils/monitoring';
+import { formatSchedule, formatTime } from '@utils/formatSchedule';
+import { addFlowBreadcrumb, reportApiFailure } from '@utils/monitoring';
+import { useRetryWait } from '../hooks/useRetryWait';
+import RetryWaitNotice from './RetryWaitNotice';
 
 // Phase 13 / 08: the registration form (react-hook-form + zod, ~20 KB gz) is
 // only needed by a first-time student, after the phone lookup. Loaded on
@@ -49,7 +51,12 @@ const numberShape = (value) => ({ numberLength: String(value ?? '').length, numb
 
 export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes, subjectsByClass }) {
   const timeLine = formatSchedule(schedule);
+  const classTime = formatTime(schedule?.startTime);
   const [step, setStep] = useState('checkin');
+  // Whether this flow has already tried to join; the welcome card then stops
+  // counting down by itself (002Fixes / 05).
+  const [joinTried, setJoinTried] = useState(false);
+  const { until: waitUntil, secondsLeft: waitSeconds, startWait } = useRetryWait(session);
 
   const requireApproval = useFlag('registration.requireApproval');
 
@@ -88,8 +95,29 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   /** Back to an empty check-in card; any reply still in flight is dropped. */
   const startOver = useCallback(() => {
     resetFlow();
+    setJoinTried(false);
     setStep('checkin');
   }, [resetFlow]);
+
+  /**
+   * Every student action, handled — 002Fixes / 05.
+   *
+   * These used to throw out of the click handler, so a failed check-in was an
+   * unhandled rejection: the student got a toast and a dead screen, and Sentry
+   * saw it only by accident. Now the failure is caught, reported on purpose
+   * (warning level, with what was being done and where), and a refusal for
+   * checking too often starts a visible wait with the server's real time.
+   * The hook has already shown the student the message.
+   */
+  const handled = (action, fn) => async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (error) {
+      reportApiFailure(error, { action, screen: step });
+      if (error?.status === 429) startWait(error.retryAfter);
+      return undefined;
+    }
+  };
 
   /**
    * One rule for every reply — 002Fixes / 03. A reply from a flow the student
@@ -137,18 +165,32 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
 
   const handleRedirect = async () => {
     addFlowBreadcrumb('action', { action: 'join', ...numberShape(phoneNumber) });
+    setJoinTried(true);
     setStep('redirect');
     const result = settle(await redirectToZoom());
-    if (result && !result.success) {
+    if (!result || result.success) return;
+
+    if (result.status === 429) {
+      // Refused for asking too often: wait on the welcome card, not a spinner.
+      reportApiFailure(result.error, { action: 'join', screen: 'redirect' });
+      startWait(result.retryAfter);
+      setStep(GATE.WELCOME);
+      return;
+    }
+    try {
       // The server refused. Re-check so the screen reflects the real reason
       // rather than leaving the student on a spinner.
       const check = settle(await checkStudent(phoneNumber));
       if (check) routeTo(check.data);
+    } catch (error) {
+      // The re-check failed too: back to the welcome card, not a spinner.
+      setStep(GATE.WELCOME);
+      throw error;
     }
   };
 
-  const handleRefresh = async () => {
-    addFlowBreadcrumb('action', { action: 'refresh', ...numberShape(phoneNumber) });
+  const handleRefresh = async (source) => {
+    addFlowBreadcrumb('action', { action: source === 'auto' ? 'auto-refresh' : 'refresh', ...numberShape(phoneNumber) });
     const result = settle(await checkStudent(phoneNumber));
     if (!result) return;
     if (!result.exists) {
@@ -247,13 +289,16 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
               )}
             </div>
 
+            <RetryWaitNotice secondsLeft={waitSeconds} until={waitUntil} />
+
             <AnimatePresence mode="wait">
               {step === 'checkin' && (
                 <CheckinCard
                   key="checkin"
                   session={session}
-                  onSubmit={handleCheckin}
+                  onSubmit={handled('checkin', handleCheckin)}
                   loading={loading}
+                  waitSeconds={waitSeconds}
                 />
               )}
 
@@ -273,7 +318,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                     classes={classes}
                     subjectsByClass={subjectsByClass}
                     phoneNumber={phoneNumber}
-                    onSubmit={handleRegistration}
+                    onSubmit={handled('register', handleRegistration)}
                     onBack={handleBack}
                     loading={loading}
                   />
@@ -285,7 +330,9 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   key="pending"
                   session={session}
                   studentData={studentData}
-                  onRefresh={handleRefresh}
+                  onRefresh={handled('refresh', handleRefresh)}
+                  classTime={classTime}
+                  waitSeconds={waitSeconds}
                   onBack={handleBack}
                   loading={loading}
                 />
@@ -317,7 +364,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   // number the student just typed to check in.
                   phoneNumber={phoneNumber}
                   onSubmitReceipt={handleSubmitReceipt}
-                  onPaid={handlePaid}
+                  onPaid={handled('paid', handlePaid)}
                   onBack={handleBack}
                   loading={loading}
                 />
@@ -328,7 +375,9 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   key="welcome"
                   session={session}
                   studentData={studentData}
-                  onJoinNow={handleRedirect}
+                  onJoinNow={handled('join', handleRedirect)}
+                  autoJoin={!joinTried}
+                  waitSeconds={waitSeconds}
                   onBack={handleBack}
                   loading={loading}
                 />

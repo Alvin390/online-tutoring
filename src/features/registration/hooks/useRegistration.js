@@ -133,7 +133,9 @@ export const useRegistration = (session) => {
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
       logger.error('Check student failed', error);
-      showError(error?.message || 'Unable to check registration. Please try again.');
+      // A refusal for checking too often gets its own notice with the real
+      // wait (SessionPage, 002Fixes / 05), not "please wait a moment".
+      if (error?.status !== 429) showError(error?.message || 'Unable to check registration. Please try again.');
       throw error;
     } finally {
       if (flow === flowRef.current) setLoading(false);
@@ -218,8 +220,8 @@ export const useRegistration = (session) => {
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
       logger.error('Class link request failed', error);
-      showError(error?.message || 'Unable to join class. Please contact your teacher.');
-      return { success: false, code: error?.code };
+      if (error?.status !== 429) showError(error?.message || 'Unable to join class. Please contact your teacher.');
+      return { success: false, code: error?.code, status: error?.status, retryAfter: error?.retryAfter, error };
     }
   }, [session, phoneNumber, showError, clearRedirect, refuseUnusable]);
 

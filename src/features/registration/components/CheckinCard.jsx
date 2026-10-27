@@ -5,7 +5,8 @@ import PhoneInput from './PhoneInput';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import { countries } from '@/shared/constants/countries';
 
-export default function CheckinCard({ onSubmit, loading }) {
+/** `waitSeconds` (002Fixes / 05): a rate-limit wait in progress — Continue stays disabled. */
+export default function CheckinCard({ onSubmit, loading, waitSeconds = 0 }) {
   const {
     selectedCountry,
     phoneNumber,
@@ -68,7 +69,7 @@ export default function CheckinCard({ onSubmit, loading }) {
         <button
           type="submit"
           className="btn btn-primary btn-lg w-100"
-          disabled={loading}
+          disabled={loading || waitSeconds > 0}
         >
           {loading ? (
             <>
