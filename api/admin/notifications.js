@@ -4,6 +4,8 @@ import { z } from '../_lib/validate.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { gmailConfigured, sendGmail, GmailError } from '../_lib/gmail.js';
 import { getNotificationSettings } from '../_lib/reports.js';
+import { FieldValue } from '../_lib/firebaseAdmin.js';
+import { classAlertRecipients, buildPreclassEmail, dashboardUrl } from '../_lib/preclassReminder.js';
 
 /**
  * Where report alerts go, and whether Gmail is healthy — Phase 13 / 06 D7.
@@ -11,12 +13,22 @@ import { getNotificationSettings } from '../_lib/reports.js';
  *   get           recipient + Gmail connection health
  *   setRecipient  change the address without a deploy (audited)
  *   sendTest      "Test alert from Online Tutoring" to the current recipient
+ *
+ * Before-class reminders — 002Fixes / 09 (see preclassReminder.js):
+ *   setClassAlertRecipient    where they go (audited)
+ *   resetClassAlertRecipient  back to the default: the teacher's login email
+ *   setClassAlertsEnabled     on or off (audited)
+ *   sendClassAlertTest        a sample reminder, automated notice included
  */
 
 const schema = z
   .object({
-    action: z.enum(['get', 'setRecipient', 'sendTest']),
+    action: z.enum([
+      'get', 'setRecipient', 'sendTest',
+      'setClassAlertRecipient', 'resetClassAlertRecipient', 'setClassAlertsEnabled', 'sendClassAlertTest',
+    ]),
     email: z.string().trim().toLowerCase().email().max(254).optional(),
+    enabled: z.boolean().optional(),
   })
   .strict();
 
@@ -45,8 +57,59 @@ export default createHandler({
     const ref = db.doc('config/notifications');
     const settings = await getNotificationSettings(db);
 
+    /** What the card shows about class alerts: on/off, where, and why there. */
+    const classAlerts = async (current) => {
+      const { recipients, source } = await classAlertRecipients(current);
+      return { enabled: current.classAlertsEnabled !== false, recipient: current.classAlertRecipient ?? null, recipients, source };
+    };
+    const audit = (action, before, after) => tryWriteAudit(
+      { action, actor: user.uid, actorRole: user.role, target: 'config/notifications', before, after,
+        context: { requestId: log.requestId } },
+      log
+    );
+
     if (body.action === 'get') {
-      return { ok: true, reportRecipient: settings.reportRecipient, gmail: health(settings) };
+      return { ok: true, reportRecipient: settings.reportRecipient, gmail: health(settings), classAlerts: await classAlerts(settings) };
+    }
+
+    if (body.action === 'setClassAlertRecipient') {
+      if (!body.email) {
+        const { badRequest } = await import('../_lib/errors.js');
+        throw badRequest('Enter an email address.');
+      }
+      await ref.set({ classAlertRecipient: body.email, updatedAt: new Date(), updatedBy: user.uid }, { merge: true });
+      await audit('notifications.class_alert_recipient_changed', { classAlertRecipient: settings.classAlertRecipient ?? null }, { classAlertRecipient: body.email });
+      return { ok: true, classAlerts: await classAlerts({ ...settings, classAlertRecipient: body.email }) };
+    }
+
+    if (body.action === 'resetClassAlertRecipient') {
+      await ref.set({ classAlertRecipient: FieldValue.delete(), updatedAt: new Date(), updatedBy: user.uid }, { merge: true });
+      await audit('notifications.class_alert_recipient_changed', { classAlertRecipient: settings.classAlertRecipient ?? null }, { classAlertRecipient: null });
+      return { ok: true, classAlerts: await classAlerts({ ...settings, classAlertRecipient: undefined }) };
+    }
+
+    if (body.action === 'setClassAlertsEnabled') {
+      if (typeof body.enabled !== 'boolean') {
+        const { badRequest } = await import('../_lib/errors.js');
+        throw badRequest('Say whether class alerts are on or off.');
+      }
+      await ref.set({ classAlertsEnabled: body.enabled, updatedAt: new Date(), updatedBy: user.uid }, { merge: true });
+      await audit('notifications.class_alerts_toggled', { classAlertsEnabled: settings.classAlertsEnabled !== false }, { classAlertsEnabled: body.enabled });
+      return { ok: true, classAlerts: await classAlerts({ ...settings, classAlertsEnabled: body.enabled }) };
+    }
+
+    if (body.action === 'sendClassAlertTest') {
+      const { recipients } = await classAlertRecipients(settings);
+      const email = buildPreclassEmail({
+        sessionName: 'Evening Session', startLabel: '7:30 PM', minutesLeft: 60,
+        counts: [['Form 3', 2], ['Grade 8', 1]], dashboardUrl: dashboardUrl(), test: true,
+      });
+      try {
+        for (const to of recipients) await sendGmail({ to, ...email });
+        return { ok: true, sent: true, message: `Test reminder sent to ${recipients.join(', ')}.` };
+      } catch (err) {
+        return { ok: true, sent: false, code: err instanceof GmailError ? err.code : 'unknown', message: err.message };
+      }
     }
 
     if (body.action === 'setRecipient') {

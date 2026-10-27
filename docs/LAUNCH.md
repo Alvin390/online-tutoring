@@ -49,6 +49,18 @@ online-tutoring → Settings → Builds) builds every push. It needs:
 - **Build variables:** the `VITE_*` values from `.env.local`. The build
   inlines them into the browser bundle; without them the app has no
   Firebase config.
+- **Sentry source maps (002Fixes / 10, optional).** Also under *Build
+  variables and secrets* — **not** the runtime *Variables & Secrets*:
+  - `SENTRY_AUTH_TOKEN` (**secret**): a Sentry *Organization Token*
+    (Settings → Developer Settings → Organization Tokens).
+  - `SENTRY_ORG` = `alvin-kariuki`, `SENTRY_PROJECT` = `online-tutoring-1`,
+    `SENTRY_URL` = `https://de.sentry.io` (the org is on the EU region).
+
+  With the token set, the build uploads the source maps to the release the
+  app reports (`online-tutoring@<VITE_APP_VERSION>+<commit>`) and deletes them
+  from `dist/`; the build log shows the upload. Without it nothing is
+  uploaded. Either way `scripts/stripSourceMaps.js` keeps every `.map` out of
+  the deployed site.
 
 **Never run a bare `npm run cf:secrets` from a dev machine** without
 `--dry-run` first: it uploads every non-blank runtime value in `.dev.vars` /

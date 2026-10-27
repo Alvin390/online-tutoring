@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import CheckinCard from './CheckinCard';
@@ -11,7 +11,10 @@ import { useRegistration } from '../hooks/useRegistration';
 import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
 import { providerLabel } from '@utils/classLink';
-import { formatSchedule } from '@utils/formatSchedule';
+import { formatSchedule, formatTime } from '@utils/formatSchedule';
+import { addFlowBreadcrumb, reportApiFailure } from '@utils/monitoring';
+import { useRetryWait } from '../hooks/useRetryWait';
+import RetryWaitNotice from './RetryWaitNotice';
 
 // Phase 13 / 08: the registration form (react-hook-form + zod, ~20 KB gz) is
 // only needed by a first-time student, after the phone lookup. Loaded on
@@ -39,16 +42,30 @@ const PAID_RECHECK_INTERVAL_MS = 1500;
 const PAID_RECHECKS = 3;
 const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/**
+ * What a breadcrumb may say about the number a request is about to use —
+ * 002Fixes / 01. Its length and whether it is empty, never the digits: on
+ * 26 Oct an emptied number was the whole story, and this shows it directly.
+ */
+const numberShape = (value) => ({ numberLength: String(value ?? '').length, numberEmpty: !value });
+
 export default function SessionPage({ session, label, icon, gradient, schedule = null, description = '', classes, subjectsByClass }) {
   const timeLine = formatSchedule(schedule);
+  const classTime = formatTime(schedule?.startTime);
   const [step, setStep] = useState('checkin');
-  const [phoneNumber, setPhoneNumber] = useState('');
+  // Whether this flow has already tried to join; the welcome card then stops
+  // counting down by itself (002Fixes / 05).
+  const [joinTried, setJoinTried] = useState(false);
+  const { until: waitUntil, secondsLeft: waitSeconds, startWait } = useRetryWait(session);
 
   const requireApproval = useFlag('registration.requireApproval');
 
   const {
     loading,
     studentData,
+    phoneNumber,
+    resetFlow,
+    currentFlow,
     classLink,
     provider,
     countdown,
@@ -70,24 +87,71 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     [requireApproval]
   );
 
-  const handleCheckin = async (phone) => {
-    setPhoneNumber(phone);
-    loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
-    const { exists, data } = await checkStudent(phone);
+  // Every screen change, as a breadcrumb for the next error report.
+  useEffect(() => {
+    addFlowBreadcrumb('screen', { screen: step });
+  }, [step]);
 
-    if (!exists) {
+  /** Back to an empty check-in card; any reply still in flight is dropped. */
+  const startOver = useCallback(() => {
+    resetFlow();
+    setJoinTried(false);
+    setStep('checkin');
+  }, [resetFlow]);
+
+  /**
+   * Every student action, handled — 002Fixes / 05.
+   *
+   * These used to throw out of the click handler, so a failed check-in was an
+   * unhandled rejection: the student got a toast and a dead screen, and Sentry
+   * saw it only by accident. Now the failure is caught, reported on purpose
+   * (warning level, with what was being done and where), and a refusal for
+   * checking too often starts a visible wait with the server's real time.
+   * The hook has already shown the student the message.
+   */
+  const handled = (action, fn) => async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (error) {
+      reportApiFailure(error, { action, screen: step });
+      if (error?.status === 429) startWait(error.retryAfter);
+      return undefined;
+    }
+  };
+
+  /**
+   * One rule for every reply — 002Fixes / 03. A reply from a flow the student
+   * has left (STALE) changes nothing; no usable number (RESTART) means start
+   * over at the check-in card. Returns null in both cases.
+   */
+  const settle = (result) => {
+    if (result?.stale) return null;
+    if (result?.restart) {
+      startOver();
+      return null;
+    }
+    return result;
+  };
+
+  const handleCheckin = async (phone) => {
+    addFlowBreadcrumb('action', { action: 'checkin', ...numberShape(phone) });
+    loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
+    const result = settle(await checkStudent(phone));
+    if (!result) return;
+
+    if (!result.exists) {
       setStep(GATE.REGISTER);
       return;
     }
 
-    const screen = routeTo(data);
     // Only an approved, unblocked student goes anywhere near the class link.
-    if (screen === GATE.WELCOME) return;
+    routeTo(result.data);
   };
 
   const handleRegistration = async (formData) => {
-    const result = await register(phoneNumber, formData);
-    if (!result.success) return;
+    addFlowBreadcrumb('action', { action: 'register', ...numberShape(phoneNumber) });
+    const result = settle(await register(phoneNumber, formData));
+    if (!result?.success) return;
 
     // Route on the record that was actually written, not on an assumption.
     // With approval on, a new registration goes to the pending screen and the
@@ -95,28 +159,45 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     const screen = routeTo(result.student);
     if (screen === GATE.WELCOME) {
       setStep('redirect');
-      await redirectToZoom();
+      settle(await redirectToZoom());
     }
   };
 
   const handleRedirect = async () => {
+    addFlowBreadcrumb('action', { action: 'join', ...numberShape(phoneNumber) });
+    setJoinTried(true);
     setStep('redirect');
-    const result = await redirectToZoom();
-    if (!result.success) {
+    const result = settle(await redirectToZoom());
+    if (!result || result.success) return;
+
+    if (result.status === 429) {
+      // Refused for asking too often: wait on the welcome card, not a spinner.
+      reportApiFailure(result.error, { action: 'join', screen: 'redirect' });
+      startWait(result.retryAfter);
+      setStep(GATE.WELCOME);
+      return;
+    }
+    try {
       // The server refused. Re-check so the screen reflects the real reason
       // rather than leaving the student on a spinner.
-      const { data } = await checkStudent(phoneNumber);
-      routeTo(data);
+      const check = settle(await checkStudent(phoneNumber));
+      if (check) routeTo(check.data);
+    } catch (error) {
+      // The re-check failed too: back to the welcome card, not a spinner.
+      setStep(GATE.WELCOME);
+      throw error;
     }
   };
 
-  const handleRefresh = async () => {
-    const { exists, data } = await checkStudent(phoneNumber);
-    if (!exists) {
+  const handleRefresh = async (source) => {
+    addFlowBreadcrumb('action', { action: source === 'auto' ? 'auto-refresh' : 'refresh', ...numberShape(phoneNumber) });
+    const result = settle(await checkStudent(phoneNumber));
+    if (!result) return;
+    if (!result.exists) {
       setStep(GATE.REGISTER);
       return;
     }
-    routeTo(data);
+    routeTo(result.data);
   };
 
   /**
@@ -130,14 +211,19 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
    */
   const handlePaid = async (result) => {
     if (Number(result?.balanceAfter) > 0) return; // partial payment: still blocked
+    addFlowBreadcrumb('action', { action: 'paid', ...numberShape(phoneNumber) });
+    // The loop waits between checks; leaving the screen stops it (002Fixes / 03).
+    const flow = currentFlow();
     await wait(PAID_REDIRECT_DELAY_MS);
     for (let attempt = 0; attempt < PAID_RECHECKS; attempt += 1) {
-      const { exists, data } = await checkStudent(phoneNumber);
-      if (!exists) {
+      if (flow !== currentFlow()) return;
+      const result = settle(await checkStudent(phoneNumber));
+      if (!result) return;
+      if (!result.exists) {
         setStep(GATE.REGISTER);
         return;
       }
-      const { screen } = resolveStudentGate(data, { requireApproval });
+      const { screen } = resolveStudentGate(result.data, { requireApproval });
       if (screen === GATE.WELCOME) {
         setStep(screen);
         await handleRedirect();
@@ -152,18 +238,18 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   };
 
   const handleSubmitReceipt = async (receiptMessage) => {
-    await submitReceipt(receiptMessage);
+    settle(await submitReceipt(receiptMessage));
   };
 
   const handleResubmit = async (details) => {
     const result = await resubmit(details);
-    if (result.success) setStep(GATE.PENDING);
+    if (settle(result)?.success) setStep(GATE.PENDING);
     return result;
   };
 
   const handleBack = () => {
-    setStep('checkin');
-    setPhoneNumber('');
+    addFlowBreadcrumb('action', { action: 'back' });
+    startOver();
   };
 
   return (
@@ -203,13 +289,27 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
               )}
             </div>
 
+            {/* 002Fixes / 08: new students learn to register in time. Only
+                where the teacher approves new students, and only before a
+                number is entered. */}
+            {step === 'checkin' && requireApproval && (
+              <p className="text-center text-white-50 small mb-3" data-testid="register-early-hint">
+                <i className="bi bi-info-circle me-1" aria-hidden="true" />
+                New here? Register <strong className="text-white">before class day</strong> — your teacher
+                approves new students before class starts.
+              </p>
+            )}
+
+            <RetryWaitNotice secondsLeft={waitSeconds} until={waitUntil} />
+
             <AnimatePresence mode="wait">
               {step === 'checkin' && (
                 <CheckinCard
                   key="checkin"
                   session={session}
-                  onSubmit={handleCheckin}
+                  onSubmit={handled('checkin', handleCheckin)}
                   loading={loading}
+                  waitSeconds={waitSeconds}
                 />
               )}
 
@@ -229,7 +329,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                     classes={classes}
                     subjectsByClass={subjectsByClass}
                     phoneNumber={phoneNumber}
-                    onSubmit={handleRegistration}
+                    onSubmit={handled('register', handleRegistration)}
                     onBack={handleBack}
                     loading={loading}
                   />
@@ -241,7 +341,9 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   key="pending"
                   session={session}
                   studentData={studentData}
-                  onRefresh={handleRefresh}
+                  onRefresh={handled('refresh', handleRefresh)}
+                  classTime={classTime}
+                  waitSeconds={waitSeconds}
                   onBack={handleBack}
                   loading={loading}
                 />
@@ -273,7 +375,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   // number the student just typed to check in.
                   phoneNumber={phoneNumber}
                   onSubmitReceipt={handleSubmitReceipt}
-                  onPaid={handlePaid}
+                  onPaid={handled('paid', handlePaid)}
                   onBack={handleBack}
                   loading={loading}
                 />
@@ -284,7 +386,9 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   key="welcome"
                   session={session}
                   studentData={studentData}
-                  onJoinNow={handleRedirect}
+                  onJoinNow={handled('join', handleRedirect)}
+                  autoJoin={!joinTried}
+                  waitSeconds={waitSeconds}
                   onBack={handleBack}
                   loading={loading}
                 />

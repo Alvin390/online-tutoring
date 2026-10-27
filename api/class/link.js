@@ -7,6 +7,7 @@ import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { assertSessionExists } from '../_lib/sessions.js';
 import { effectiveApprovalStatus } from '../_lib/studentState.js';
+import { passBypass } from '../_lib/checkinPass.js';
 
 /**
  * Class link issuance — Phase 01 D1, completing the lockdown of
@@ -37,11 +38,17 @@ export default createHandler({
   // Phase 13 / 02 D6: every session slug in the body must exist.
   sessions: 'any',
   method: 'POST',
+  // 002Fixes / 06: 20 → 120 an hour, matching check-in. Every student behind
+  // one carrier NAT or family router shares this budget, and each is a caller
+  // who has already passed check-in.
   rateLimit: {
     bucket: 'class_link',
-    limit: 20,
+    limit: 120,
     windowSeconds: 3600,
     keyBy: 'ip',
+    // 002Fixes / 07: a valid check-in pass skips the count — never the
+    // entitlement checks below, which run on every request.
+    bypass: passBypass,
   },
   schema,
   handle: async ({ body, req, log, waitUntil }) => {

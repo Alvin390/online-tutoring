@@ -3,12 +3,20 @@ import { m } from 'framer-motion';
 import { formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
 
+/**
+ * `autoJoin` (002Fixes / 05): count down into class only on the first arrival
+ * in a flow. If joining failed and the student was sent back here, counting
+ * down again would retry on its own every few seconds against a server that
+ * is refusing. `waitSeconds`: a rate-limit wait in progress.
+ */
 export default function WelcomeBackCard({
   session,
   studentData,
   onJoinNow,
   onBack,
-  loading
+  loading,
+  autoJoin = true,
+  waitSeconds = 0,
 }) {
   const [countdown, setCountdown] = useState(3);
   const feesEnabled = useFlag('fees.enabled');
@@ -29,10 +37,13 @@ export default function WelcomeBackCard({
     return { alertClass: 'alert-success', icon: 'bi-check-circle-fill', label: 'Fees fully paid' };
   }, [balance]);
 
+  const counting = autoJoin && waitSeconds <= 0;
+
   useEffect(() => {
+    if (!counting) return undefined;
     if (countdown <= 0) {
       onJoinNow();
-      return;
+      return undefined;
     }
 
     const timer = setTimeout(() => {
@@ -40,7 +51,7 @@ export default function WelcomeBackCard({
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [countdown, onJoinNow]);
+  }, [countdown, onJoinNow, counting]);
 
   const regDate = studentData.registeredAt?.toDate?.()
     .toLocaleDateString('en-GB', {
@@ -129,27 +140,31 @@ export default function WelcomeBackCard({
           </div>
         )}
 
-        {/* Countdown */}
-        <m.div
-          key={countdown}
-          initial={{ scale: 1.2 }}
-          animate={{ scale: 1 }}
-          className="alert alert-info mb-4"
-        >
-          <i className="bi bi-info-circle me-2" />
-          Redirecting you to class in <strong>{countdown}</strong> seconds...
-        </m.div>
+        {counting && (
+          <>
+            {/* Countdown */}
+            <m.div
+              key={countdown}
+              initial={{ scale: 1.2 }}
+              animate={{ scale: 1 }}
+              className="alert alert-info mb-4"
+            >
+              <i className="bi bi-info-circle me-2" />
+              Redirecting you to class in <strong>{countdown}</strong> seconds...
+            </m.div>
 
-        {/* Loading Spinner */}
-        <div className="spinner-border text-primary mb-4" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
+            {/* Loading Spinner */}
+            <div className="spinner-border text-primary mb-4" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+          </>
+        )}
 
         {/* Manual Join Button */}
         <button
           className="btn btn-primary btn-lg w-100 mb-3"
-          onClick={onJoinNow}
-          disabled={loading}
+          onClick={() => onJoinNow()}
+          disabled={loading || waitSeconds > 0}
         >
           Join Class Now
           <i className="bi bi-box-arrow-in-right ms-2" />

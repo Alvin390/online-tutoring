@@ -6,7 +6,6 @@ import IdleWarningModal from '@features/auth/components/IdleWarningModal';
 import useIdleTimeout from '@hooks/useIdleTimeout';
 import StatsCards from './StatsCards';
 import ClassLinkManager from './ClassLinkManager';
-import PendingApprovalsPanel from './PendingApprovalsPanel';
 import SessionManager from './SessionManager';
 import FeeKpiCards from '@features/fees/components/FeeKpiCards';
 import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
@@ -20,8 +19,12 @@ const WhatsAppPanel = lazy(() => import('@features/whatsapp/components/WhatsAppP
 // the dashboard has loaded, so the first click rarely waits.
 const loadStudentDrawer = () => import('./StudentDrawer');
 const StudentDrawer = lazy(loadStudentDrawer);
+// Lazy (002Fixes / 08): only shown when approval is on, and its pre-class
+// banner must not grow the dashboard's first download (budgeted at 260 KB).
+const PendingApprovalsPanel = lazy(() => import('./PendingApprovalsPanel'));
 import StudentSearchPanel from './StudentSearchPanel';
 import { useDashboard } from '../hooks/useDashboard';
+import { useWaitingTitle } from '../hooks/useWaitingTitle';
 import { useFlag } from '@shared/config/FlagsContext';
 import TierGate from '@shared/components/TierGate';
 import { ROUTES } from '@/routes/routeConfig';
@@ -100,6 +103,9 @@ export default function DashboardLayout() {
 
   // Phase 13 / 02 D7: counted over the active sessions, however many there are.
   const activeSessions = sessions.filter((s) => s.active !== false);
+
+  // 002Fixes / 08: the waiting count in the tab title.
+  useWaitingTitle(requireApproval ? (pendingApprovals?.length ?? 0) : 0);
   const linksConfigured = activeSessions.filter((s) => classLinks[s.id]?.url).length;
   const currentStudents = activeTab ? (studentsBySession[activeTab] ?? []) : [];
 
@@ -196,12 +202,15 @@ export default function DashboardLayout() {
             let into a class that is already running is the most time-sensitive
             thing on this screen. */}
         {requireApproval && (
-          <PendingApprovalsPanel
-            pending={pendingApprovals}
-            onApprove={approveStudents}
-            onReject={rejectStudents}
-            loading={loading}
-          />
+          <Suspense fallback={null}>
+            <PendingApprovalsPanel
+              pending={pendingApprovals}
+              onApprove={approveStudents}
+              onReject={rejectStudents}
+              loading={loading}
+              sessions={activeSessions}
+            />
+          </Suspense>
         )}
 
         {/* Fee KPIs (Phase 06). One aggregate document read, not a scan.
