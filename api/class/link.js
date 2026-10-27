@@ -7,6 +7,7 @@ import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { assertSessionExists } from '../_lib/sessions.js';
 import { effectiveApprovalStatus } from '../_lib/studentState.js';
+import { passBypass } from '../_lib/checkinPass.js';
 
 /**
  * Class link issuance — Phase 01 D1, completing the lockdown of
@@ -45,6 +46,9 @@ export default createHandler({
     limit: 120,
     windowSeconds: 3600,
     keyBy: 'ip',
+    // 002Fixes / 07: a valid check-in pass skips the count — never the
+    // entitlement checks below, which run on every request.
+    bypass: passBypass,
   },
   schema,
   handle: async ({ body, req, log, waitUntil }) => {

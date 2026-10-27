@@ -7,6 +7,7 @@ import { forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { clientIp } from '../_lib/rateLimit.js';
 import { effectiveApprovalStatus } from '../_lib/studentState.js';
+import { issuePass, passBypass } from '../_lib/checkinPass.js';
 
 /**
  * Student check-in — Phase 01 D1/D4.
@@ -59,6 +60,8 @@ export default createHandler({
     limit: 120,
     windowSeconds: 3600,
     keyBy: 'ip',
+    // 002Fixes / 07: a valid check-in pass skips this (and the phone limit).
+    bypass: passBypass,
   },
   schema,
   handle: async ({ body, req, log, waitUntil }) => {
@@ -90,7 +93,7 @@ export default createHandler({
     // 002Fixes / 06: 20 per TEN MINUTES, not per hour. The same burst cap, but
     // a refusal now lasts minutes: on 26 Oct three waiting students were
     // locked out until the top of the hour, one until 80 minutes into class.
-    const phoneLimit = authorized
+    const phoneLimit = authorized || req.passAccepted === true
       ? Promise.resolve()
       : import('../_lib/rateLimit.js').then(({ enforceRateLimit }) => enforceRateLimit({
         key: phone,
@@ -134,6 +137,9 @@ export default createHandler({
       ip: clientIp(req),
     });
 
-    return { exists: true, student: projectStudent(data) };
+    // 002Fixes / 07: a pass for this number's repeat checks. Only when the
+    // student exists — an unknown number gets nothing to skip limits with.
+    const pass = issuePass({ session, phone });
+    return { exists: true, student: projectStudent(data), ...(pass ? { pass } : {}) };
   },
 });

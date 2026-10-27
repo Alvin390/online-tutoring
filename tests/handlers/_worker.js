@@ -225,7 +225,7 @@ export async function drainWaitUntil() {
  * is ready, to prove something was NOT on the response path.
  * @returns {Promise<{status:number, body:any, headers:Headers}>}
  */
-export async function call(path, { method = 'POST', body, token, ip, headers = {}, drain = true } = {}) {
+export async function call(path, { method = 'POST', body, token, ip, headers = {}, drain = true, env = {} } = {}) {
   const w = await loadWorker();
   const h = new Headers({ 'cf-connecting-ip': ip ?? nextIp(), ...headers });
   if (body !== undefined && !h.has('content-type')) h.set('content-type', 'application/json');
@@ -242,7 +242,8 @@ export async function call(path, { method = 'POST', body, token, ip, headers = {
     passThroughOnException() {},
   };
 
-  const response = await w.fetch(request, {}, ctx);
+  // `env` carries Worker bindings a test wants to fake (002Fixes / 07).
+  const response = await w.fetch(request, env, ctx);
   const text = await response.text();
   if (drain) await drainWaitUntil();
   let parsed = text;

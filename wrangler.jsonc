@@ -72,6 +72,18 @@
     "enabled": true
   },
 
+  // 002Fixes / 07: Cloudflare's in-memory rate limiter for requests carrying a
+  // check-in pass — 15 a minute per pass, no Firestore write. Only a runaway
+  // client reaches it; past it the request is limited like one without a pass.
+  // api/_lib/requestContext.js reads it and fails open if it is absent.
+  "ratelimits": [
+    {
+      "name": "CHECKIN_PASS_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 15, "period": 60 }
+    }
+  ],
+
   "vars": {
     // Non-secret only. Everything sensitive is a secret — see
     // scripts/pushSecrets.js and upgrade/ENV-SETUP-GUIDE.md.

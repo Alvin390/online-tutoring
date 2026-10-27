@@ -7,6 +7,7 @@ import { validate } from './validate.js';
 import { subrequestsSpent } from './firestoreRest.js';
 import { getDb } from './firebaseAdmin.js';
 import { assertSessionExists } from './sessions.js';
+import { PASS_HEADER } from './checkinPass.js';
 
 /**
  * The middleware chain — Phase 01 D4.
@@ -126,7 +127,10 @@ export function backgroundTask(req, promise, log) {
  * @param {string}  [opts.role]                minimum role
  * @param {string}  [opts.tier]                minimum subscription tier
  * @param {object}  [opts.schema]              Zod schema for the body
- * @param {object}  [opts.rateLimit]           { bucket, limit, windowSeconds, keyBy }
+ * @param {object}  [opts.rateLimit]           { bucket, limit, windowSeconds, keyBy, bypass? }
+ *   bypass({ req, body }) → Promise<boolean> (002Fixes / 07): checked after
+ *   validation for a request carrying a check-in pass; true skips the limit
+ *   and sets req.passAccepted for the handler.
  * @param {boolean} [opts.rawBody]             pass raw bytes instead of parsed JSON
  * @param {'active'|'any'} [opts.sessions]     Phase 13 / 02 D6: after validation,
  *        every session slug in the body (`session`, `sessions[]`, `sessionIds[]`)
@@ -205,18 +209,17 @@ export function createHandler(opts) {
 
       // 4. Rate limit — before auth, so token verification cannot be used as
       //    an amplification lever.
-      if (rateLimit) {
-        const key = rateLimit.keyBy === 'ip'
-          ? ip
-          : (rateLimit.resolveKey?.({ req, ip }) ?? ip);
-
-        await enforceRateLimit({
-          key,
-          bucket: rateLimit.bucket,
-          limit: rateLimit.limit,
-          windowSeconds: rateLimit.windowSeconds,
-        });
-      }
+      const limitRequest = () => enforceRateLimit({
+        key: rateLimit.keyBy === 'ip' ? ip : (rateLimit.resolveKey?.({ req, ip }) ?? ip),
+        bucket: rateLimit.bucket,
+        limit: rateLimit.limit,
+        windowSeconds: rateLimit.windowSeconds,
+      });
+      // 002Fixes / 07: a request carrying a check-in pass is limited AFTER
+      // validation (6a), so the pass can be checked against the body. Every
+      // other request is limited here, exactly as before.
+      const deferLimit = Boolean(rateLimit?.bypass && req.headers[PASS_HEADER]);
+      if (rateLimit && !deferLimit) await limitRequest();
 
       // 5. Auth
       let user = null;
@@ -235,6 +238,14 @@ export function createHandler(opts) {
         if (schema) body = validate(schema, body);
       } else if (schema && req.method === 'GET') {
         body = validate(schema, req.query ?? {});
+      }
+
+      // 6a. The deferred limit (002Fixes / 07): a valid pass for this body
+      //     skips it, and the handler is told so; anything else is limited
+      //     exactly as a request without a pass.
+      if (deferLimit) {
+        if (await rateLimit.bypass({ req, body })) req.passAccepted = true;
+        else await limitRequest();
       }
 
       // 6b. Session existence (Phase 13 / 02 D6) — after validation, so the

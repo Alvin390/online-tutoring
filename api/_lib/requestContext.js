@@ -29,3 +29,22 @@ export function deferToBackground(promise) {
   ctx.waitUntil(promise);
   return true;
 }
+
+/**
+ * Cloudflare's in-memory rate limiter (the CHECKIN_PASS_LIMITER binding,
+ * wrangler.jsonc) — 002Fixes / 07. No Firestore write, no added latency.
+ * Bindings are not in process.env, so the Worker puts it in this context.
+ * Fails OPEN, like the Firestore limiter: without the binding (scripts, tests,
+ * a plan without it) or if it errors, the request is allowed.
+ * @returns {Promise<boolean>}
+ */
+export async function edgeLimitAllows(key) {
+  const limiter = store.getStore()?.passLimiter;
+  if (typeof limiter?.limit !== 'function') return true;
+  try {
+    const { success } = await limiter.limit({ key });
+    return success !== false;
+  } catch {
+    return true;
+  }
+}

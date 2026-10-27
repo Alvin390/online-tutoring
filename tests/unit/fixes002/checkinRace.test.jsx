@@ -149,7 +149,8 @@ describe('ordinary flows are unchanged', () => {
     await click('Check again');
     expect(screen.getByTestId('welcome-name').textContent).toBe('Amina');
     await click('Join now');
-    expect(api.getClassLink).toHaveBeenCalledWith('evening', PHONE);
+    // 002Fixes / 07 added a third argument, the check-in pass (none issued here).
+    expect(api.getClassLink).toHaveBeenCalledWith('evening', PHONE, undefined);
     expect(screen.getByTestId('to-class')).toBeTruthy();
     expect(sentPhones(api)).toEqual([PHONE, PHONE]);
   });

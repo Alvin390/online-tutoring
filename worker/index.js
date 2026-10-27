@@ -94,7 +94,7 @@ export default {
   // C9) — the counter used to be module-scoped and shared across requests.
   fetch(request, env, ctx) {
     return runWithSubrequestBudget(budget(), () =>
-      runInRequestContext(contextFor(ctx), () => handleFetch(request, env, ctx)));
+      runInRequestContext(contextFor(ctx, env), () => handleFetch(request, env, ctx)));
   },
 
   // One context around every sweep on a trigger: they share the invocation's
@@ -105,9 +105,16 @@ export default {
   },
 };
 
-/** What background work needs from the invocation (Phase 13 / 08 C3). */
-function contextFor(ctx) {
-  return { waitUntil: typeof ctx?.waitUntil === 'function' ? (p) => ctx.waitUntil(p) : null };
+/**
+ * What background work needs from the invocation (Phase 13 / 08 C3), and the
+ * check-in pass limiter binding (002Fixes / 07) — bindings are not in
+ * process.env, so code without `env` in hand finds it here.
+ */
+function contextFor(ctx, env) {
+  return {
+    waitUntil: typeof ctx?.waitUntil === 'function' ? (p) => ctx.waitUntil(p) : null,
+    passLimiter: env?.CHECKIN_PASS_LIMITER ?? null,
+  };
 }
 
 async function handleFetch(request, env, ctx) {

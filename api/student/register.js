@@ -4,6 +4,7 @@ import { z, sessionSchema, phoneSchema, studentNameSchema } from '../_lib/valida
 import { ApiError } from '../_lib/errors.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { projectStudent } from '../_lib/studentProjection.js';
+import { issuePass } from '../_lib/checkinPass.js';
 import { sessionClasses } from '../_lib/sessions.js';
 import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
 
@@ -107,9 +108,13 @@ export default createHandler({
     }
 
     log.info('Student registered', { session });
+    // 002Fixes / 07: a new student usually goes straight to the waiting
+    // screen; its "Check again" and automatic checks carry this pass.
+    const pass = issuePass({ session, phone });
     return {
       ok: true,
       student: projectStudent({ ...student, registeredAt: { toDate: () => new Date() } }),
+      ...(pass ? { pass } : {}),
     };
   },
 });

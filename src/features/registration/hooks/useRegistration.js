@@ -93,9 +93,21 @@ export const useRegistration = (session) => {
   const flowRef = useRef(0);
   const currentFlow = useCallback(() => flowRef.current, []);
 
+  /**
+   * The check-in pass — 002Fixes / 07. Handed back by a check-in that found
+   * the student (or by registering); repeat checks and the class link carry
+   * it so they are not counted against the rate limits. Kept in MEMORY only
+   * (never web storage, per the client's token policy) and only ever sent for
+   * the number it was issued for.
+   */
+  const passRef = useRef(null);
+  const passFor = (phone) => (passRef.current?.phone === phone ? passRef.current.pass : undefined);
+  const keepPass = (phone, pass) => { if (pass) passRef.current = { phone, pass }; };
+
   /** Leave the current flow: drop its pending replies, forget its number. */
   const resetFlow = useCallback(() => {
     flowRef.current += 1;
+    passRef.current = null;
     clearRedirect();
     setPhoneNumber('');
     setStudentData(null);
@@ -118,8 +130,9 @@ export const useRegistration = (session) => {
     setLoading(true);
     setPhoneNumber(phone);
     try {
-      const { exists, student } = await checkinStudent(session, phone);
+      const { exists, student, pass } = await checkinStudent(session, phone, passFor(phone));
       if (flow !== flowRef.current) return STALE;
+      keepPass(phone, pass);
 
       if (exists) {
         setStudentData(student);
@@ -150,10 +163,11 @@ export const useRegistration = (session) => {
       // The response carries the created record (the same projection as
       // check-in), so the caller routes on the real approval state without a
       // second request.
-      const { student } = await registerStudentApi({ session, phone, ...formData });
+      const { student, pass } = await registerStudentApi({ session, phone, ...formData });
       // Registered either way; but if the student has left this flow, the
       // screens must not move on its account.
       if (flow !== flowRef.current) return STALE;
+      keepPass(phone, pass);
       trackRegistration(session);
       showSuccess('Registration successful!');
       setStudentData(student);
@@ -191,7 +205,7 @@ export const useRegistration = (session) => {
     if (!isUsablePhone(phoneNumber)) return refuseUnusable('join', '/api/class/link');
     const flow = flowRef.current;
     try {
-      const { url, provider: linkProvider } = await getClassLink(session, phoneNumber);
+      const { url, provider: linkProvider } = await getClassLink(session, phoneNumber, passFor(phoneNumber));
       // Never start the countdown into class for a flow the student has left.
       if (flow !== flowRef.current) return STALE;
 
@@ -234,7 +248,7 @@ export const useRegistration = (session) => {
       if (flow !== flowRef.current) return STALE;
       showSuccess('Payment receipt submitted successfully! Awaiting teacher approval.');
 
-      const { student } = await checkinStudent(session, phoneNumber);
+      const { student } = await checkinStudent(session, phoneNumber, passFor(phoneNumber));
       if (flow !== flowRef.current) return STALE;
       setStudentData(student);
 
@@ -259,7 +273,7 @@ export const useRegistration = (session) => {
       if (flow !== flowRef.current) return STALE;
       showSuccess('Sent. Your teacher will review it shortly.');
 
-      const { student } = await checkinStudent(session, phoneNumber);
+      const { student } = await checkinStudent(session, phoneNumber, passFor(phoneNumber));
       if (flow !== flowRef.current) return STALE;
       setStudentData(student);
 
