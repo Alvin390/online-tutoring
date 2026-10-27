@@ -158,9 +158,13 @@ function makeRecord(student, session) {
   const balance = Number(student.feeBalance);
   const approval = effectiveApprovalStatus(student);
   const registered = toDate(student.registeredAt);
+  const id = String(student.id ?? '');
   return {
     student,
-    id: String(student.id ?? ''),
+    id,
+    // The same parent phone can be registered in two sessions, so across
+    // sessions a student is identified by session AND phone.
+    key: session ? `${session}/${id}` : id,
     session,
     name,
     nameTokens: name ? name.split(' ') : [],
@@ -220,6 +224,19 @@ export function buildIndex(students, session = null) {
     if (!cachedBySession) indexCache.set(list, bySession);
   }
   return index;
+}
+
+/**
+ * One index over several sessions (001Fixes / 06): the per-session indexes,
+ * each built from its own listener array and cached, concatenated. No
+ * re-normalising — switching to "All sessions" reuses the work already done.
+ */
+export function combineIndexes(indexes) {
+  const records = [];
+  for (const index of indexes) {
+    if (index?.records) records.push(...index.records);
+  }
+  return { records, session: null, fallback: null };
 }
 
 // -------------------------------------------------------------------- scoring
@@ -330,7 +347,9 @@ export function normalizeState(state = {}) {
   };
 }
 
-const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+// The key, not the id: across sessions one phone can appear twice. Within a
+// session the key IS the id.
+const byId = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || byId(a, b);
 const newestFirst = (a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity) || byId(a, b);
 const oldestFirst = (a, b) => (a.at ?? Infinity) - (b.at ?? Infinity) || byId(a, b);

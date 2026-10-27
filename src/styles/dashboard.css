@@ -805,3 +805,22 @@
     min-height: 44px;
   }
 }
+
+/* All sessions — 001Fixes / 06: the switch, and each row's session badge. */
+.all-sessions-toggle .form-check-label {
+  cursor: pointer;
+}
+
+.row-session-badge {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  .all-sessions-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+  }
+}

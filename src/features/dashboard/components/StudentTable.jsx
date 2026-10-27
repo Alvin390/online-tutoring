@@ -36,7 +36,17 @@ export default function StudentTable({
   // when `students` is a filtered subset ("12 of 70").
   terms,
   totalCount,
+  // 001Fixes / 06, the all-sessions view: rows from several sessions, each
+  // tagged `__session` / `__key`. Every action goes to the ROW'S session.
+  sessionNames = null,
+  sessionDocs = null,
+  showSessions = false,
 }) {
+  // The session a row belongs to, and a key unique across sessions (one phone
+  // can be registered in two). Outside the all-sessions view these are simply
+  // the open session and the phone.
+  const rowSession = (student) => student?.__session ?? session;
+  const rowKey = (student) => student?.__key ?? student?.id;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
@@ -91,13 +101,14 @@ export default function StudentTable({
     estimateSize: () => ROW_ESTIMATE_PX,
     overscan: OVERSCAN,
     scrollMargin,
-    getItemKey: (i) => students[i]?.id ?? i,
+    getItemKey: (i) => rowKey(students[i]) ?? i,
   });
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
 
   // Phase 14: the subjects offered by the class being edited.
-  const editSubjectOptions = editForm.class ? subjectsForClass(sessionDoc, editForm.class) : [];
+  const editDoc = (selectedStudent && sessionDocs?.[rowSession(selectedStudent)]) ?? sessionDoc;
+  const editSubjectOptions = editForm.class ? subjectsForClass(editDoc, editForm.class) : [];
 
   const handleDeleteClick = (student) => {
     setSelectedStudent(student);
@@ -129,7 +140,7 @@ export default function StudentTable({
     if (!selectedStudent) return;
 
     setDeleting(true);
-    await onDelete(session, selectedStudent.id, selectedStudent.studentName);
+    await onDelete(rowSession(selectedStudent), selectedStudent.id, selectedStudent.studentName);
     setDeleting(false);
     setShowDeleteModal(false);
     setSelectedStudent(null);
@@ -139,7 +150,7 @@ export default function StudentTable({
     if (!selectedStudent) return;
 
     setSaving(true);
-    const result = await onEdit(session, editForm.parentPhone, editForm, selectedStudent.id);
+    const result = await onEdit(rowSession(selectedStudent), editForm.parentPhone, editForm, selectedStudent.id);
     setSaving(false);
     // Keep the form open on failure, so the teacher's typing is not lost.
     if (result?.success === false) return;
@@ -182,7 +193,7 @@ export default function StudentTable({
       setBlocking(true);
       try {
         await postLedgerEntry({
-          session,
+          session: rowSession(selectedStudent),
           phone: selectedStudent.id,
           type: 'invoice',
           amount,
@@ -201,7 +212,7 @@ export default function StudentTable({
     }
 
     await onBlock(
-      session,
+      rowSession(selectedStudent),
       selectedStudent.id,
       selectedStudent.studentName,
       blockKind === 'fees' && feesUsable ? '' : blockReason
@@ -276,10 +287,11 @@ export default function StudentTable({
                     const student = students[item.index];
                     return (
                       <StudentRow
-                        key={student.id}
+                        key={rowKey(student)}
                         student={student}
                         index={item.index}
-                        session={session}
+                        session={rowSession(student)}
+                        sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
                         animated={false}
                         measureRef={virtualizer.measureElement}
                         dataIndex={item.index}
@@ -301,10 +313,11 @@ export default function StudentTable({
               <AnimatePresence>
                 {students.map((student, index) => (
                   <StudentRow
-                    key={student.id}
+                    key={rowKey(student)}
                     student={student}
                     index={index}
-                    session={session}
+                    session={rowSession(student)}
+                    sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
                     onDelete={() => handleDeleteClick(student)}
                     onEdit={() => handleEditClick(student)}
                     onView={onView ? () => onView(student) : undefined}
@@ -485,7 +498,8 @@ export default function StudentTable({
               <i className="bi bi-slash-circle" />
             </div>
             <p className="mb-3">
-              Block <strong>{selectedStudent.studentName}</strong> from accessing {session} session?
+              Block <strong>{selectedStudent.studentName}</strong> from accessing{' '}
+              {sessionNames?.[rowSession(selectedStudent)] ?? `${rowSession(selectedStudent)} session`}?
             </p>
             <p className="text-muted mb-3">
               <small>Parent Phone: {selectedStudent.id}</small>

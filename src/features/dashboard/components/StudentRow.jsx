@@ -20,6 +20,8 @@ function StudentRow({
   animated = true, measureRef, dataIndex,
   // 001Fixes / 04: search terms to mark in the name, phone, class and subjects.
   terms,
+  // 001Fixes / 06: shown as a badge in the all-sessions view.
+  sessionName,
 }) {
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
@@ -132,6 +134,11 @@ function StudentRow({
           <div>
             <div className="d-flex align-items-center gap-2">
               <strong>{highlightMatches(student.studentName, terms)}</strong>
+              {sessionName && (
+                <span className="badge rounded-pill text-bg-light border row-session-badge" data-testid="row-session">
+                  {sessionName}
+                </span>
+              )}
               {isBlocked && <span className="badge bg-danger">Blocked</span>}
               {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
             </div>
@@ -447,6 +454,7 @@ function areEqual(prev, next) {
   if (prev.student?.id !== next.student?.id) return false;
   // Search terms are memoised per query by the panel, so identity is enough.
   if (prev.terms !== next.terms) return false;
+  if (prev.sessionName !== next.sessionName) return false;
 
   // Callback identity: the parent passes inline arrows for onDelete/onEdit/
   // onView, so these change every render and are deliberately NOT compared —

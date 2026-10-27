@@ -121,7 +121,8 @@ export default function DashboardLayout() {
           <StudentDrawer
             open={Boolean(drawerStudent)}
             student={drawerStudent}
-            session={drawerStudent?.session ?? activeTab}
+            // The row's own session in the all-sessions view (001Fixes / 06).
+            session={drawerStudent?.__session ?? drawerStudent?.session ?? activeTab}
             onClose={() => setDrawerStudent(null)}
           />
         </Suspense>
@@ -314,6 +315,8 @@ export default function DashboardLayout() {
               {activeTab ? (
                 <StudentSearchPanel
                   session={activeTab}
+                  sessions={tabs}
+                  studentsBySession={studentsBySession}
                   sessionDoc={sessions.find((s) => s.id === activeTab) ?? null}
                   students={currentStudents}
                   onDelete={deleteStudent}

@@ -311,20 +311,35 @@ export const useDashboard = () => {
     }
   }, [showSuccess, showError]);
 
-  /** PDF export — Phase 10 item 8. The document is built in studentsPdf.js. */
-  const exportToPDF = useCallback(async (session) => {
-    const students = studentsBySession[session] ?? [];
+  /**
+   * PDF export — Phase 10 item 8. The document is built in studentsPdf.js.
+   *
+   * 001Fixes / 06: `view` exports what the search shows instead of the whole
+   * session — `{ students, subtitle, allSessions }`. Without it, the export is
+   * exactly as before.
+   */
+  const exportToPDF = useCallback(async (session, view) => {
+    const students = view?.students ?? studentsBySession[session] ?? [];
 
     if (students.length === 0) {
       showError('No students to export');
       return;
     }
 
-    const sessionName = sessions.find((s) => s.id === session)?.name ?? session;
-    const doc = await buildStudentsPdf({ sessionName, students });
+    const sessionNames = Object.fromEntries(sessions.map((s) => [s.id, s.name]));
+    const sessionName = view?.allSessions ? 'All sessions' : (sessionNames[session] ?? session);
+    const doc = await buildStudentsPdf({
+      sessionName,
+      students,
+      subtitle: view?.subtitle ?? '',
+      includeSession: Boolean(view?.allSessions),
+      sessionNames,
+    });
 
     // Download
-    doc.save(`${session}-students-${new Date().toISOString().split('T')[0]}.pdf`);
+    const stamp = new Date().toISOString().split('T')[0];
+    const scope = view?.allSessions ? 'all-sessions' : session;
+    doc.save(`${scope}-students${view?.subtitle ? '-filtered' : ''}-${stamp}.pdf`);
 
     trackCSVExport(session, students.length);
     showSuccess('PDF exported successfully');
