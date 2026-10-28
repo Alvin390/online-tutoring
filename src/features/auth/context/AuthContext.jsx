@@ -49,6 +49,8 @@ const EMPTY_CLAIMS = {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [claims, setClaims] = useState(EMPTY_CLAIMS);
+  const claimsRef = useRef(EMPTY_CLAIMS);
+  claimsRef.current = claims;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -63,7 +65,13 @@ export const AuthProvider = ({ children }) => {
     return () => setAuthTokenSource(null);
   }, []);
 
-  const readClaims = useCallback(async (firebaseUser, forceRefresh = false) => {
+  /**
+   * `onFailure` is what to return when the token cannot be read. On sign-in
+   * that is "no claims"; on a refresh it is null, meaning "keep what we have"
+   * (003Fixes / 01) — a dropped connection must not turn a Gold teacher's
+   * panels into upgrade prompts until the next reload.
+   */
+  const readClaims = useCallback(async (firebaseUser, forceRefresh = false, onFailure = EMPTY_CLAIMS) => {
     if (!firebaseUser) return EMPTY_CLAIMS;
     try {
       const result = await firebaseUser.getIdTokenResult(forceRefresh);
@@ -77,7 +85,7 @@ export const AuthProvider = ({ children }) => {
       };
     } catch (err) {
       logger.warn('Failed to read ID token claims', { code: err?.code });
-      return EMPTY_CLAIMS;
+      return onFailure;
     }
   }, []);
 
@@ -132,8 +140,8 @@ export const AuthProvider = ({ children }) => {
         lastSeen = stamp;
         logger.info('Claims changed server-side; refreshing token');
 
-        const refreshed = await readClaims(auth.currentUser, true);
-        if (currentUidRef.current === uid) setClaims(refreshed);
+        const refreshed = await readClaims(auth.currentUser, true, null);
+        if (refreshed && currentUidRef.current === uid) setClaims(refreshed);
       },
       (err) => {
         logger.warn('Claim propagation listener failed', { code: err?.code });
@@ -203,7 +211,8 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const refreshClaims = useCallback(async () => {
-    const refreshed = await readClaims(auth.currentUser, true);
+    const refreshed = await readClaims(auth.currentUser, true, null);
+    if (!refreshed) return claimsRef.current;
     setClaims(refreshed);
     return refreshed;
   }, [readClaims]);
