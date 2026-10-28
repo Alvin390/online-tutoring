@@ -1,6 +1,8 @@
 import { FieldValue, Timestamp } from './firebaseAdmin.js';
 import { postEntry, reverseEntry } from './ledger.js';
 import { effectiveApprovalStatus } from './studentState.js';
+import { shouldAutoUnblock } from './feeState.js';
+import { approvalFields, receiptIdFor, mpesaCodeFrom } from './receiptApproval.js';
 import { badRequest, forbidden, notFound, ApiError } from './errors.js';
 
 /**
@@ -37,7 +39,13 @@ export const MAX_ITEMS = Object.freeze({
   undoLedger: 6,
 });
 
-const BEFORE_FIELDS = ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt', 'receiptMessage'];
+const BEFORE_FIELDS = ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt', 'receiptMessage', 'receiptApprovedAt'];
+// What Undo writes back, by action (only what that action changed).
+const RESTORED = {
+  block: ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt'],
+  unblock: ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt'],
+  approveReceipts: ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'receiptMessage', 'receiptApprovedAt'],
+};
 
 export const batchRef = (db, id) => db.doc(`bulkActions/${id}`);
 const itemId = (session, phone) => `${session}__${String(phone).replace(/\D/g, '')}`;
@@ -100,20 +108,29 @@ export async function openBatch({ db, user, batchId, action, kind = null, amount
 }
 
 /**
- * Applies `action` ('block' | 'unblock') to a chunk of students.
+ * Applies `action` ('block' | 'unblock' | 'approveReceipts') to a chunk of students.
+ *
+ * approveReceipts (003Fixes / 06, owner decision): each student's whole
+ * balance is recorded as paid, referenced with the M-Pesa code from their
+ * receipt, then the receipt is approved exactly as the single approval does
+ * (api/_lib/receiptApproval.js) — which lifts the block once nothing is owed.
  *
  * @returns {{ batchId, done, skipped: object, failed: Array<{index, code}>, undoUntilMs }}
  */
 export async function applyStudents({
   db, user, batch, action, items, kind = 'other', amount = null, reason = null, nowMs, recordedBy,
+  feesEnabled = false,
 }) {
   const list = uniqueItems(items);
   const studentRefs = list.map((i) => studentRef(db, i.session, i.phone));
   const itemRefs = list.map((i) => itemRef(db, batch.id, i.session, i.phone));
-  // One round trip for the students and their items (a retry's done marks).
-  const snaps = batch.isNew ? await db.getAll(...studentRefs) : await db.getAll(...studentRefs, ...itemRefs);
+  // Approving receipts needs each fee account's balance as well.
+  const accountRefs = action === 'approveReceipts' ? list.map((i) => db.doc(`fees/accounts/items/${i.phone}`)) : [];
+  // One round trip for the students, their items (a retry's done marks) and accounts.
+  const snaps = await db.getAll(...studentRefs, ...(batch.isNew ? [] : itemRefs), ...accountRefs);
   const studentSnaps = snaps.slice(0, list.length);
-  const itemSnaps = batch.isNew ? [] : snaps.slice(list.length);
+  const itemSnaps = batch.isNew ? [] : snaps.slice(list.length, 2 * list.length);
+  const accountSnaps = accountRefs.length ? snaps.slice(snaps.length - list.length) : [];
 
   const skipped = {};
   const skip = (why) => { skipped[why] = (skipped[why] ?? 0) + 1; };
@@ -131,8 +148,11 @@ export async function applyStudents({
       if (data.blocked === true) { skip('alreadyBlocked'); return; }
     } else if (action === 'unblock') {
       if (data.blocked !== true) { skip('notBlocked'); return; }
+    } else if (action === 'approveReceipts') {
+      if (!data.pendingReceipt) { skip('noReceipt'); return; }
     }
-    toApply.push({ ...item, data });
+    const account = accountSnaps[i];
+    toApply.push({ ...item, data, balance: account?.exists ? (account.data().balance ?? 0) : (data.feeBalance ?? 0) });
   });
 
   // Fee charges first, one ledger transaction each: a student whose charge
@@ -140,6 +160,32 @@ export async function applyStudents({
   const applied = [];
   for (const item of toApply) {
     let entryId = null;
+    let clearBlock = true;
+    if (action === 'approveReceipts' && feesEnabled && item.balance > 0) {
+      try {
+        const posted = await postEntry({
+          phone: item.phone,
+          session: item.session,
+          type: 'payment',
+          amount: item.balance,
+          method: 'mpesa',
+          reference: mpesaCodeFrom(item.data.pendingReceipt),
+          note: 'Recorded on receipt approval (bulk)',
+          recordedBy,
+          sourceReceiptId: receiptIdFor(item.phone, item.data, nowMs),
+          // Keyed by the batch, not the receipt: if this approval is undone,
+          // approving the same receipt again later must post a fresh payment.
+          idempotencyKey: `bulk_${batch.id}_${itemId(item.session, item.phone)}`,
+        });
+        entryId = posted.entryId;
+        clearBlock = shouldAutoUnblock(posted.balance);
+      } catch (err) {
+        failed.push({ index: item.index, code: err?.code && typeof err.code === 'string' ? err.code : 'payment_failed' });
+        continue;
+      }
+      applied.push({ ...item, entryId, clearBlock });
+      continue;
+    }
     if (action === 'block' && kind === 'fees') {
       try {
         const posted = await postEntry({
@@ -157,15 +203,16 @@ export async function applyStudents({
         continue;
       }
     }
-    applied.push({ ...item, entryId });
+    applied.push({ ...item, entryId, clearBlock });
   }
 
   const at = Timestamp.fromMillis(nowMs);
   const writes = db.batch();
   for (const item of applied) {
-    const fields = action === 'block'
-      ? { blocked: true, blockReason: kind === 'fees' ? '' : (reason ?? ''), blockedAt: at, receiptStatus: 'expired' }
-      : { blocked: false, blockReason: '', blockedAt: null, receiptStatus: 'approved', pendingReceipt: null, unblockedAt: at };
+    let fields;
+    if (action === 'block') fields = { blocked: true, blockReason: kind === 'fees' ? '' : (reason ?? ''), blockedAt: at, receiptStatus: 'expired' };
+    else if (action === 'unblock') fields = { blocked: false, blockReason: '', blockedAt: null, receiptStatus: 'approved', pendingReceipt: null, unblockedAt: at };
+    else fields = approvalFields(item.data, { clearBlock: item.clearBlock, approvedAt: at });
     writes.set(studentRef(db, item.session, item.phone), fields, { merge: true });
     writes.set(itemRef(db, batch.id, item.session, item.phone), {
       session: item.session,
@@ -209,11 +256,7 @@ function stillAsLeft(action, data, item) {
 /** The fields Undo writes back: the `before` snapshot, restored as it was. */
 function restoreFields(action, before) {
   const fields = {};
-  for (const key of BEFORE_FIELDS) {
-    if (key === 'receiptMessage' && action !== 'approveReceipts') continue;
-    fields[key] = before?.[key] ?? null;
-  }
-  if (action === 'approveReceipts') fields.receiptApprovedAt = null;
+  for (const key of RESTORED[action] ?? RESTORED.block) fields[key] = before?.[key] ?? null;
   fields.blocked = before?.blocked === true;
   if (typeof fields.blockReason !== 'string') fields.blockReason = '';
   return fields;

@@ -32,6 +32,7 @@ const schema = z.discriminatedUnion('action', [
     batchId: batchId.optional(),
   }).strict(),
   z.object({ action: z.literal('unblock'), items, batchId: batchId.optional() }).strict(),
+  z.object({ action: z.literal('approveReceipts'), items, batchId: batchId.optional() }).strict(),
   z.object({ action: z.literal('undo'), batchId }).strict(),
   z.object({ action: z.literal('list') }).strict(),
 ]);
@@ -77,6 +78,9 @@ export default createHandler({
     // Every session named must exist (cached per isolate for 60 s).
     for (const slug of new Set(body.items.map((i) => i.session))) await assertSessionExists(db, slug);
 
+    // Approving receipts records the balance as paid only with fees switched on.
+    const feesEnabled = body.action === 'approveReceipts' ? await isEnabled('fees.enabled') : false;
+
     const batch = await openBatch({
       db,
       user,
@@ -99,6 +103,7 @@ export default createHandler({
       reason: body.action === 'block' ? (body.reason ?? '') : null,
       nowMs,
       recordedBy: user.uid,
+      feesEnabled,
     });
 
     log.info('Bulk action applied', {

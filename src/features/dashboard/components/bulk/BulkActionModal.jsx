@@ -184,7 +184,7 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
         {action === 'approveReceipts' && n > 0 && (
           <p className="mb-2 small">
             {plan.owing > 0 && `${plural(plan.owing, 'owes', 'owe')} a balance: each balance is recorded as paid, with the M-Pesa code from their receipt, and they are let back in. `}
-            {n - plan.owing > 0 && `${n - plan.owing} owe nothing: they are let back in.`}
+            {n - plan.owing > 0 && `${plural(n - plan.owing, 'owes nothing', 'owe nothing')}: they are let back in.`}
           </p>
         )}
         <p className="mb-0 small text-muted">You can undo this for 30 minutes from <strong>Recent actions</strong>.</p>
