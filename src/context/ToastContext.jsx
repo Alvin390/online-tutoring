@@ -70,6 +70,12 @@ export const ToastProvider = ({ children }) => {
   );
 };
 
+/**
+ * 003Fixes / 05: the toast actions, or null outside a ToastProvider — for
+ * components (the student list) also rendered on their own, e.g. in tests.
+ */
+export const useOptionalToast = () => useContext(ToastContext);
+
 export const useToast = () => {
   const context = useContext(ToastContext);
   if (!context) {

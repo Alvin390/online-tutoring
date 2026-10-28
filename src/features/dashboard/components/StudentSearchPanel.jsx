@@ -1,4 +1,4 @@
-import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef } from 'react';
+import { lazy, memo, Suspense, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import StudentTable from './StudentTable';
 import StudentSearchBar from './StudentSearchBar';
 import ClassChips from './ClassChips';
@@ -9,6 +9,13 @@ import {
 } from '../search/studentSearch';
 import { highlightTerms } from '../search/highlightMatches';
 import { DEFAULT_CLASSES } from '@shared/constants/sessions';
+import { useOptionalToast } from '@/context/ToastContext';
+import { describeResult, plural } from '../bulk/bulkText';
+import { rememberBulk, markUndone, useUndoableCount } from '../bulk/recentBulk';
+
+// 003Fixes / 05: both load on first use.
+const BulkActionModal = lazy(() => import('./bulk/BulkActionModal'));
+const RecentActionsPanel = lazy(() => import('./bulk/RecentActionsPanel'));
 
 // The table re-renders only when its (deferred) results change, never per
 // keystroke: typing re-renders the bar and chips, the table catches up.
@@ -87,6 +94,55 @@ export default function StudentSearchPanel({
   const searching = deferred !== state;
   const panelRef = useRef(null);
   const toggleId = useId();
+
+  /**
+   * Bulk actions — 003Fixes / 05. The selection bar hands over the action and
+   * the selected rows; the lazy modal runs it. The result toast carries Undo,
+   * and Recent actions keeps Undo reachable for 30 minutes.
+   */
+  const toast = useOptionalToast();
+  const [bulk, setBulk] = useState(null);
+  const [showRecent, setShowRecent] = useState(false);
+  const undoable = useUndoableCount();
+  const sessionOf = useCallback((row) => row?.__session ?? session, [session]);
+  const handleBulkAction = useCallback((action, rows, clear) => setBulk({ action, rows, clear }), []);
+
+  const undoFromToast = useCallback(async (batchId) => {
+    toast?.showInfo('Putting them back…', 'Undo');
+    try {
+      const { undoBulk } = await import('@services/api/students');
+      const res = await undoBulk(batchId);
+      markUndone(batchId);
+      toast?.showSuccess(
+        `${plural(res.undone, 'student')} put back as they were.`
+          + (res.changedSince ? ` ${res.changedSince} had changed since and were left as they are.` : ''),
+        'Undone'
+      );
+    } catch (err) {
+      toast?.showError(err?.message ?? 'Could not undo that. Try again from Recent actions.');
+    }
+  }, [toast]);
+
+  const handleBulkDone = useCallback((result) => {
+    bulk?.clear?.();
+    setBulk(null);
+    rememberBulk({
+      id: result.batchId,
+      action: result.action,
+      kind: result.kind,
+      amount: result.amount,
+      reason: result.reason || null,
+      status: 'done',
+      createdAtMs: Date.now(),
+      undoUntilMs: result.undoUntilMs,
+      counts: { done: result.done },
+    });
+    const canUndo = result.done > 0 && result.batchId;
+    toast?.showSuccess(describeResult(result.action, result), 'Done', {
+      duration: 10_000,
+      ...(canUndo ? { action: { label: 'Undo', onClick: () => undoFromToast(result.batchId) } } : {}),
+    });
+  }, [bulk, toast, undoFromToast]);
 
   // Every session this panel can search: the dashboard's tabs, else this one.
   const doc = useMemo(() => ({ ...sessionDoc, classes: classesOf(sessionDoc) }), [sessionDoc]);
@@ -185,7 +241,19 @@ export default function StudentSearchPanel({
   return (
     <div ref={panelRef} className="student-search-panel">
       <div className="student-search-controls mb-3">
-        <StudentSearchBar value={state.q} onChange={setQuery} searching={searching} onArrowDown={focusFirstRow} />
+        <div className="student-list-tools">
+          <StudentSearchBar value={state.q} onChange={setQuery} searching={searching} onArrowDown={focusFirstRow} />
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary recent-actions-btn"
+            onClick={() => setShowRecent(true)}
+            aria-label={undoable > 0 ? `Recent actions (${undoable} can be undone)` : 'Recent actions'}
+          >
+            <i className="bi bi-clock-history me-1" aria-hidden="true" />
+            <span className="d-none d-sm-inline">Recent actions</span>
+            {undoable > 0 && <span className="badge text-bg-primary ms-1">{undoable}</span>}
+          </button>
+        </div>
         {canSearchAll && (
           <div className="form-check form-switch all-sessions-toggle mb-0">
             <input
@@ -275,11 +343,34 @@ export default function StudentSearchPanel({
           totalCount={out.size}
           pageKey={`${allMode ? '*' : session}|${signature}`}
           bulkAction={bulkActionFor(deferred.statuses)}
+          onBulkAction={handleBulkAction}
+          suspendBar={Boolean(bulk) || showRecent}
           terms={terms}
           loading={false}
           onExport={handleExport}
           {...tableProps}
         />
+      )}
+
+      {bulk && (
+        <Suspense fallback={null}>
+          <BulkActionModal
+            action={bulk.action}
+            rows={bulk.rows}
+            sessionOf={sessionOf}
+            onClose={() => setBulk(null)}
+            onDone={handleBulkDone}
+          />
+        </Suspense>
+      )}
+      {showRecent && (
+        <Suspense fallback={null}>
+          <RecentActionsPanel
+            onClose={() => setShowRecent(false)}
+            showSuccess={toast?.showSuccess}
+            showError={toast?.showError}
+          />
+        </Suspense>
       )}
     </div>
   );

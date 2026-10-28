@@ -899,3 +899,19 @@
     height: 1.25rem;
   }
 }
+
+/* 003Fixes / 05 — the search box with Recent actions beside it. */
+.student-list-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.student-list-tools > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.recent-actions-btn {
+  flex: 0 0 auto;
+  min-height: 38px;
+  white-space: nowrap;
+}
