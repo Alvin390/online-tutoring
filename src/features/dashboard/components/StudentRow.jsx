@@ -18,6 +18,9 @@ const STAGGER_ROWS = 10;
 function StudentRow({
   student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline,
   animated = true,
+  // 003Fixes / 03: the row's checkbox. onSelect is one stable callback for the
+  // whole table, so ticking re-renders only the ticked row.
+  selectKey, selected = false, onSelect,
   // 001Fixes / 04: search terms to mark in the name, phone, class and subjects.
   terms,
   // 001Fixes / 06: shown as a badge in the all-sessions view.
@@ -53,7 +56,10 @@ function StudentRow({
     setIsTouchDevice(checkTouchDevice());
   }, []);
 
-  const handleMouseEnter = () => {
+  const handleMouseEnter = (e) => {
+    // 003Fixes / 03: arriving over the checkbox is ticking, not browsing —
+    // no 1.5 s preview popping up while the teacher ticks down the list.
+    if (e?.target?.closest?.('.row-select-cell')) return;
     // Only use hover on desktop
     if (!isTouchDevice) {
       const timeout = setTimeout(() => {
@@ -116,7 +122,25 @@ function StudentRow({
         onClick={handleClick}
         style={{ cursor: 'pointer' }}
       >
-      <td><strong>{index + 1}</strong></td>
+      <td className="row-select-cell">
+        {onSelect && (
+          <input
+            type="checkbox"
+            className="form-check-input me-2 row-select"
+            aria-label={`Select ${student.studentName ?? 'student'}`}
+            checked={selected}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (hoverTimeout) {
+                clearTimeout(hoverTimeout);
+                setHoverTimeout(null);
+              }
+            }}
+            onChange={(e) => onSelect(selectKey, index, e.nativeEvent?.shiftKey === true)}
+          />
+        )}
+        <strong>{index + 1}</strong>
+      </td>
       <td>
         <div className="d-flex align-items-center gap-2">
           <div
@@ -451,6 +475,7 @@ function areEqual(prev, next) {
   // Search terms are memoised per query by the panel, so identity is enough.
   if (prev.terms !== next.terms) return false;
   if (prev.sessionName !== next.sessionName) return false;
+  if (prev.selected !== next.selected || prev.onSelect !== next.onSelect) return false;
 
   // Callback identity: the parent passes inline arrows for onDelete/onEdit/
   // onView, so these change every render and are deliberately NOT compared —

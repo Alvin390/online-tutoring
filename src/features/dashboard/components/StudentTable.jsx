@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
 import TablePager from './TablePager';
@@ -12,6 +12,23 @@ import { useAuthState } from '@features/auth/context/AuthContext';
 import { TIER_RANK } from '@shared/constants/tiers';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
+
+// 003Fixes / 03: loaded on the first tick, prefetched when the browser is idle
+// or the pointer reaches the table. Once loaded it is rendered directly, not
+// through lazy(): a lazy component suspends on its first render, and React
+// holds a revealed Suspense boundary back ~300 ms (measured in Chromium).
+let LoadedSelectionBar = null;
+const loadSelectionBar = () => import('./SelectionBar').then((mod) => {
+  LoadedSelectionBar = mod.default;
+  return mod;
+});
+const LazySelectionBar = lazy(loadSelectionBar);
+const NO_SELECTION = { key: undefined, keys: new Set(), all: false, anchor: null };
+
+function SelectionBarSlot(props) {
+  const Bar = LoadedSelectionBar ?? LazySelectionBar;
+  return <Bar {...props} />;
+}
 
 export default function StudentTable({
   session,
@@ -39,6 +56,11 @@ export default function StudentTable({
   // 003Fixes / 02: what the rows are a page OF (session, search, filters,
   // sort). A new key starts again at page 1; the same key restores the page.
   pageKey = null,
+  // 003Fixes / 03: which bulk action the selection bar offers (the panel
+  // decides from the status filter), and what runs it (phase 05 onwards).
+  bulkAction = 'block',
+  onBulkAction = null,
+  bulkBusy = false,
 }) {
   // The session a row belongs to, and a key unique across sessions (one phone
   // can be registered in two). Outside the all-sessions view these are simply
@@ -106,6 +128,72 @@ export default function StudentTable({
       if (top < header) window.scrollTo({ top: window.scrollY + top - header - 8 });
     });
   }, [pageKey]);
+  /**
+   * Selection — 003Fixes / 03. Kept against `pageKey` like the page, so any
+   * change to the search, a filter, the sort or the scope clears it (a bulk
+   * action must never reach rows the teacher can no longer see); kept across
+   * page changes. `all` means "every student matching the filters" without
+   * building a set of them. Live data: a selected student who leaves the list
+   * simply stops counting.
+   */
+  const [selection, setSelection] = useState(NO_SELECTION);
+  const sel = useMemo(
+    () => (selection.key === pageKey ? selection : { ...NO_SELECTION, key: pageKey }),
+    [selection, pageKey]
+  );
+  const selectedRows = useMemo(
+    () => (sel.all ? students : sel.keys.size ? students.filter((s) => sel.keys.has(rowKey(s))) : []),
+    [sel, students]
+  );
+  const pageKeys = useMemo(() => pageRows.map(rowKey), [pageRows]);
+  const onPageSelected = sel.all ? pageKeys.length : pageKeys.filter((k) => sel.keys.has(k)).length;
+  const pageAllSelected = pageKeys.length > 0 && onPageSelected === pageKeys.length;
+  const listRef = useRef(students);
+  listRef.current = students;
+
+  /** The selection as an explicit set ("all matching" expanded). */
+  const explicitKeys = (current) => (current.all ? new Set(listRef.current.map(rowKey)) : new Set(current.keys));
+
+  // One stable callback for every row, so ticking re-renders only that row.
+  const toggleRow = useCallback((key, index, shift) => {
+    setSelection((prev) => {
+      const current = prev.key === pageKey ? prev : { ...NO_SELECTION, key: pageKey };
+      const keys = explicitKeys(current);
+      const on = !keys.has(key);
+      if (shift && current.anchor != null && current.anchor !== index) {
+        const [from, to] = current.anchor < index ? [current.anchor, index] : [index, current.anchor];
+        for (const s of listRef.current.slice(from, to + 1)) {
+          if (on) keys.add(rowKey(s));
+          else keys.delete(rowKey(s));
+        }
+      } else if (on) keys.add(key);
+      else keys.delete(key);
+      return { key: pageKey, keys, all: false, anchor: index };
+    });
+  }, [pageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const togglePage = () => {
+    const keys = explicitKeys(sel);
+    if (pageAllSelected) pageKeys.forEach((k) => keys.delete(k));
+    else pageKeys.forEach((k) => keys.add(k));
+    setSelection({ key: pageKey, keys, all: false, anchor: null });
+  };
+  const selectAllMatching = () => setSelection({ key: pageKey, keys: new Set(), all: true, anchor: null });
+  const clearSelection = useCallback(() => setSelection(NO_SELECTION), []);
+  const prefetchBar = useCallback(() => { loadSelectionBar().catch(() => {}); }, []);
+
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 1500));
+    const cancel = window.cancelIdleCallback ?? clearTimeout;
+    const handle = idle(() => { loadSelectionBar().catch(() => {}); });
+    return () => cancel(handle);
+  }, []);
+
+  const headerBoxRef = useRef(null);
+  useEffect(() => {
+    if (headerBoxRef.current) headerBoxRef.current.indeterminate = onPageSelected > 0 && !pageAllSelected;
+  }, [onPageSelected, pageAllSelected]);
+
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
 
@@ -264,11 +352,55 @@ export default function StudentTable({
 
   return (
     <>
-      <div className="table-responsive" ref={tableRef}>
+      {selectedRows.length > 0 && (
+        <Suspense fallback={null}>
+          <SelectionBarSlot
+            count={selectedRows.length}
+            action={bulkAction}
+            onAction={onBulkAction ? () => onBulkAction(bulkAction, selectedRows, clearSelection) : null}
+            onClear={clearSelection}
+            busy={bulkBusy}
+          />
+        </Suspense>
+      )}
+
+      {pageAllSelected && students.length > pageRows.length && (
+        <div className="select-all-matching small" data-testid="select-all-matching">
+          {sel.all ? (
+            <>
+              All {students.length} selected.{' '}
+              <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={clearSelection}>
+                Clear selection
+              </button>
+            </>
+          ) : (
+            <>
+              All {pageRows.length} on this page are selected.{' '}
+              <button type="button" className="btn btn-link btn-sm p-0 align-baseline fw-semibold" onClick={selectAllMatching}>
+                Select all {students.length} students matching your filters
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Fetch the selection bar's chunk the moment the teacher reaches for
+          the table, if the idle prefetch has not already (first tick ≈ 0 ms). */}
+      <div className="table-responsive" ref={tableRef} onPointerEnter={prefetchBar} onFocus={prefetchBar}>
         <table className="table table-hover align-middle mb-0">
           <thead className="table-dark">
             <tr>
-              <th style={{ width: '40px' }}>#</th>
+              <th style={{ width: '64px' }}>
+                <input
+                  ref={headerBoxRef}
+                  type="checkbox"
+                  className="form-check-input me-2 row-select"
+                  aria-label="Select all students on this page"
+                  checked={pageAllSelected}
+                  onChange={togglePage}
+                />
+                #
+              </th>
               <th>Student Name</th>
               <th>Parent Phone</th>
               <th>Class</th>
@@ -289,6 +421,9 @@ export default function StudentTable({
                   key={rowKey(student)}
                   student={student}
                   index={start + i}
+                  selectKey={rowKey(student)}
+                  selected={sel.all || sel.keys.has(rowKey(student))}
+                  onSelect={toggleRow}
                   session={rowSession(student)}
                   sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
                   animated={!paged}

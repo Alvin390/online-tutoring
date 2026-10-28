@@ -32,6 +32,16 @@ function tag(record) {
   return row;
 }
 
+/**
+ * 003Fixes / 03: what the selection bar offers follows the status filter —
+ * "Receipt to review" → approve receipts, "Blocked" → unblock, else block.
+ */
+const bulkActionFor = (statuses) => {
+  if (statuses.includes('review')) return 'approveReceipts';
+  if (statuses.includes('blocked')) return 'unblock';
+  return 'block';
+};
+
 const hasCriteria = (s) =>
   Boolean(s.q.trim()) || s.classes.length > 0 || s.statuses.length > 0 || s.subjects.length > 0 || Boolean(s.from || s.to);
 
@@ -264,6 +274,7 @@ export default function StudentSearchPanel({
           students={results}
           totalCount={out.size}
           pageKey={`${allMode ? '*' : session}|${signature}`}
+          bulkAction={bulkActionFor(deferred.statuses)}
           terms={terms}
           loading={false}
           onExport={handleExport}
