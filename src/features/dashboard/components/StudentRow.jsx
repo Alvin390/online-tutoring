@@ -136,6 +136,7 @@ function StudentRow({
             type="checkbox"
             className="form-check-input me-2 row-select"
             aria-label={`Select ${student.studentName ?? 'student'}`}
+            title="Select this student"
             checked={selected}
             onClick={(e) => {
               e.stopPropagation();

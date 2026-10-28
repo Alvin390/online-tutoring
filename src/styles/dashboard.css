@@ -931,3 +931,20 @@
 .block-when input[type="time"] {
   min-height: 38px;
 }
+
+/* 003Fixes — the "Select" label on the checkbox column (owner request). */
+.select-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.select-head-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.select-head-num {
+  margin-left: 0.75rem;
+}

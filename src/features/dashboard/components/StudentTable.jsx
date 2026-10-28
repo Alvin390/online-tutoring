@@ -441,16 +441,21 @@ export default function StudentTable({
         <table className="table table-hover align-middle mb-0">
           <thead className="table-dark">
             <tr>
-              <th style={{ width: '64px' }}>
-                <input
-                  ref={headerBoxRef}
-                  type="checkbox"
-                  className="form-check-input me-2 row-select"
-                  aria-label="Select all students on this page"
-                  checked={pageAllSelected}
-                  onChange={togglePage}
-                />
-                #
+              <th className="select-col-head" style={{ width: '120px' }}>
+                {/* A visible "Select" label (owner request), so the teacher can
+                    see what the column of boxes is for. */}
+                <label className="select-head mb-0" title="Tick students to block, unblock, schedule or approve them together">
+                  <input
+                    ref={headerBoxRef}
+                    type="checkbox"
+                    className="form-check-input row-select m-0"
+                    aria-label="Select all students on this page"
+                    checked={pageAllSelected}
+                    onChange={togglePage}
+                  />
+                  <span className="select-head-text">Select</span>
+                </label>
+                <span className="select-head-num">#</span>
               </th>
               <th>Student Name</th>
               <th>Parent Phone</th>

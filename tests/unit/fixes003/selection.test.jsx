@@ -83,6 +83,14 @@ describe('row checkboxes and the bar', () => {
 });
 
 describe('the header box and "select all matching"', () => {
+  it('the header says what the boxes are for ("Select")', () => {
+    renderPanel();
+    const head = pageBox().closest('th');
+    expect(head.textContent).toMatch(/Select/);
+    expect(pageBox().closest('label').getAttribute('title')).toMatch(/block, unblock, schedule or approve/);
+    expect(rowBox('Student 001').getAttribute('title')).toBe('Select this student');
+  });
+
   it('selects the 20 on this page, then offers all 45 matching', async () => {
     renderPanel();
     fireEvent.click(pageBox());
