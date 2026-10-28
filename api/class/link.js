@@ -1,3 +1,4 @@
+import { projectStudent } from '../_lib/studentProjection.js';
 import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
@@ -6,7 +7,7 @@ import { forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { assertSessionExists } from '../_lib/sessions.js';
-import { effectiveApprovalStatus } from '../_lib/studentState.js';
+import { effectiveApprovalStatus, isBlockedNow } from '../_lib/studentState.js';
 import { passBypass } from '../_lib/checkinPass.js';
 
 /**
@@ -120,9 +121,9 @@ export default createHandler({
 
       const data = snap.data();
 
-      if (data.blocked === true) {
+      if (isBlockedNow(data)) {
         throw forbidden(
-          data.blockReason || 'Your access is currently on hold. Please contact your teacher.',
+          projectStudent(data).blockReason || 'Your access is currently on hold. Please contact your teacher.',
           'blocked'
         );
       }

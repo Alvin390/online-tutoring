@@ -1,3 +1,5 @@
+import { FieldValue } from './firebaseAdmin.js';
+
 /**
  * Approving a student's pasted M-Pesa receipt — shared by the single approval
  * (api/fees/approveReceipt.js) and the bulk one (api/_lib/bulkStudents.js,
@@ -32,5 +34,7 @@ export function approvalFields(data, { clearBlock, approvedAt }) {
     receiptStatus: 'approved',
     receiptApprovedAt: approvedAt,
     ...(clearBlock ? { blocked: false, blockReason: '', blockedAt: null } : {}),
+    // 003Fixes / 07: an approved receipt counts as paid — out of any schedule.
+    ...(data.scheduledBlock ? { scheduledBlock: FieldValue.delete() } : {}),
   };
 }

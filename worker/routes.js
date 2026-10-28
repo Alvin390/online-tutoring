@@ -45,6 +45,8 @@ import studentReceipt from '../api/student/receipt.js';
 import studentRemove from '../api/student/remove.js';
 import studentUpdate from '../api/student/update.js';
 import studentsBulk from '../api/students/bulk.js';
+import studentsScheduled from '../api/students/scheduled.js';
+import cronScheduledBlocksSweep from '../api/cron/scheduledBlocksSweep.js';
 import studentRequestCode from '../api/student/requestCode.js';
 import studentResubmit from '../api/student/resubmit.js';
 import studentVerifyCode from '../api/student/verifyCode.js';
@@ -127,6 +129,8 @@ export const STATIC_ROUTES = {
   '/api/student/update': studentUpdate,
   // 003Fixes: bulk block / unblock / approve receipts / undo.
   '/api/students/bulk': studentsBulk,
+  '/api/students/scheduled': studentsScheduled,
+  '/api/cron/scheduledBlocksSweep': cronScheduledBlocksSweep,
   '/api/student/requestCode': studentRequestCode,
   '/api/student/resubmit': studentResubmit,
   '/api/student/verifyCode': studentVerifyCode,
@@ -179,4 +183,5 @@ export const CRON_HANDLERS = {
   feesSweep: cronFeesSweep,
   mpesaReconcile: cronMpesaReconcile,
   notificationsSweep: cronNotificationsSweep,
+  scheduledBlocksSweep: cronScheduledBlocksSweep,
 };

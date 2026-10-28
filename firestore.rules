@@ -84,7 +84,9 @@ service cloud.firestore {
     function serverOwnedStudentFields() {
       return [
         'feeBalance', 'lastPaymentAt', 'nextDueDate', 'overdue',
-        'studentUid', 'parentPhone', 'registeredAt'
+        'studentUid', 'parentPhone', 'registeredAt',
+        // 003Fixes / 07: only the server schedules or cancels a block.
+        'scheduledBlock'
       ];
     }
 

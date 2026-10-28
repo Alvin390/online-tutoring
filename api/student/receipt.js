@@ -1,3 +1,4 @@
+import { isBlockedNow } from '../_lib/studentState.js';
 import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema, receiptSchema } from '../_lib/validate.js';
@@ -73,7 +74,7 @@ export default createHandler({
       if (!snap.exists) throw notFound('No registration found for that number.');
 
       const data = snap.data();
-      if (data.blocked !== true) {
+      if (!isBlockedNow(data)) {
         // Nothing to resubmit against. Refusing keeps the receipt queue from
         // filling with submissions the teacher has no reason to review.
         throw forbidden('You are not currently blocked, so no receipt is needed.', 'not_blocked');

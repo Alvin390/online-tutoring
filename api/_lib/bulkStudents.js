@@ -1,5 +1,5 @@
 import { FieldValue, Timestamp } from './firebaseAdmin.js';
-import { postEntry, reverseEntry } from './ledger.js';
+import { postEntries, reverseEntries } from './ledger.js';
 import { effectiveApprovalStatus } from './studentState.js';
 import { shouldAutoUnblock } from './feeState.js';
 import { approvalFields, receiptIdFor, mpesaCodeFrom } from './receiptApproval.js';
@@ -32,11 +32,13 @@ export const UNDO_WINDOW_MS = 30 * 60_000;
  */
 export const MAX_ITEMS = Object.freeze({
   block: 25,
-  blockFees: 8,
+  // Since 003Fixes / 07 a chunk's ledger entries are one transaction
+  // (postEntries), so fee work runs at the same 25 as everything else.
+  blockFees: 25,
   unblock: 25,
-  approveReceipts: 8,
+  approveReceipts: 25,
   undo: 20,
-  undoLedger: 6,
+  undoLedger: 25,
 });
 
 const BEFORE_FIELDS = ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt', 'receiptMessage', 'receiptApprovedAt'];
@@ -133,77 +135,84 @@ export async function applyStudents({
   const accountSnaps = accountRefs.length ? snaps.slice(snaps.length - list.length) : [];
 
   const skipped = {};
-  const skip = (why) => { skipped[why] = (skipped[why] ?? 0) + 1; };
+  // Per student, for the scheduled-block sweep (not returned to the browser).
+  const outcomes = {};
+  const skip = (why, item) => {
+    skipped[why] = (skipped[why] ?? 0) + 1;
+    if (item) outcomes[itemId(item.session, item.phone)] = why;
+  };
   const failed = [];
   let alreadyDone = 0;
   const toApply = [];
 
   list.forEach((item, i) => {
-    if (itemSnaps[i]?.exists && itemSnaps[i].data().outcome === 'done') { alreadyDone += 1; return; }
+    if (itemSnaps[i]?.exists && itemSnaps[i].data().outcome === 'done') {
+      alreadyDone += 1;
+      outcomes[itemId(item.session, item.phone)] = 'done';
+      return;
+    }
     const snap = studentSnaps[i];
-    if (!snap.exists) { skip('missing'); return; }
+    if (!snap.exists) { skip('missing', item); return; }
     const data = snap.data();
     if (action === 'block') {
-      if (effectiveApprovalStatus(data) === 'pending') { skip('awaitingApproval'); return; }
-      if (data.blocked === true) { skip('alreadyBlocked'); return; }
+      if (effectiveApprovalStatus(data) === 'pending') { skip('awaitingApproval', item); return; }
+      if (data.blocked === true) { skip('alreadyBlocked', item); return; }
     } else if (action === 'unblock') {
-      if (data.blocked !== true) { skip('notBlocked'); return; }
+      if (data.blocked !== true) { skip('notBlocked', item); return; }
     } else if (action === 'approveReceipts') {
-      if (!data.pendingReceipt) { skip('noReceipt'); return; }
+      if (!data.pendingReceipt) { skip('noReceipt', item); return; }
     }
     const account = accountSnaps[i];
     toApply.push({ ...item, data, balance: account?.exists ? (account.data().balance ?? 0) : (data.feeBalance ?? 0) });
   });
 
-  // Fee charges first, one ledger transaction each: a student whose charge
-  // fails is not blocked (blocked with no balance to pay is a dead end).
+  // Ledger work first, all of the chunk in ONE transaction (postEntries): a
+  // fee block's invoices, or an approval's payments. If it fails, none of
+  // these students is touched (blocked with no balance to pay is a dead end).
+  const ledgerWork = [];
+  for (const item of toApply) {
+    if (action === 'block' && kind === 'fees') {
+      ledgerWork.push({ item, opts: {
+        phone: item.phone, session: item.session, type: 'invoice', amount,
+        note: 'Fees due — recorded when blocking', recordedBy,
+        idempotencyKey: `bulk_${batch.id}_${itemId(item.session, item.phone)}`,
+      } });
+    } else if (action === 'approveReceipts' && feesEnabled && item.balance > 0) {
+      ledgerWork.push({ item, opts: {
+        phone: item.phone, session: item.session, type: 'payment', amount: item.balance, method: 'mpesa',
+        reference: mpesaCodeFrom(item.data.pendingReceipt), note: 'Recorded on receipt approval (bulk)', recordedBy,
+        sourceReceiptId: receiptIdFor(item.phone, item.data, nowMs),
+        // Keyed by the batch, not the receipt: if this approval is undone,
+        // approving the same receipt again later must post a fresh payment.
+        idempotencyKey: `bulk_${batch.id}_${itemId(item.session, item.phone)}`,
+      } });
+    }
+  }
+  const entryFor = new Map();
+  let ledgerFailed = null;
+  if (ledgerWork.length) {
+    try {
+      const posted = await postEntries(ledgerWork.map((w) => w.opts));
+      ledgerWork.forEach((w, k) => entryFor.set(w.item, posted[k]));
+    } catch (err) {
+      ledgerFailed = err?.code && typeof err.code === 'string' ? err.code : 'ledger_failed';
+    }
+  }
   const applied = [];
   for (const item of toApply) {
-    let entryId = null;
-    let clearBlock = true;
-    if (action === 'approveReceipts' && feesEnabled && item.balance > 0) {
-      try {
-        const posted = await postEntry({
-          phone: item.phone,
-          session: item.session,
-          type: 'payment',
-          amount: item.balance,
-          method: 'mpesa',
-          reference: mpesaCodeFrom(item.data.pendingReceipt),
-          note: 'Recorded on receipt approval (bulk)',
-          recordedBy,
-          sourceReceiptId: receiptIdFor(item.phone, item.data, nowMs),
-          // Keyed by the batch, not the receipt: if this approval is undone,
-          // approving the same receipt again later must post a fresh payment.
-          idempotencyKey: `bulk_${batch.id}_${itemId(item.session, item.phone)}`,
-        });
-        entryId = posted.entryId;
-        clearBlock = shouldAutoUnblock(posted.balance);
-      } catch (err) {
-        failed.push({ index: item.index, code: err?.code && typeof err.code === 'string' ? err.code : 'payment_failed' });
-        continue;
-      }
-      applied.push({ ...item, entryId, clearBlock });
+    const needsLedger = ledgerWork.some((w) => w.item === item);
+    if (needsLedger && ledgerFailed) {
+      failed.push({ index: item.index, code: ledgerFailed });
+      outcomes[itemId(item.session, item.phone)] = 'failed';
       continue;
     }
-    if (action === 'block' && kind === 'fees') {
-      try {
-        const posted = await postEntry({
-          phone: item.phone,
-          session: item.session,
-          type: 'invoice',
-          amount,
-          note: 'Fees due — recorded when blocking',
-          recordedBy,
-          idempotencyKey: `bulk_${batch.id}_${itemId(item.session, item.phone)}`,
-        });
-        entryId = posted.entryId;
-      } catch (err) {
-        failed.push({ index: item.index, code: err?.code && typeof err.code === 'string' ? err.code : 'charge_failed' });
-        continue;
-      }
-    }
-    applied.push({ ...item, entryId, clearBlock });
+    const posted = entryFor.get(item);
+    applied.push({
+      ...item,
+      entryId: posted?.entryId ?? null,
+      clearBlock: action === 'approveReceipts' && posted ? shouldAutoUnblock(posted.balance) : true,
+    });
+    outcomes[itemId(item.session, item.phone)] = 'done';
   }
 
   const at = Timestamp.fromMillis(nowMs);
@@ -242,6 +251,7 @@ export async function applyStudents({
     skipped,
     failed,
     undoUntilMs: batch.data.undoUntilMs,
+    outcomes,
   };
 }
 
@@ -284,42 +294,41 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
 
   const usesLedger = (batch.action === 'block' && batch.kind === 'fees') || batch.action === 'approveReceipts';
   const limit = usesLedger ? MAX_ITEMS.undoLedger : MAX_ITEMS.undo;
-  const itemsSnap = await ref.collection('items').where('outcome', '==', 'done').limit(limit).get();
-  const items = itemsSnap.docs.map((d) => ({ ref: d.ref, ...d.data() }));
+  // One past the chunk, so a chunk that is exactly the rest knows it is the last.
+  const itemsSnap = await ref.collection('items').where('outcome', '==', 'done').limit(limit + 1).get();
+  const items = itemsSnap.docs.slice(0, limit).map((d) => ({ ref: d.ref, ...d.data() }));
   const studentSnaps = items.length ? await db.getAll(...items.map((i) => studentRef(db, i.session, i.phone))) : [];
 
   const tally = { undone: 0, changedSince: 0, missing: 0, failed: 0 };
-  const writes = db.batch();
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i];
-    const studentSnap = studentSnaps[i];
-    let outcome;
-    if (!studentSnap.exists) outcome = 'missing';
-    else if (!stillAsLeft(batch.action, studentSnap.data(), item)) outcome = 'changedSince';
-    else {
-      outcome = 'undone';
-      if (item.entryId) {
-        try {
-          await reverseEntry({
-            phone: item.phone,
-            session: item.session,
-            entryId: item.entryId,
-            reason: 'Bulk action undone',
-            recordedBy: user.uid,
-          });
-        } catch {
-          outcome = 'failed';
-        }
-      }
-      if (outcome === 'undone') {
-        writes.set(studentRef(db, item.session, item.phone), restoreFields(batch.action, item.before), { merge: true });
-      }
+  const outcome = items.map((item, i) => {
+    if (!studentSnaps[i].exists) return 'missing';
+    return stillAsLeft(batch.action, studentSnaps[i].data(), item) ? 'undone' : 'changedSince';
+  });
+  // Every entry to reverse, in one transaction.
+  const toReverse = items.map((item, i) => ({ item, i })).filter(({ item, i }) => outcome[i] === 'undone' && item.entryId);
+  if (toReverse.length) {
+    try {
+      const reversed = await reverseEntries(
+        toReverse.map(({ item }) => ({ phone: item.phone, session: item.session, entryId: item.entryId })),
+        { reason: 'Bulk action undone', recordedBy: user.uid }
+      );
+      reversed.forEach((r, k) => {
+        if (r?.skipped && r.skipped !== 'already_reversed') outcome[toReverse[k].i] = 'failed';
+      });
+    } catch {
+      for (const { i } of toReverse) outcome[i] = 'failed';
     }
-    tally[outcome] += 1;
-    writes.update(item.ref, { outcome, undoneAtMs: nowMs });
   }
+  const writes = db.batch();
+  items.forEach((item, i) => {
+    if (outcome[i] === 'undone') {
+      writes.set(studentRef(db, item.session, item.phone), restoreFields(batch.action, item.before), { merge: true });
+    }
+    tally[outcome[i]] += 1;
+    writes.update(item.ref, { outcome: outcome[i], undoneAtMs: nowMs });
+  });
 
-  const remaining = items.length === limit;
+  const remaining = itemsSnap.docs.length > limit;
   const increments = {};
   for (const [key, n] of Object.entries(tally)) if (n) increments[`counts.${key}`] = FieldValue.increment(n);
   if (!remaining) {

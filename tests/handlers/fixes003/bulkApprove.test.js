@@ -121,7 +121,9 @@ describe('approveReceipts', () => {
       expect(res.body.done).toBe(8);
       // Measured 2026-10-28: 29 for 8 approvals with payments (budget 45).
       expect(subreq(res)).toBeLessThanOrEqual(40);
-      expect((await bulk({ action: 'approveReceipts', items: items(...phones, phoneN(99)) })).status).toBe(400);
+      // 25 a call since 003Fixes / 07; 26 is refused.
+      const many = Array.from({ length: 26 }, (_, i) => phoneN(500 + i));
+      expect((await bulk({ action: 'approveReceipts', items: items(...many) })).status).toBe(400);
     } finally {
       delete process.env.PERF_TIMING;
     }

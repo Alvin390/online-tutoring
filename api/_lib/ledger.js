@@ -183,6 +183,9 @@ export async function postEntry(opts) {
           // Paying up clears the overdue flag immediately rather than waiting
           // for the nightly sweep.
           ...(balanceAfter <= 0 ? { overdue: false } : {}),
+          // 003Fixes / 07: paying before a scheduled block takes the student
+          // out of it (owner decision) — whichever way the payment arrives.
+          ...(type === 'payment' && studentSnap.data()?.scheduledBlock ? { scheduledBlock: FieldValue.delete() } : {}),
         },
         { merge: true }
       );
@@ -213,6 +216,195 @@ export async function postEntry(opts) {
 
     return { duplicate: false, entryId: entry.id, balance: balanceAfter, previousBalance };
   });
+}
+
+/**
+ * Posts several entries in ONE transaction — 003Fixes / 07.
+ *
+ * Exactly the writes postEntry() makes for each entry (the entry, the
+ * account's balance, the student's feeBalance), with one aggregates write
+ * carrying the summed change. A transaction's reads go out as one batchGet,
+ * so 25 entries cost about three subrequests instead of three each: what lets
+ * a bulk fee block, a bulk approval or a scheduled block handle 25 students a
+ * call rather than 8.
+ *
+ * All or nothing: if the transaction fails, no entry is posted. An entry whose
+ * idempotency key already exists is a duplicate and changes nothing (as in
+ * postEntry). The same number twice (one student in two sessions) runs its
+ * balance through both entries in order.
+ *
+ * @param {Array<object>} list  postEntry's options, one object per entry
+ * @returns {Promise<Array<{duplicate, entryId, balance, previousBalance}>>} in input order
+ */
+export async function postEntries(list) {
+  if (!list.length) return [];
+  const db = getDb();
+
+  for (const opts of list) {
+    if (!ENTRY_TYPES.includes(opts.type)) throw badRequest(`Unknown entry type: ${opts.type}`);
+    if ((opts.method ?? null) !== null && !PAYMENT_METHODS.includes(opts.method)) {
+      throw badRequest(`Unknown payment method: ${opts.method}`);
+    }
+    assertIntegerKes(opts.amount, 'amount');
+    if (opts.amount <= 0) throw badRequest('Amount must be greater than zero.');
+  }
+
+  const plans = list.map((opts) => ({
+    opts,
+    account: accountRef(db, opts.phone),
+    entry: opts.idempotencyKey ? ledgerRef(db, opts.phone).doc(opts.idempotencyKey) : ledgerRef(db, opts.phone).doc(),
+    student: db.doc(`sessions/${opts.session}/students/${opts.phone}`),
+  }));
+  const aggregates = db.doc('aggregates/dashboard');
+
+  return db.runTransaction(async (tx) => {
+    // ---- Reads, each document once (one account can appear twice).
+    const reads = new Map();
+    const read = (ref) => {
+      if (!reads.has(ref.path)) reads.set(ref.path, tx.get(ref));
+      return reads.get(ref.path);
+    };
+    const [aggregatesSnap] = await Promise.all([
+      read(aggregates),
+      ...plans.flatMap((p) => [read(p.account), read(p.entry), read(p.student)]),
+    ]);
+    const snap = async (ref) => reads.get(ref.path);
+
+    const balances = new Map();
+    const accounts = new Map();
+    const students = new Map();
+    const results = [];
+    let totalDelta = 0;
+    let collectedToday = 0;
+    const now = FieldValue.serverTimestamp();
+
+    for (const p of plans) {
+      const { opts } = p;
+      const accountSnap = await snap(p.account);
+      if (!balances.has(p.account.path)) {
+        balances.set(p.account.path, accountSnap.exists ? (accountSnap.data().balance ?? 0) : 0);
+      }
+      const previousBalance = balances.get(p.account.path);
+
+      if ((await snap(p.entry)).exists) {
+        results.push({ duplicate: true, entryId: p.entry.id, balance: previousBalance });
+        continue;
+      }
+
+      const delta = opts.deltaOverride ?? signedAmount(opts.type, opts.amount);
+      const balanceAfter = previousBalance + delta;
+      balances.set(p.account.path, balanceAfter);
+      totalDelta += delta;
+      const when = opts.occurredAt ?? new Date();
+
+      tx.set(p.entry, {
+        type: opts.type,
+        amount: delta,
+        magnitude: opts.amount,
+        method: opts.method ?? null,
+        reference: opts.reference ?? null,
+        note: opts.note ?? null,
+        occurredAt: when,
+        recordedAt: now,
+        recordedBy: opts.recordedBy,
+        balanceAfter,
+        reversesEntryId: opts.reversesEntryId ?? null,
+        sourceReceiptId: opts.sourceReceiptId ?? null,
+        session: opts.session,
+        phone: opts.phone,
+      });
+
+      const account = accounts.get(p.account.path) ?? { ref: p.account, fields: { phone: opts.phone, session: opts.session } };
+      account.fields.balance = balanceAfter;
+      if (opts.type === 'payment') {
+        account.fields.lastPaymentAt = when;
+        account.fields.lastPaymentAmount = opts.amount;
+        collectedToday += opts.amount;
+      }
+      accounts.set(p.account.path, account);
+
+      if ((await snap(p.student)).exists) {
+        const student = students.get(p.student.path) ?? { ref: p.student, fields: {} };
+        student.fields.feeBalance = balanceAfter;
+        if (opts.type === 'payment') student.fields.lastPaymentAt = when;
+        if (balanceAfter <= 0) student.fields.overdue = false;
+        if (opts.type === 'payment' && (await snap(p.student)).data()?.scheduledBlock) {
+          student.fields.scheduledBlock = FieldValue.delete();
+        }
+        students.set(p.student.path, student);
+      }
+
+      results.push({ duplicate: false, entryId: p.entry.id, balance: balanceAfter, previousBalance });
+    }
+
+    for (const { ref, fields } of accounts.values()) {
+      tx.set(ref, { ...fields, lastEntryAt: now, updatedAt: now }, { merge: true });
+    }
+    for (const { ref, fields } of students.values()) tx.set(ref, fields, { merge: true });
+
+    if (accounts.size) {
+      let collected = {};
+      if (collectedToday > 0) {
+        const month = collectedMonthKey();
+        const sameMonth = aggregatesSnap.exists && aggregatesSnap.data().collectedMonth === month;
+        collected = {
+          collectedThisMonth: sameMonth ? FieldValue.increment(collectedToday) : collectedToday,
+          collectedMonth: month,
+        };
+      }
+      tx.set(aggregates, { totalOutstanding: FieldValue.increment(totalDelta), ...collected, updatedAt: now }, { merge: true });
+    }
+    return results;
+  });
+}
+
+/**
+ * Reverses several entries at once — 003Fixes / 07 (bulk Undo). Each must
+ * exist and not already be reversed (those come back as `{ skipped: code }`).
+ * One read of the originals, one transaction, one commit marking them.
+ *
+ * @param {Array<{phone, session, entryId}>} list
+ */
+export async function reverseEntries(list, { reason, recordedBy }) {
+  if (!list.length) return [];
+  const db = getDb();
+  const originals = await db.getAll(...list.map((i) => ledgerRef(db, i.phone).doc(i.entryId)));
+
+  const toPost = [];
+  const out = list.map((item, i) => {
+    const snap = originals[i];
+    if (!snap.exists) return { skipped: 'missing' };
+    const data = snap.data();
+    if (data.type === 'reversal') return { skipped: 'already_reversal' };
+    if (data.reversedByEntryId) return { skipped: 'already_reversed' };
+    toPost.push({ index: i, opts: {
+      phone: item.phone,
+      session: item.session,
+      type: 'reversal',
+      amount: Math.abs(data.amount),
+      deltaOverride: -data.amount,
+      method: data.method ?? null,
+      note: reason,
+      reversesEntryId: item.entryId,
+      recordedBy,
+      // Keyed to the original: reversing it twice can never post twice.
+      idempotencyKey: `reversal_${item.entryId}`,
+    } });
+    return null;
+  });
+
+  const posted = await postEntries(toPost.map((t) => t.opts));
+  const mark = db.batch();
+  let marks = 0;
+  toPost.forEach((t, k) => {
+    out[t.index] = posted[k];
+    if (!posted[k].duplicate) {
+      mark.update(ledgerRef(db, t.opts.phone).doc(t.opts.reversesEntryId), { reversedByEntryId: posted[k].entryId });
+      marks += 1;
+    }
+  });
+  if (marks) await mark.commit();
+  return out;
 }
 
 /**

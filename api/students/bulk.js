@@ -120,6 +120,7 @@ export default createHandler({
       }, log);
     }
 
-    return { ok: true, ...result, limits: MAX_ITEMS };
+    const { outcomes, ...summary } = result; // eslint-disable-line no-unused-vars
+    return { ok: true, ...summary, limits: MAX_ITEMS };
   },
 });

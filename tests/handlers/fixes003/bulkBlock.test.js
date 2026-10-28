@@ -204,12 +204,13 @@ describe('list, validation and cost', () => {
     const res = await bulk({ action: 'list' });
     expect(res.body.actions).toHaveLength(1);
     expect(res.body.actions[0]).toMatchObject({ action: 'block', kind: 'other', status: 'done', counts: { done: 1 } });
-    expect(res.body.limits).toMatchObject({ block: 25, blockFees: 8, unblock: 25 });
+    expect(res.body.limits).toMatchObject({ block: 25, blockFees: 25, unblock: 25, approveReceipts: 25 });
   });
 
   it('refuses 26 students, an unknown session, a missing token', async () => {
     expect((await bulk({ action: 'block', kind: 'other', items: items(700, 26) })).status).toBe(400);
-    expect((await bulk({ action: 'block', kind: 'fees', amount: 10, items: items(700, 9) })).status).toBe(400);
+    // Since 003Fixes / 07 fee blocks run 25 a call too (one ledger transaction).
+    expect((await bulk({ action: 'block', kind: 'fees', amount: 10, items: items(700, 26) })).status).toBe(400);
     expect((await bulk({ action: 'block', kind: 'other', items: [{ session: 'nosuch', phone: phoneN(700) }] })).status).toBe(404);
     expect((await call('/api/students/bulk', { body: { action: 'list' } })).status).toBe(401);
   });

@@ -1,7 +1,19 @@
-import { effectiveApprovalStatus } from './studentState.js';
+import { effectiveApprovalStatus, dueScheduledBlock } from './studentState.js';
+
+// 003Fixes / 07: a fee block that is due but not yet recorded has no balance
+// to show yet ("KES 0" would read as a mistake).
+const FEES_DUE_REASON = 'Fees are due. Your teacher is recording the amount — please check again in a minute.';
+
+function blockState(data) {
+  if (data.blocked === true) return { blocked: true, blockReason: data.blockReason ?? '' };
+  const due = dueScheduledBlock(data);
+  if (due) return { blocked: true, blockReason: due.kind === 'fees' ? FEES_DUE_REASON : (due.reason ?? '') };
+  return { blocked: false, blockReason: '' };
+}
 
 /** Only these fields ever cross the wire. Everything else stays server-side. */
 export function projectStudent(data) {
+  const block = blockState(data);
   return {
     studentName: data.studentName ?? null,
     class: data.class ?? null,
@@ -11,8 +23,8 @@ export function projectStudent(data) {
     // `blocked` field at all, and `undefined` is falsy — which is precisely the
     // bug that let unapproved registrations walk into class. Default to the
     // SAFE value, not the convenient one.
-    blocked: data.blocked === true,
-    blockReason: data.blocked === true ? (data.blockReason ?? '') : '',
+    blocked: block.blocked,
+    blockReason: block.blockReason,
     // Phase 13 / 03 D3: missing means approved (pre-approval registrations).
     approvalStatus: effectiveApprovalStatus(data),
     rejectionReason: data.approvalStatus === 'rejected' ? (data.rejectionReason ?? '') : null,
