@@ -254,3 +254,24 @@ describe('batched ledger posting (postEntries)', () => {
     expect((await db.doc(`sessions/evening/students/${phoneN(300)}`).get()).data().feeBalance).toBe(1000);
   });
 });
+
+describe('removeMembers (Cancel schedule on a selection) — 003Fixes / 08', () => {
+  it('takes students out of whichever schedule each is in; not-scheduled and other teachers\' are skipped', async () => {
+    for (const n of [60, 61, 62, 63]) await seed(phoneN(n));
+    const a = await sched({ action: 'create', items: items(phoneN(60), phoneN(61)), atMs: Date.now() + 86_400_000, kind: 'other' });
+    const b = await sched({ action: 'create', items: items(phoneN(62)), atMs: Date.now() + 2 * 86_400_000, kind: 'other' });
+    await sched({ action: 'create', items: items(phoneN(63)), atMs: Date.now() + 86_400_000, kind: 'other' }, other);
+
+    const res = await sched({ action: 'removeMembers', items: items(phoneN(60), phoneN(62), phoneN(63), phoneN(64)) });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ removed: 2, skipped: { notScheduled: 2 } });
+    expect((await student(phoneN(60))).scheduledBlock).toBeUndefined();
+    expect((await student(phoneN(62))).scheduledBlock).toBeUndefined();
+    expect((await student(phoneN(61))).scheduledBlock.batchId).toBe(a.body.batchId);
+    expect((await student(phoneN(63))).scheduledBlock).toBeTruthy();
+    const list = (await sched({ action: 'list' })).body.schedules;
+    expect(list.find((s) => s.id === a.body.batchId).count).toBe(1);
+    expect(list.find((s) => s.id === b.body.batchId).count).toBe(0);
+    expect((await sched({ action: 'removeMembers', items: items(...Array.from({ length: 26 }, (_, i) => phoneN(700 + i))) })).status).toBe(400);
+  });
+});

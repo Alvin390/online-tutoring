@@ -241,3 +241,35 @@ export async function applyDueSchedules({ db, nowMs, log }) {
   }
   return out;
 }
+
+/**
+ * Takes several students out of whatever schedule each is in — 003Fixes / 08
+ * ("Cancel schedule" on a selection). Only this teacher's waiting schedules.
+ */
+export async function removeMembers({ db, user, items }) {
+  const seen = new Set();
+  const list = items.filter((i) => !seen.has(memberId(i.session, i.phone)) && seen.add(memberId(i.session, i.phone)));
+  const students = await db.getAll(...list.map((i) => studentRef(db, i.session, i.phone)));
+  const batchIds = [...new Set(students.map((s) => (s.exists ? s.data().scheduledBlock?.batchId : null)).filter(Boolean))];
+  const schedules = batchIds.length ? await db.getAll(...batchIds.map((id) => scheduleRef(db, id))) : [];
+  const usable = new Set(batchIds.filter((id, k) => {
+    const s = schedules[k];
+    return s.exists && s.data().status === 'scheduled' && (s.data().uid === user.uid || user.role === 'superadmin');
+  }));
+
+  const writes = db.batch();
+  const perBatch = new Map();
+  let removed = 0;
+  let notScheduled = 0;
+  list.forEach((item, i) => {
+    const batchId = students[i].exists ? students[i].data().scheduledBlock?.batchId : null;
+    if (!batchId || !usable.has(batchId)) { notScheduled += 1; return; }
+    writes.set(studentRef(db, item.session, item.phone), { scheduledBlock: FieldValue.delete() }, { merge: true });
+    writes.set(memberRef(db, batchId, item.session, item.phone), { status: 'removed', removedBecause: 'removed' }, { merge: true });
+    perBatch.set(batchId, (perBatch.get(batchId) ?? 0) + 1);
+    removed += 1;
+  });
+  for (const [id, n] of perBatch) writes.update(scheduleRef(db, id), { count: FieldValue.increment(-n) });
+  if (removed) await writes.commit();
+  return { removed, skipped: notScheduled ? { notScheduled } : {} };
+}

@@ -72,7 +72,7 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     resubmitRegistration: (...a) => api.resubmitRegistration(...a),
   }));
   vi.doMock('@services/api/public', () => ({ registerStudentApi: (...a) => api.registerStudentApi(...a) }));
-  vi.doMock('@/context/ToastContext', () => ({ useToast: () => toast }));
+  vi.doMock('@/context/ToastContext', () => ({ useToast: () => toast, useOptionalToast: () => null }));
   vi.doMock('@utils/analytics', () => ({ trackRegistration: vi.fn(), trackZoomRedirect: vi.fn() }));
   vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (key) => (key === 'registration.requireApproval' ? requireApproval : false) }));
   vi.doMock('@/features/registration/components/CheckinCard', () => ({

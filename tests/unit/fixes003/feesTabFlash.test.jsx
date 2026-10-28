@@ -36,7 +36,7 @@ beforeEach(() => {
     getFeeSummary: vi.fn(() => summary.promise),
     recordPayment: vi.fn(), reverseLedgerEntry: vi.fn(), annotateLedgerEntry: vi.fn(),
   }));
-  vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }));
+  vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }), useOptionalToast: () => null }));
 });
 afterEach(() => {
   cleanup();

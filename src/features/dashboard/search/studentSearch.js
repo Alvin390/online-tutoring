@@ -28,12 +28,14 @@ export const MAX_QUERY_LENGTH = 100;
 export const MAX_TOKENS = 12;
 
 /** Status chips, in display order. */
-export const STATUS_KEYS = ['review', 'owes', 'blocked', 'awaiting', 'rejected'];
+export const STATUS_KEYS = ['review', 'owes', 'blocked', 'scheduled', 'awaiting', 'rejected'];
 
 export const STATUS_LABELS = Object.freeze({
   review: 'Receipt to review',
   owes: 'Owes fees',
   blocked: 'Blocked',
+  // 003Fixes / 08: a block waiting to start (scheduledBlock on the student).
+  scheduled: 'Block scheduled',
   awaiting: 'Awaiting approval',
   rejected: 'Rejected',
 });
@@ -146,7 +148,7 @@ export function parseQuery(q) {
 
 // ------------------------------------------------------------------ the index
 
-const EMPTY_FLAGS = Object.freeze({ review: false, owes: false, blocked: false, awaiting: false, rejected: false });
+const EMPTY_FLAGS = Object.freeze({ review: false, owes: false, blocked: false, scheduled: false, awaiting: false, rejected: false });
 
 function makeRecord(student, session) {
   if (!student || typeof student !== 'object') return null;
@@ -181,6 +183,7 @@ function makeRecord(student, session) {
       review: student.receiptStatus === 'pending' && Boolean(student.pendingReceipt),
       owes: Number.isFinite(balance) && balance > 0,
       blocked: student.blocked === true,
+      scheduled: Boolean(student.scheduledBlock?.batchId),
       awaiting: approval === 'pending',
       rejected: approval === 'rejected',
     },

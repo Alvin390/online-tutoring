@@ -159,7 +159,7 @@ describe('useDashboard.updateStudent calls the API', () => {
       subscribeToClassLink: () => () => {}, getZoomLinks: async () => ({}),
       blockStudent: vi.fn(), unblockStudent: vi.fn(), approveReceipt: vi.fn(), declineReceipt: vi.fn(),
     }));
-    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }));
+    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }), useOptionalToast: () => null }));
     vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: () => false }));
     const { useDashboard } = await import('@/features/dashboard/hooks/useDashboard.js');
     const { result } = renderHook(() => useDashboard());

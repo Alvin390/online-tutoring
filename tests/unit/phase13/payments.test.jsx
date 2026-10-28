@@ -42,7 +42,7 @@ describe('D2 live fee statement', () => {
       getFeeSummary: vi.fn().mockResolvedValue({ feesEnabled: true, summary: { balance: 1500 } }),
       recordPayment: vi.fn(), reverseLedgerEntry: vi.fn(), annotateLedgerEntry, ...apiOverrides,
     }));
-    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }));
+    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }), useOptionalToast: () => null }));
     const { default: FeesTab } = await import('@/features/fees/components/FeesTab.jsx');
     const view = render(<FeesTab session="morning" phone="+254711000001" active />);
     await screen.findByText(/Current balance/);

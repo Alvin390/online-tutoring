@@ -3,6 +3,9 @@ import { AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
 import TablePager from './TablePager';
 import BlockForm from './block/BlockForm';
+import { useBlockWhen } from '../bulk/useBlockWhen';
+import { formatWhen } from '../bulk/scheduleTime';
+import { useOptionalToast } from '@/context/ToastContext';
 import { PAGE_SIZE, readStoredPage, writeStoredPage } from '../search/pageStorage';
 import Modal from '@components/ui/Modal';
 import { SkeletonTable } from '@components/ui/Skeleton';
@@ -66,6 +69,8 @@ export default function StudentTable({
   // The bar hides meanwhile: portalled to <body> on phones, it would sit
   // above a dialog rendered inside the dashboard's transformed containers.
   suspendBar = false,
+  // 003Fixes / 08: take one student out of their scheduled block (row tag).
+  onCancelSchedule = null,
 }) {
   // The session a row belongs to, and a key unique across sessions (one phone
   // can be registered in two). Outside the all-sessions view these are simply
@@ -201,6 +206,14 @@ export default function StudentTable({
 
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
+  const toast = useOptionalToast();
+  const blockSchedule = (selectedStudent && sessionDocs?.[rowSession(selectedStudent)]?.schedule) ?? sessionDoc?.schedule ?? null;
+  const timing = useBlockWhen(blockSchedule);
+  const [showWhenProblem, setShowWhenProblem] = useState(false);
+  const cancelScheduleFor = useCallback(
+    (student) => onCancelSchedule?.(student?.__session ?? session, student),
+    [onCancelSchedule, session]
+  );
 
   // Phase 14: the subjects offered by the class being edited.
   const editDoc = (selectedStudent && sessionDocs?.[rowSession(selectedStudent)]) ?? sessionDoc;
@@ -229,6 +242,8 @@ export default function StudentTable({
     setBlockKind(defaultBlockKind);
     setBlockAmount('');
     setBlockError(null);
+    timing.reset();
+    setShowWhenProblem(false);
     setShowBlockModal(true);
   };
 
@@ -278,6 +293,37 @@ export default function StudentTable({
     if (!selectedStudent) return;
 
     setBlockError(null);
+
+    // 003Fixes / 08: a scheduled block is recorded on the server now and
+    // applied at that minute (the fee is charged then, not now).
+    if (timing.scheduled) {
+      if (timing.problem) { setShowWhenProblem(true); return; }
+      const isFees = blockKind === 'fees' && feesUsable;
+      const amount = Number(blockAmount);
+      if (isFees && (!Number.isInteger(amount) || amount < 1)) {
+        setBlockError('Enter the amount owed, in whole shillings.');
+        return;
+      }
+      setBlocking(true);
+      try {
+        const { runSchedule } = await import('@services/api/students');
+        await runSchedule({
+          items: [{ session: rowSession(selectedStudent), phone: selectedStudent.id }],
+          atMs: timing.atMs,
+          kind: isFees ? 'fees' : 'other',
+          amount: isFees ? amount : undefined,
+          reason: isFees ? undefined : blockReason.trim(),
+        });
+        toast?.showSuccess(`${selectedStudent.studentName} will be blocked from ${formatWhen(timing.atMs)}.`, 'Scheduled');
+        setShowBlockModal(false);
+        setSelectedStudent(null);
+      } catch (error) {
+        setBlockError(error?.message ?? 'Could not schedule that. Nothing was changed.');
+      } finally {
+        setBlocking(false);
+      }
+      return;
+    }
 
     if (blockKind === 'fees' && feesUsable) {
       const amount = Number(blockAmount);
@@ -416,11 +462,12 @@ export default function StudentTable({
             </tr>
           </thead>
           <tbody>
-            {/* Keyed by page: a page change remounts the group, so the old
-                page's rows leave at once instead of playing their exit
-                animation beside the new page (seen in Chromium, 003Fixes/02).
-                Within a page, a row removed live still animates out. */}
-            <AnimatePresence key={page} initial={!paged}>
+            {/* Keyed by search and page: a page change or a new search/filter
+                remounts the group, so rows that no longer belong leave at once
+                instead of playing their exit animation beside the new ones
+                (seen in Chromium, 003Fixes/02 and /08). Within the same view,
+                a row removed live still animates out. */}
+            <AnimatePresence key={`${pageKey ?? ''}#${page}`} initial={!paged}>
               {pageRows.map((student, i) => (
                 <StudentRow
                   key={rowKey(student)}
@@ -429,6 +476,7 @@ export default function StudentTable({
                   selectKey={rowKey(student)}
                   selected={sel.all || sel.keys.has(rowKey(student))}
                   onSelect={toggleRow}
+                  onCancelSchedule={onCancelSchedule ? cancelScheduleFor : undefined}
                   session={rowSession(student)}
                   sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
                   animated={!paged}
@@ -612,6 +660,7 @@ export default function StudentTable({
           onConfirm={handleBlockConfirm}
           loading={blocking}
           type="danger"
+          confirmLabel={timing.scheduled ? 'Schedule block' : 'Confirm'}
         >
           <div className="text-center">
             <div className="modal-icon danger mb-3">
@@ -635,6 +684,7 @@ export default function StudentTable({
               error={blockError}
               feesUsable={feesUsable}
               feesFlag={feesFlag}
+              timing={{ ...timing, showProblem: showWhenProblem }}
             />
           </div>
         </Modal>

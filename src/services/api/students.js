@@ -90,3 +90,50 @@ export async function undoBulk(batchId, onProgress) {
     if (!res.remaining) return { ...totals, status: res.status };
   }
 }
+
+/* ---- Scheduled blocks — 003Fixes / 08 ------------------------------------ */
+
+const scheduled = (body) => apiPost('/api/students/scheduled', body, { retry: 1 });
+const SCHEDULE_CHUNK = 25;
+
+export const listSchedules = () => scheduled({ action: 'list' });
+export const rescheduleSchedule = (batchId, atMs) => scheduled({ action: 'reschedule', batchId, atMs });
+export const cancelSchedule = (batchId) => scheduled({ action: 'cancel', batchId });
+
+/**
+ * Schedules a block for `items`, 25 a call under one schedule id.
+ * @returns {{ batchId, added, skipped, atMs }}
+ */
+export async function runSchedule({ items, atMs, kind, amount, reason, onProgress }) {
+  let batchId = null;
+  const result = { added: 0, skipped: {} };
+  onProgress?.(0, items.length);
+  for (let next = 0; next < items.length; next += SCHEDULE_CHUNK) {
+    const res = await scheduled({
+      action: 'create',
+      items: items.slice(next, next + SCHEDULE_CHUNK),
+      atMs,
+      kind,
+      ...(kind === 'fees' ? { amount } : {}),
+      ...(kind !== 'fees' && reason ? { reason } : {}),
+      ...(batchId ? { batchId } : {}),
+    });
+    batchId = res.batchId;
+    result.added += res.added;
+    mergeSkipped(result.skipped, res.skipped);
+    onProgress?.(Math.min(next + SCHEDULE_CHUNK, items.length), items.length);
+  }
+  return { ...result, batchId, atMs, total: items.length };
+}
+
+/** Takes students out of whatever schedule they are in, 25 a call. */
+export async function removeFromSchedule(items, onProgress) {
+  const result = { done: 0, skipped: {} };
+  for (let next = 0; next < items.length; next += SCHEDULE_CHUNK) {
+    const res = await scheduled({ action: 'removeMembers', items: items.slice(next, next + SCHEDULE_CHUNK) });
+    result.done += res.removed;
+    mergeSkipped(result.skipped, res.skipped);
+    onProgress?.(Math.min(next + SCHEDULE_CHUNK, items.length), items.length);
+  }
+  return { ...result, total: items.length, failed: [] };
+}

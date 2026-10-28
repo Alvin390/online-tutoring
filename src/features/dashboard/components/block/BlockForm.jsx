@@ -16,6 +16,8 @@ export default function BlockForm({
   feesUsable,
   feesFlag,
   count = 1,
+  // 003Fixes / 08: the "When?" choice (from useBlockWhen). Absent: no choice.
+  timing = null,
 }) {
   const many = count > 1;
   return (
@@ -98,6 +100,54 @@ export default function BlockForm({
           </>
         )}
       </div>
+
+      {timing && (
+        <div className="mb-3 text-start block-when">
+          <span className="form-label fw-bold d-block" id={`${idPrefix}-when-label`}>
+            <i className="bi bi-clock me-2" aria-hidden="true" />
+            When?
+          </span>
+          <div className="btn-group w-100 mb-2" role="radiogroup" aria-labelledby={`${idPrefix}-when-label`}>
+            {[['now', 'Now'], ['schedule', 'Schedule']].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={timing.when === value}
+                className={`btn ${timing.when === value ? 'btn-primary' : 'btn-outline-primary'}`}
+                onClick={() => timing.setWhen(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {timing.scheduled && (
+            <>
+              <div className="d-flex gap-2 flex-wrap mb-2">
+                {timing.picks.map((p) => (
+                  <button key={p.label} type="button" className="btn btn-sm btn-outline-secondary" onClick={() => timing.pick(p.atMs)}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <div className="row g-2">
+                <div className="col-6">
+                  <label className="form-label small fw-semibold mb-1" htmlFor={`${idPrefix}-date`}>Date</label>
+                  <input id={`${idPrefix}-date`} type="date" className="form-control" value={timing.date} onChange={(e) => timing.setDate(e.target.value)} />
+                </div>
+                <div className="col-6">
+                  <label className="form-label small fw-semibold mb-1" htmlFor={`${idPrefix}-time`}>Time</label>
+                  <input id={`${idPrefix}-time`} type="time" className="form-control" value={timing.time} onChange={(e) => timing.setTime(e.target.value)} />
+                </div>
+              </div>
+              <div className="form-text">
+                Nairobi time. {kind === 'fees' && feesUsable ? 'The amount is recorded at that time. ' : ''}Anyone who pays before then is taken out automatically.
+              </div>
+              {timing.problem && timing.showProblem && <div className="text-danger small mt-1" role="alert">{timing.problem}</div>}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="alert alert-warning text-start">
         <i className="bi bi-exclamation-triangle me-2" />

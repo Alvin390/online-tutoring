@@ -915,3 +915,19 @@
   min-height: 38px;
   white-space: nowrap;
 }
+
+/* 003Fixes / 08 — the scheduled-block tag on a row, and the "When?" choice. */
+.schedule-tag {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+}
+.schedule-tag-cancel {
+  width: 0.6em;
+  height: 0.6em;
+  padding: 0.15em;
+}
+.block-when input[type="date"],
+.block-when input[type="time"] {
+  min-height: 38px;
+}

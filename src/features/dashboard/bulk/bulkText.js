@@ -7,6 +7,7 @@ export const BULK_TEXT = {
   block: { verb: 'Block', ing: 'Blocking', past: 'blocked' },
   unblock: { verb: 'Unblock', ing: 'Unblocking', past: 'unblocked' },
   approveReceipts: { verb: 'Approve', ing: 'Approving', past: 'approved' },
+  cancelSchedule: { verb: 'Cancel the scheduled block for', ing: 'Cancelling', past: 'taken out of their scheduled block' },
 };
 
 const SKIP_TEXT = {
@@ -15,6 +16,7 @@ const SKIP_TEXT = {
   notBlocked: (n) => `${n} not blocked`,
   noReceipt: (n) => `${n} with no receipt to review`,
   missing: (n) => `${n} no longer registered`,
+  notScheduled: (n) => `${n} not scheduled`,
 };
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

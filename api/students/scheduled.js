@@ -7,7 +7,7 @@ import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import {
-  MAX_CREATE_ITEMS, createSchedule, listSchedules, rescheduleSchedule, cancelSchedule, removeMember,
+  MAX_CREATE_ITEMS, createSchedule, listSchedules, rescheduleSchedule, cancelSchedule, removeMember, removeMembers,
 } from '../_lib/scheduledBlocks.js';
 
 /**
@@ -34,6 +34,8 @@ const schema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('reschedule'), batchId: id, atMs }).strict(),
   z.object({ action: z.literal('cancel'), batchId: id }).strict(),
   z.object({ action: z.literal('removeMember'), batchId: id, session: sessionSchema, phone: phoneSchema }).strict(),
+  // 003Fixes / 08: "Cancel schedule" on a selection, whatever schedule each is in.
+  z.object({ action: z.literal('removeMembers'), items: z.array(item).min(1).max(MAX_CREATE_ITEMS) }).strict(),
 ]);
 
 export default createHandler({
@@ -56,6 +58,8 @@ export default createHandler({
         await tryWriteAudit({ action: 'students.schedule_cancelled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, context: { requestId: log.requestId } }, log);
         return { ok: true, ...result };
       }
+      case 'removeMembers':
+        return { ok: true, ...(await removeMembers({ db, user, items: body.items })) };
       case 'removeMember':
         await assertSessionExists(db, body.session);
         return { ok: true, ...(await removeMember({ db, user, batchId: body.batchId, session: body.session, phone: body.phone })) };

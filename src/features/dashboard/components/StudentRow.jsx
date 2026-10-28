@@ -2,6 +2,13 @@ import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { highlightMatches } from '@features/dashboard/search/highlightMatches';
+import { nairobiParts, WEEKDAY_LABELS } from '@utils/dates';
+
+/** "Sun 18:00" (Nairobi) for the scheduled-block tag — 003Fixes / 08. */
+const shortWhen = (ms) => {
+  const p = nairobiParts(new Date(ms));
+  return `${WEEKDAY_LABELS[p.weekday]} ${String(p.hours).padStart(2, '0')}:${String(p.minutes).padStart(2, '0')}`;
+};
 
 // No escapeHtml (removed in Phase 13 / 03 D6). React escapes every text node
 // already; escaping again here displayed "O'Brien" as "O&#039;Brien" and
@@ -21,6 +28,7 @@ function StudentRow({
   // 003Fixes / 03: the row's checkbox. onSelect is one stable callback for the
   // whole table, so ticking re-renders only the ticked row.
   selectKey, selected = false, onSelect,
+  onCancelSchedule,
   // 001Fixes / 04: search terms to mark in the name, phone, class and subjects.
   terms,
   // 001Fixes / 06: shown as a badge in the all-sessions view.
@@ -161,6 +169,20 @@ function StudentRow({
               )}
               {isBlocked && <span className="badge bg-danger">Blocked</span>}
               {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
+              {student.scheduledBlock?.atMs && (
+                <span className="badge rounded-pill text-bg-warning schedule-tag" data-testid="schedule-tag">
+                  <i className="bi bi-clock me-1" aria-hidden="true" />
+                  Block scheduled · {shortWhen(student.scheduledBlock.atMs)}
+                  {onCancelSchedule && (
+                    <button
+                      type="button"
+                      className="btn-close btn-close-sm ms-1 schedule-tag-cancel"
+                      aria-label={`Cancel the scheduled block for ${student.studentName ?? 'this student'}`}
+                      onClick={(e) => { e.stopPropagation(); onCancelSchedule(student); }}
+                    />
+                  )}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -476,6 +498,8 @@ function areEqual(prev, next) {
   if (prev.terms !== next.terms) return false;
   if (prev.sessionName !== next.sessionName) return false;
   if (prev.selected !== next.selected || prev.onSelect !== next.onSelect) return false;
+  if ((prev.student?.scheduledBlock?.atMs ?? null) !== (next.student?.scheduledBlock?.atMs ?? null)) return false;
+  if (prev.onCancelSchedule !== next.onCancelSchedule) return false;
 
   // Callback identity: the parent passes inline arrows for onDelete/onEdit/
   // onView, so these change every render and are deliberately NOT compared —

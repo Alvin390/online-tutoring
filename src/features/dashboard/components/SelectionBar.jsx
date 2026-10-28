@@ -31,6 +31,7 @@ export const BULK_LABELS = {
   block: 'Block selected',
   unblock: 'Unblock selected',
   approveReceipts: 'Approve receipts',
+  cancelSchedule: 'Cancel schedule',
 };
 
 export default function SelectionBar({ count, action = 'block', onAction, onClear, busy = false }) {

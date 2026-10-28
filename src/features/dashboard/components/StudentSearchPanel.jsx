@@ -11,11 +11,13 @@ import { highlightTerms } from '../search/highlightMatches';
 import { DEFAULT_CLASSES } from '@shared/constants/sessions';
 import { useOptionalToast } from '@/context/ToastContext';
 import { describeResult, plural } from '../bulk/bulkText';
+import { formatWhen } from '../bulk/scheduleTime';
 import { rememberBulk, markUndone, useUndoableCount } from '../bulk/recentBulk';
 
 // 003Fixes / 05: both load on first use.
 const BulkActionModal = lazy(() => import('./bulk/BulkActionModal'));
 const RecentActionsPanel = lazy(() => import('./bulk/RecentActionsPanel'));
+const ScheduledPanel = lazy(() => import('./bulk/ScheduledPanel'));
 
 // The table re-renders only when its (deferred) results change, never per
 // keystroke: typing re-renders the bar and chips, the table catches up.
@@ -45,6 +47,7 @@ function tag(record) {
  */
 const bulkActionFor = (statuses) => {
   if (statuses.includes('review')) return 'approveReceipts';
+  if (statuses.includes('scheduled')) return 'cancelSchedule';
   if (statuses.includes('blocked')) return 'unblock';
   return 'block';
 };
@@ -103,8 +106,26 @@ export default function StudentSearchPanel({
   const toast = useOptionalToast();
   const [bulk, setBulk] = useState(null);
   const [showRecent, setShowRecent] = useState(false);
+  const [showScheduled, setShowScheduled] = useState(false);
   const undoable = useUndoableCount();
   const sessionOf = useCallback((row) => row?.__session ?? session, [session]);
+
+  // 003Fixes / 08: scheduled blocks, read off the rosters already loaded.
+  const rosters = useMemo(() => studentsBySession ?? { [session]: students }, [studentsBySession, session, students]);
+  const scheduledCount = useMemo(() => {
+    const ids = new Set();
+    for (const list of Object.values(rosters)) for (const s of list ?? []) if (s?.scheduledBlock?.batchId) ids.add(s.scheduledBlock.batchId);
+    return ids.size;
+  }, [rosters]);
+  const handleCancelSchedule = useCallback(async (rowSession, student) => {
+    try {
+      const { removeFromSchedule } = await import('@services/api/students');
+      await removeFromSchedule([{ session: rowSession, phone: student.id }]);
+      toast?.showSuccess(`${student.studentName} will not be blocked.`, 'Scheduled block cancelled');
+    } catch (err) {
+      toast?.showError(err?.message ?? 'Could not cancel that. Try again from Scheduled.');
+    }
+  }, [toast]);
   const handleBulkAction = useCallback((action, rows, clear) => setBulk({ action, rows, clear }), []);
 
   const undoFromToast = useCallback(async (batchId) => {
@@ -126,6 +147,18 @@ export default function StudentSearchPanel({
   const handleBulkDone = useCallback((result) => {
     bulk?.clear?.();
     setBulk(null);
+    if (result.scheduled) {
+      toast?.showSuccess(
+        `${plural(result.done, 'student')} will be blocked from ${formatWhen(result.atMs)}. Change or cancel it under Scheduled.`,
+        'Scheduled',
+        { duration: 10_000 }
+      );
+      return;
+    }
+    if (result.action === 'cancelSchedule') {
+      toast?.showSuccess(describeResult(result.action, result), 'Done');
+      return;
+    }
     rememberBulk({
       id: result.batchId,
       action: result.action,
@@ -253,6 +286,16 @@ export default function StudentSearchPanel({
             <span className="d-none d-sm-inline">Recent actions</span>
             {undoable > 0 && <span className="badge text-bg-primary ms-1">{undoable}</span>}
           </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary recent-actions-btn"
+            onClick={() => setShowScheduled(true)}
+            aria-label={scheduledCount > 0 ? `Scheduled blocks (${scheduledCount})` : 'Scheduled blocks'}
+          >
+            <i className="bi bi-calendar-event me-1" aria-hidden="true" />
+            <span className="d-none d-sm-inline">Scheduled</span>
+            {scheduledCount > 0 && <span className="badge text-bg-warning ms-1">{scheduledCount}</span>}
+          </button>
         </div>
         {canSearchAll && (
           <div className="form-check form-switch all-sessions-toggle mb-0">
@@ -344,7 +387,8 @@ export default function StudentSearchPanel({
           pageKey={`${allMode ? '*' : session}|${signature}`}
           bulkAction={bulkActionFor(deferred.statuses)}
           onBulkAction={handleBulkAction}
-          suspendBar={Boolean(bulk) || showRecent}
+          onCancelSchedule={handleCancelSchedule}
+          suspendBar={Boolean(bulk) || showRecent || showScheduled}
           terms={terms}
           loading={false}
           onExport={handleExport}
@@ -360,6 +404,18 @@ export default function StudentSearchPanel({
             sessionOf={sessionOf}
             onClose={() => setBulk(null)}
             onDone={handleBulkDone}
+            schedule={doc?.schedule ?? null}
+          />
+        </Suspense>
+      )}
+      {showScheduled && (
+        <Suspense fallback={null}>
+          <ScheduledPanel
+            rosters={rosters}
+            sessionNames={sessionNames}
+            onClose={() => setShowScheduled(false)}
+            showSuccess={toast?.showSuccess}
+            showError={toast?.showError}
           />
         </Suspense>
       )}
