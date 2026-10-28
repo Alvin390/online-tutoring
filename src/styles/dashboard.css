@@ -824,3 +824,23 @@
     min-height: 44px;
   }
 }
+
+/* 003Fixes / 02 — First / Previous / Next / Last under the student table. */
+.table-pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.table-pager-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.table-pager-label {
+  min-width: 7.5rem;
+  text-align: center;
+}

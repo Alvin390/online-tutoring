@@ -52,10 +52,10 @@ function Harness({ students, onRender }) {
   );
 }
 
-// jsdom does no layout: every element measures 0 px, so a virtualised list
-// would believe any number of rows fit the window. Give rows the height they
-// have in a browser (64 px, the table's estimate) — Phase 13 / 08 B2. The
-// real-browser row count is checked by tests/layout as well.
+// jsdom does no layout: every element measures 0 px. Rows are given the
+// height they have in a browser (64 px). Phase 13 / 08 B2 needed this for the
+// virtualiser; since 003Fixes / 02 the table renders one page of 20 rows, so
+// "mount at 500" now measures the paged table over a 500-student roster.
 const realRect = Element.prototype.getBoundingClientRect;
 Element.prototype.getBoundingClientRect = function rect() {
   if (this.tagName === 'TR') return { x: 0, y: 0, top: 0, left: 0, right: 1200, bottom: 64, width: 1200, height: 64, toJSON() {} };
@@ -73,8 +73,7 @@ describe('StudentTable render cost (recorded, not asserted)', () => {
       const students = makeStudents(500);
       let phaseLog = [];
       let view;
-      // Every commit until the table settles counts as "mount" — a
-      // virtualised table re-renders once after measuring its rows.
+      // Every commit until the table settles counts as "mount".
       act(() => {
         view = render(<Harness students={students} onRender={(p, d) => phaseLog.push([p, d])} />);
       });

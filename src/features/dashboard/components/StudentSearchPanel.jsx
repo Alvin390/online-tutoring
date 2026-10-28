@@ -263,6 +263,7 @@ export default function StudentSearchPanel({
           showSessions={allMode}
           students={results}
           totalCount={out.size}
+          pageKey={`${allMode ? '*' : session}|${signature}`}
           terms={terms}
           loading={false}
           onExport={handleExport}

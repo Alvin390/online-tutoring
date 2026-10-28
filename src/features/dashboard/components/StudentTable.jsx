@@ -1,7 +1,8 @@
-import { useState, useRef, useLayoutEffect } from 'react';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { m, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
+import TablePager from './TablePager';
+import { PAGE_SIZE, readStoredPage, writeStoredPage } from '../search/pageStorage';
 import Modal from '@components/ui/Modal';
 import { SkeletonTable } from '@components/ui/Skeleton';
 import { postLedgerEntry } from '@services/api/fees';
@@ -11,12 +12,6 @@ import { useAuthState } from '@features/auth/context/AuthContext';
 import { TIER_RANK } from '@shared/constants/tiers';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
-
-const VIRTUALIZE_ABOVE = 50;
-const OVERSCAN = 8;
-// Measured in Chromium: 91 px on desktop, ~141 px on a phone. Each row is
-// measured once rendered; the estimate only sizes rows not yet seen.
-const ROW_ESTIMATE_PX = 90;
 
 export default function StudentTable({
   session,
@@ -41,6 +36,9 @@ export default function StudentTable({
   sessionNames = null,
   sessionDocs = null,
   showSessions = false,
+  // 003Fixes / 02: what the rows are a page OF (session, search, filters,
+  // sort). A new key starts again at page 1; the same key restores the page.
+  pageKey = null,
 }) {
   // The session a row belongs to, and a key unique across sessions (one phone
   // can be registered in two). Outside the all-sessions view these are simply
@@ -72,37 +70,42 @@ export default function StudentTable({
   // 'other' is the free-text block that existed before.
   const [blockKind, setBlockKind] = useState(defaultBlockKind);
 
-  // Row virtualisation — Phase 13 / 08 B2. Above VIRTUALIZE_ABOVE rows only
-  // the rows near the viewport are in the DOM (plus OVERSCAN either side);
-  // spacer rows keep the scrollbar honest and the table a real <table>. Below
-  // it the plain table renders: for a small class virtualisation costs more
-  // than it saves. The table scrolls with the page, hence the WINDOW variant.
-  const tbodyRef = useRef(null);
-  const [scrollMargin, setScrollMargin] = useState(0);
-  const virtual = students.length > VIRTUALIZE_ABOVE;
-  // Where the table starts on the page. Content above it (stats, links, the
-  // calendar) loads late and changes height, so this is re-measured whenever
-  // the page resizes — a stale offset renders the wrong rows for the scroll.
-  useLayoutEffect(() => {
-    if (!virtual || !tbodyRef.current) return undefined;
-    const measure = () => {
-      if (!tbodyRef.current) return;
-      const top = Math.round(tbodyRef.current.getBoundingClientRect().top + window.scrollY);
-      setScrollMargin((prev) => (prev === top ? prev : top));
-    };
-    measure();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(document.body);
-    return () => observer.disconnect();
-  }, [virtual]);
-  const virtualizer = useWindowVirtualizer({
-    count: virtual ? students.length : 0,
-    estimateSize: () => ROW_ESTIMATE_PX,
-    overscan: OVERSCAN,
-    scrollMargin,
-    getItemKey: (i) => rowKey(students[i]) ?? i,
-  });
+  /**
+   * Pages of PAGE_SIZE rows — 003Fixes / 02, replacing the Phase 13 / 08 row
+   * virtualiser. The rows are already in memory (the dashboard's listeners),
+   * so a page change is a slice: no request, and only this table re-renders.
+   *
+   * The page is kept against `pageKey`; a different key reads as page 1
+   * without an effect, so there is never a frame showing the old page. Live
+   * data that shrinks the list pulls the page back to the new last page;
+   * growth leaves the teacher where they are.
+   */
+  const tableRef = useRef(null);
+  const [pageState, setPageState] = useState(() => readStoredPage(pageKey));
+  const [paged, setPaged] = useState(false);
+  const pageCount = Math.max(1, Math.ceil(students.length / PAGE_SIZE));
+  const page = Math.min(pageState.key === pageKey ? pageState.page : 0, pageCount - 1);
+  const start = page * PAGE_SIZE;
+  const pageRows = useMemo(() => students.slice(start, start + PAGE_SIZE), [students, start]);
+
+  useEffect(() => {
+    writeStoredPage(pageKey, page);
+  }, [pageKey, page]);
+
+  const goToPage = useCallback((next) => {
+    setPageState({ key: pageKey, page: next });
+    // Rows animate in once, on arrival; paging should feel instant.
+    setPaged(true);
+    // Keep the teacher where they are, unless the table's top has scrolled
+    // out of view above — then bring it back, under the sticky header.
+    requestAnimationFrame(() => {
+      const el = tableRef.current;
+      if (!el) return;
+      const header = document.querySelector('.dashboard-header')?.offsetHeight ?? 0;
+      const top = el.getBoundingClientRect().top;
+      if (top < header) window.scrollTo({ top: window.scrollY + top - header - 8 });
+    });
+  }, [pageKey]);
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
 
@@ -261,7 +264,7 @@ export default function StudentTable({
 
   return (
     <>
-      <div className="table-responsive">
+      <div className="table-responsive" ref={tableRef}>
         <table className="table table-hover align-middle mb-0">
           <thead className="table-dark">
             <tr>
@@ -275,69 +278,46 @@ export default function StudentTable({
               <th style={{ width: '100px' }}>Action</th>
             </tr>
           </thead>
-          <tbody ref={tbodyRef}>
-            {virtual ? (() => {
-              const items = virtualizer.getVirtualItems();
-              const top = items.length ? items[0].start - scrollMargin : 0;
-              const bottom = items.length ? virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin) : 0;
-              return (
-                <>
-                  {top > 0 && <tr aria-hidden="true" style={{ height: top }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
-                  {items.map((item) => {
-                    const student = students[item.index];
-                    return (
-                      <StudentRow
-                        key={rowKey(student)}
-                        student={student}
-                        index={item.index}
-                        session={rowSession(student)}
-                        sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
-                        animated={false}
-                        measureRef={virtualizer.measureElement}
-                        dataIndex={item.index}
-                        onDelete={() => handleDeleteClick(student)}
-                        onEdit={() => handleEditClick(student)}
-                        onView={onView ? () => onView(student) : undefined}
-                        onBlock={() => handleBlockClick(student)}
-                        onUnblock={onUnblock}
-                        onApprove={onApprove}
-                        onDecline={onDecline}
-                        terms={terms}
-                      />
-                    );
-                  })}
-                  {bottom > 0 && <tr aria-hidden="true" style={{ height: bottom }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
-                </>
-              );
-            })() : (
-              <AnimatePresence>
-                {students.map((student, index) => (
-                  <StudentRow
-                    key={rowKey(student)}
-                    student={student}
-                    index={index}
-                    session={rowSession(student)}
-                    sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
-                    onDelete={() => handleDeleteClick(student)}
-                    onEdit={() => handleEditClick(student)}
-                    onView={onView ? () => onView(student) : undefined}
-                    onBlock={() => handleBlockClick(student)}
-                    onUnblock={onUnblock}
-                    onApprove={onApprove}
-                    onDecline={onDecline}
-                    terms={terms}
-                  />
-                ))}
-              </AnimatePresence>
-            )}
+          <tbody>
+            {/* Keyed by page: a page change remounts the group, so the old
+                page's rows leave at once instead of playing their exit
+                animation beside the new page (seen in Chromium, 003Fixes/02).
+                Within a page, a row removed live still animates out. */}
+            <AnimatePresence key={page} initial={!paged}>
+              {pageRows.map((student, i) => (
+                <StudentRow
+                  key={rowKey(student)}
+                  student={student}
+                  index={start + i}
+                  session={rowSession(student)}
+                  sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
+                  animated={!paged}
+                  onDelete={() => handleDeleteClick(student)}
+                  onEdit={() => handleEditClick(student)}
+                  onView={onView ? () => onView(student) : undefined}
+                  onBlock={() => handleBlockClick(student)}
+                  onUnblock={onUnblock}
+                  onApprove={onApprove}
+                  onDecline={onDecline}
+                  terms={terms}
+                />
+              ))}
+            </AnimatePresence>
           </tbody>
         </table>
       </div>
 
+      {pageCount > 1 && <TablePager page={page} pageCount={pageCount} onPage={goToPage} />}
+
       <div className="d-flex justify-content-between align-items-center mt-3 p-3 bg-light rounded">
         <span className="text-muted" data-testid="table-total">
           <i className="bi bi-people me-1" />
-          {totalCount != null && totalCount !== students.length ? (
+          {pageCount > 1 ? (
+            <>
+              Showing <strong>{start + 1}–{start + pageRows.length}</strong> of {students.length}
+              {totalCount != null && totalCount !== students.length ? ` (${totalCount} in total)` : ''} students
+            </>
+          ) : totalCount != null && totalCount !== students.length ? (
             <>Showing <strong>{students.length}</strong> of {totalCount} students</>
           ) : (
             <>Total: <strong>{students.length}</strong> student{students.length !== 1 ? 's' : ''}</>

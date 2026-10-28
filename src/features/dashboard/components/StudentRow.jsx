@@ -10,14 +10,14 @@ import { highlightMatches } from '@features/dashboard/search/highlightMatches';
 /**
  * Entrance stagger cap — Phase 13 / 08 B2. Each row waited `index * 0.05 s`,
  * so on a 500-student class the last row appeared 25 seconds after mount.
- * Only the first rows are staggered now; virtualised rows (above 50) do not
- * animate at all, since they mount and unmount as the teacher scrolls.
+ * Only the first rows are staggered now. Since 003Fixes / 02 the table
+ * shows 20 rows a page, and rows do not animate at all after a page change.
  */
 const STAGGER_ROWS = 10;
 
 function StudentRow({
   student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline,
-  animated = true, measureRef, dataIndex,
+  animated = true,
   // 001Fixes / 04: search terms to mark in the name, phone, class and subjects.
   terms,
   // 001Fixes / 06: shown as a badge in the all-sessions view.
@@ -104,11 +104,7 @@ function StudentRow({
   return (
     <>
       <m.tr
-        ref={(el) => {
-          rowRef.current = el;
-          measureRef?.(el);
-        }}
-        data-index={dataIndex}
+        ref={rowRef}
         tabIndex={-1}
         initial={animated ? { opacity: 0, x: -20 } : false}
         animate={{ opacity: 1, x: 0 }}
