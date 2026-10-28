@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { m } from 'framer-motion';
 import SendQueue from './SendQueue';
 import Modal from '@components/ui/Modal';
@@ -31,7 +31,12 @@ import logger from '@utils/logger';
 
 const DRAFT_KEY = 'wa-campaign-draft';
 
-export default function WhatsAppPanel() {
+/**
+ * @param {{ preset?: { title: string, template: string, filterValues: string[], note?: string } }} props
+ *   003Fixes / 09: opened from Recent actions with the blocked students'
+ *   parents as recipients and a draft message — reviewed and sent as usual.
+ */
+export default function WhatsAppPanel({ preset = null }) {
   const { tierRank, isSuperadmin } = useAuthState();
   const advanced = useFlag('whatsapp.advanced');
   const { showError, showSuccess } = useToast();
@@ -40,10 +45,19 @@ export default function WhatsAppPanel() {
   const canFilter = isGold && advanced;
 
   const [view, setView] = useState('compose');
-  const [title, setTitle] = useState('');
-  const [template, setTemplate] = useState('');
-  const [filterType, setFilterType] = useState('all');
-  const [filterValues, setFilterValues] = useState([]);
+  const [title, setTitle] = useState(preset?.title ?? '');
+  const [template, setTemplate] = useState(preset?.template ?? '');
+  const [filterType, setFilterType] = useState(preset ? 'individual' : 'all');
+  const [filterValues, setFilterValues] = useState(preset?.filterValues ?? []);
+  const [presetActive, setPresetActive] = useState(Boolean(preset));
+  const panelRef = useRef(null);
+  useEffect(() => {
+    if (!preset) return undefined;
+    // After the dialog that prepared it has closed and handed focus back
+    // (which scrolls the page to its button), bring this panel into view.
+    const timer = setTimeout(() => panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 250);
+    return () => clearTimeout(timer);
+  }, [preset]);
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -59,6 +73,7 @@ export default function WhatsAppPanel() {
   // Autosave the draft — losing a carefully worded broadcast to an accidental
   // navigation is the fastest way to stop someone using the feature.
   useEffect(() => {
+    if (preset) return; // a prepared message wins over the saved draft
     const saved = sessionStorage.getItem(DRAFT_KEY);
     if (saved) {
       try {
@@ -69,7 +84,7 @@ export default function WhatsAppPanel() {
         sessionStorage.removeItem(DRAFT_KEY);
       }
     }
-  }, []);
+  }, [preset]); // one preset per mount (the dashboard remounts the panel for a new one)
 
   useEffect(() => {
     if (title || template) {
@@ -159,7 +174,8 @@ export default function WhatsAppPanel() {
   // Loaded once, on the first time a value-taking filter is selected. Doing it
   // on mount would cost a request for the common case of sending to everyone.
   useEffect(() => {
-    if (!canFilter || filterType === 'all' || options !== null) return;
+    // 003Fixes / 09: not while a prepared recipient list is shown (no list to tick).
+    if (!canFilter || filterType === 'all' || options !== null || presetActive) return;
     let cancelled = false;
     setOptionsLoading(true);
     getCampaignOptions()
@@ -170,7 +186,13 @@ export default function WhatsAppPanel() {
       })
       .finally(() => { if (!cancelled) setOptionsLoading(false); });
     return () => { cancelled = true; };
-  }, [canFilter, filterType, options, showError]);
+  }, [canFilter, filterType, options, showError, presetActive]);
+
+  // 003Fixes / 09: a prepared recipient list (session-qualified keys) is shown
+  // as a count rather than ticked boxes; "Choose students instead" clears it.
+  const presetNote = presetActive && filterType === 'individual'
+    ? `${filterValues.length} parent${filterValues.length === 1 ? '' : 's'} ${preset?.note ?? 'chosen for you'}`
+    : null;
 
   /** The checkbox list for whichever filter type is selected. */
   const filterChoices = useMemo(() => {
@@ -197,7 +219,7 @@ export default function WhatsAppPanel() {
   const overLimit = template.length > MAX_MESSAGE_LENGTH;
 
   return (
-    <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div ref={panelRef} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 className="mb-0">
           <i className="bi bi-whatsapp me-2" aria-hidden="true" />
@@ -345,7 +367,7 @@ export default function WhatsAppPanel() {
               <select
                 className="form-select form-select-sm"
                 value={filterType}
-                onChange={(e) => { setFilterType(e.target.value); setFilterValues([]); }}
+                onChange={(e) => { setFilterType(e.target.value); setFilterValues([]); setPresetActive(false); }}
                 disabled={!canFilter}
               >
                 <option value="all">All students</option>
@@ -369,7 +391,18 @@ export default function WhatsAppPanel() {
                   Options come from the server, resolved with the same
                   eligibility rules as a real send, so nothing offered here can
                   be skipped later. */}
-              {canFilter && filterType !== 'all' && (
+              {canFilter && presetNote && (
+                <div className="mt-2 border rounded p-2 small" data-testid="wa-preset-recipients">
+                  <i className="bi bi-people me-1" aria-hidden="true" />
+                  {presetNote}.{' '}
+                  <button type="button" className="btn btn-link btn-sm p-0 align-baseline"
+                    onClick={() => { setPresetActive(false); setFilterValues([]); }}>
+                    Choose students instead
+                  </button>
+                </div>
+              )}
+
+              {canFilter && filterType !== 'all' && !presetNote && (
                 <div className="mt-2 border rounded p-2" style={{ maxHeight: 220, overflowY: 'auto' }}>
                   {optionsLoading && (
                     <div className="text-muted small py-2">

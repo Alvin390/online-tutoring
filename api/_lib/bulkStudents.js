@@ -368,3 +368,18 @@ export async function listRecent({ db, user, nowMs }) {
 export function assertChunkSize(items, max) {
   if (items.length > max) throw badRequest(`Send at most ${max} students per request.`, 'too_many_items');
 }
+
+/**
+ * The students a bulk action actually changed (outcome done), for the
+ * teacher who made it — 003Fixes / 09, "Message these parents on WhatsApp".
+ */
+export async function listBatchItems({ db, user, batchId }) {
+  const ref = batchRef(db, batchId);
+  const snap = await ref.get();
+  if (!snap.exists) throw notFound('That bulk action was not found.', 'batch_not_found');
+  if (snap.data().uid !== user.uid && user.role !== 'superadmin') {
+    throw forbidden('That bulk action belongs to someone else.', 'batch_forbidden');
+  }
+  const items = await ref.collection('items').where('outcome', '==', 'done').limit(500).get();
+  return items.docs.map((d) => ({ session: d.data().session, phone: d.data().phone }));
+}

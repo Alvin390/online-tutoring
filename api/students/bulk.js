@@ -7,7 +7,7 @@ import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import {
-  MAX_ITEMS, openBatch, applyStudents, undoBatch, listRecent, assertChunkSize,
+  MAX_ITEMS, openBatch, applyStudents, undoBatch, listRecent, assertChunkSize, listBatchItems,
 } from '../_lib/bulkStudents.js';
 
 /**
@@ -35,6 +35,8 @@ const schema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approveReceipts'), items, batchId: batchId.optional() }).strict(),
   z.object({ action: z.literal('undo'), batchId }).strict(),
   z.object({ action: z.literal('list') }).strict(),
+  // 003Fixes / 09: who an action reached, for "Message these parents".
+  z.object({ action: z.literal('items'), batchId }).strict(),
 ]);
 
 export default createHandler({
@@ -46,6 +48,10 @@ export default createHandler({
   handle: async ({ body, user, log }) => {
     const db = getDb();
     const nowMs = Date.now();
+
+    if (body.action === 'items') {
+      return { items: await listBatchItems({ db, user, batchId: body.batchId }) };
+    }
 
     if (body.action === 'list') {
       return { actions: await listRecent({ db, user, nowMs }), limits: MAX_ITEMS };

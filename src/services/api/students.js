@@ -16,6 +16,8 @@ export const DEFAULT_LIMITS = Object.freeze({ block: 25, blockFees: 8, unblock: 
 const call = (body) => apiPost('/api/students/bulk', body, { retry: 1 });
 
 export const listBulkActions = () => call({ action: 'list' });
+/** 003Fixes / 09: the students a bulk action reached ([{ session, phone }]). */
+export const listBulkItems = (batchId) => call({ action: 'items', batchId });
 
 /** Interrupted part-way: what was done, and where to carry on from. */
 export class BulkInterrupted extends Error {

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import Modal from '@components/ui/Modal';
-import { listBulkActions, undoBulk } from '@services/api/students';
+import { listBulkActions, undoBulk, listBulkItems } from '@services/api/students';
+import { useAuthState } from '@features/auth/context/AuthContext';
+import { useFlag } from '@shared/config/FlagsContext';
+import { setWhatsappPreset, blockedParentsDraft } from '@features/whatsapp/whatsappPreset';
 import { formatKes } from '@utils/blockReason';
 import { formatTime } from '@utils/dates';
 import { replaceRecent, markUndone } from '../../bulk/recentBulk';
@@ -29,6 +32,30 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
   const [confirming, setConfirming] = useState(null);
   const [working, setWorking] = useState(null);
   const [now, setNow] = useState(() => Date.now());
+  // 003Fixes / 09: messaging chosen students is Gold + whatsapp.advanced, as in the WhatsApp panel.
+  const { tierRank, isSuperadmin } = useAuthState();
+  const broadcast = useFlag('whatsapp.broadcast');
+  const advanced = useFlag('whatsapp.advanced');
+  const canMessage = broadcast && advanced && (isSuperadmin || (tierRank ?? 0) >= 3);
+  const [preparing, setPreparing] = useState(null);
+
+  const messageParents = async (action) => {
+    setPreparing(action.id);
+    try {
+      const { items } = await listBulkItems(action.id);
+      setWhatsappPreset({
+        title: `Blocked students — ${formatTime(new Date(action.createdAtMs))}`,
+        template: blockedParentsDraft({ kind: action.kind }),
+        filterValues: items.map((i) => `${i.session}:${i.phone}`),
+        note: 'of the students blocked by this action',
+      });
+      onClose();
+    } catch (err) {
+      showError?.(err?.message ?? 'Could not prepare the message.');
+    } finally {
+      setPreparing(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setError(null);
@@ -94,6 +121,11 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
                     {a.status === 'done' && (left > 0 ? ` · ${left} min left to undo` : ' · too late to undo')}
                   </div>
                 </div>
+                {canMessage && a.action === 'block' && (a.counts?.done ?? 0) > 0 && (
+                  <button type="button" className="btn btn-sm btn-outline-success" onClick={() => messageParents(a)} disabled={Boolean(working) || preparing === a.id}>
+                    <i className="bi bi-whatsapp me-1" aria-hidden="true" />WhatsApp parents
+                  </button>
+                )}
                 {canUndo && confirming !== a.id && working?.id !== a.id && (
                   <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setConfirming(a.id)} disabled={Boolean(working)}>
                     <i className="bi bi-arrow-counterclockwise me-1" aria-hidden="true" />Undo

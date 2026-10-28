@@ -25,7 +25,10 @@ import { effectiveApprovalStatus } from '../_lib/studentState.js';
 const filterSchema = z
   .object({
     type: z.enum(['all', 'session', 'class', 'individual']),
-    values: z.array(z.string().trim().max(80)).max(200).optional(),
+    // 003Fixes / 09: up to 500 (a bulk block can cover every student), and an
+    // individual value may be "<session>:<phone>" so a number registered in
+    // two sessions is messaged only for the session that was blocked.
+    values: z.array(z.string().trim().max(80)).max(500).optional(),
     onlyOverdue: z.boolean().optional(),
   })
   .strict();
@@ -364,7 +367,9 @@ async function resolveRecipients(db, filter, onlySkippedFrom) {
       if (allowedPhones && !allowedPhones.has(phone)) continue;
 
       if (filter.type === 'class' && !(filter.values ?? []).includes(student.class)) continue;
-      if (filter.type === 'individual' && !(filter.values ?? []).includes(phone)) continue;
+      if (filter.type === 'individual'
+        && !(filter.values ?? []).includes(phone)
+        && !(filter.values ?? []).includes(`${sessionId}:${phone}`)) continue;
       if (filter.onlyOverdue === true && student.overdue !== true) continue;
 
       recipients.push({
