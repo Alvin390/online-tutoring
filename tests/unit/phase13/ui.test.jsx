@@ -256,7 +256,7 @@ describe('D3 S-cal-stale: paging back shows the right month, from cache', () => 
       };
     });
     vi.doMock('@services/api/calendar', () => ({ getCalendarEvents, manageCalendarEvent: vi.fn().mockResolvedValue({ ok: true }) }));
-    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }));
+    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }), useOptionalToast: () => null }));
     const { useCalendar } = await import('@/features/calendar/hooks/useCalendar.js');
 
     const { result } = renderHook(() => useCalendar({ enabled: true }));
@@ -316,7 +316,7 @@ describe('D4 deleted notes can be restored (S-notes)', () => {
     }));
     vi.doMock('@services/firebase/config', () => ({ db: {} }));
     vi.doMock('@features/auth/context/AuthContext', () => ({ useAuthState: () => ({ user: { uid: 't1' } }) }));
-    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess, showError: vi.fn() }) }));
+    vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess, showError: vi.fn() }), useOptionalToast: () => null }));
     const { useStudentNotes } = await import('@features/notes/hooks/useStudentNotes.js');
     const { result } = renderHook(() => useStudentNotes({ session: 'morning', phone: '+254712345678', enabled: true }));
 

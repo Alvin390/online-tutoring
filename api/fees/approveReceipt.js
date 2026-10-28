@@ -4,6 +4,7 @@ import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { postEntry } from '../_lib/ledger.js';
 import { shouldAutoUnblock } from '../_lib/feeState.js';
 import { notFound } from '../_lib/errors.js';
+import { approvalFields, receiptIdFor } from '../_lib/receiptApproval.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 
 /**
@@ -53,7 +54,7 @@ export default createHandler({
     const data = snap.data();
     // A stable ID for this specific receipt, so the ledger entry can point back
     // at exactly the text the teacher approved.
-    const receiptId = `receipt_${phone}_${data.receiptSubmittedAt?.toMillis?.() ?? Date.now()}`;
+    const receiptId = receiptIdFor(phone, data);
 
     let posted = null;
     if (amount) {
@@ -79,16 +80,8 @@ export default createHandler({
     const balanceAfter = posted ? posted.balance : (data.feeBalance ?? 0);
     const clearBlock = !posted || shouldAutoUnblock(balanceAfter);
 
-    await studentRef.set(
-      {
-        receiptMessage: data.pendingReceipt || data.receiptMessage,
-        pendingReceipt: null,
-        receiptStatus: 'approved',
-        receiptApprovedAt: FieldValue.serverTimestamp(),
-        ...(clearBlock ? { blocked: false, blockReason: '', blockedAt: null } : {}),
-      },
-      { merge: true }
-    );
+    // The same fields as a bulk approval (api/_lib/receiptApproval.js).
+    await studentRef.set(approvalFields(data, { clearBlock, approvedAt: FieldValue.serverTimestamp() }), { merge: true });
 
     log.info('Receipt approved', {
       session,

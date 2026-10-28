@@ -1,7 +1,12 @@
-import { useState, useRef, useLayoutEffect } from 'react';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { m, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import StudentRow from './StudentRow';
+import TablePager from './TablePager';
+import BlockForm from './block/BlockForm';
+import { useBlockWhen } from '../bulk/useBlockWhen';
+import { formatWhen } from '../bulk/scheduleTime';
+import { useOptionalToast } from '@/context/ToastContext';
+import { PAGE_SIZE, readStoredPage, writeStoredPage } from '../search/pageStorage';
 import Modal from '@components/ui/Modal';
 import { SkeletonTable } from '@components/ui/Skeleton';
 import { postLedgerEntry } from '@services/api/fees';
@@ -12,11 +17,22 @@ import { TIER_RANK } from '@shared/constants/tiers';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
 
-const VIRTUALIZE_ABOVE = 50;
-const OVERSCAN = 8;
-// Measured in Chromium: 91 px on desktop, ~141 px on a phone. Each row is
-// measured once rendered; the estimate only sizes rows not yet seen.
-const ROW_ESTIMATE_PX = 90;
+// 003Fixes / 03: loaded on the first tick, prefetched when the browser is idle
+// or the pointer reaches the table. Once loaded it is rendered directly, not
+// through lazy(): a lazy component suspends on its first render, and React
+// holds a revealed Suspense boundary back ~300 ms (measured in Chromium).
+let LoadedSelectionBar = null;
+const loadSelectionBar = () => import('./SelectionBar').then((mod) => {
+  LoadedSelectionBar = mod.default;
+  return mod;
+});
+const LazySelectionBar = lazy(loadSelectionBar);
+const NO_SELECTION = { key: undefined, keys: new Set(), all: false, anchor: null };
+
+function SelectionBarSlot(props) {
+  const Bar = LoadedSelectionBar ?? LazySelectionBar;
+  return <Bar {...props} />;
+}
 
 export default function StudentTable({
   session,
@@ -41,6 +57,20 @@ export default function StudentTable({
   sessionNames = null,
   sessionDocs = null,
   showSessions = false,
+  // 003Fixes / 02: what the rows are a page OF (session, search, filters,
+  // sort). A new key starts again at page 1; the same key restores the page.
+  pageKey = null,
+  // 003Fixes / 03: which bulk action the selection bar offers (the panel
+  // decides from the status filter), and what runs it (phase 05 onwards).
+  bulkAction = 'block',
+  onBulkAction = null,
+  bulkBusy = false,
+  // 003Fixes / 05: a dialog the panel has open (bulk modal, Recent actions).
+  // The bar hides meanwhile: portalled to <body> on phones, it would sit
+  // above a dialog rendered inside the dashboard's transformed containers.
+  suspendBar = false,
+  // 003Fixes / 08: take one student out of their scheduled block (row tag).
+  onCancelSchedule = null,
 }) {
   // The session a row belongs to, and a key unique across sessions (one phone
   // can be registered in two). Outside the all-sessions view these are simply
@@ -72,39 +102,118 @@ export default function StudentTable({
   // 'other' is the free-text block that existed before.
   const [blockKind, setBlockKind] = useState(defaultBlockKind);
 
-  // Row virtualisation — Phase 13 / 08 B2. Above VIRTUALIZE_ABOVE rows only
-  // the rows near the viewport are in the DOM (plus OVERSCAN either side);
-  // spacer rows keep the scrollbar honest and the table a real <table>. Below
-  // it the plain table renders: for a small class virtualisation costs more
-  // than it saves. The table scrolls with the page, hence the WINDOW variant.
-  const tbodyRef = useRef(null);
-  const [scrollMargin, setScrollMargin] = useState(0);
-  const virtual = students.length > VIRTUALIZE_ABOVE;
-  // Where the table starts on the page. Content above it (stats, links, the
-  // calendar) loads late and changes height, so this is re-measured whenever
-  // the page resizes — a stale offset renders the wrong rows for the scroll.
-  useLayoutEffect(() => {
-    if (!virtual || !tbodyRef.current) return undefined;
-    const measure = () => {
-      if (!tbodyRef.current) return;
-      const top = Math.round(tbodyRef.current.getBoundingClientRect().top + window.scrollY);
-      setScrollMargin((prev) => (prev === top ? prev : top));
-    };
-    measure();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(document.body);
-    return () => observer.disconnect();
-  }, [virtual]);
-  const virtualizer = useWindowVirtualizer({
-    count: virtual ? students.length : 0,
-    estimateSize: () => ROW_ESTIMATE_PX,
-    overscan: OVERSCAN,
-    scrollMargin,
-    getItemKey: (i) => rowKey(students[i]) ?? i,
-  });
+  /**
+   * Pages of PAGE_SIZE rows — 003Fixes / 02, replacing the Phase 13 / 08 row
+   * virtualiser. The rows are already in memory (the dashboard's listeners),
+   * so a page change is a slice: no request, and only this table re-renders.
+   *
+   * The page is kept against `pageKey`; a different key reads as page 1
+   * without an effect, so there is never a frame showing the old page. Live
+   * data that shrinks the list pulls the page back to the new last page;
+   * growth leaves the teacher where they are.
+   */
+  const tableRef = useRef(null);
+  const [pageState, setPageState] = useState(() => readStoredPage(pageKey));
+  const [paged, setPaged] = useState(false);
+  const pageCount = Math.max(1, Math.ceil(students.length / PAGE_SIZE));
+  const page = Math.min(pageState.key === pageKey ? pageState.page : 0, pageCount - 1);
+  const start = page * PAGE_SIZE;
+  const pageRows = useMemo(() => students.slice(start, start + PAGE_SIZE), [students, start]);
+
+  useEffect(() => {
+    writeStoredPage(pageKey, page);
+  }, [pageKey, page]);
+
+  const goToPage = useCallback((next) => {
+    setPageState({ key: pageKey, page: next });
+    // Rows animate in once, on arrival; paging should feel instant.
+    setPaged(true);
+    // Keep the teacher where they are, unless the table's top has scrolled
+    // out of view above — then bring it back, under the sticky header.
+    requestAnimationFrame(() => {
+      const el = tableRef.current;
+      if (!el) return;
+      const header = document.querySelector('.dashboard-header')?.offsetHeight ?? 0;
+      const top = el.getBoundingClientRect().top;
+      if (top < header) window.scrollTo({ top: window.scrollY + top - header - 8 });
+    });
+  }, [pageKey]);
+  /**
+   * Selection — 003Fixes / 03. Kept against `pageKey` like the page, so any
+   * change to the search, a filter, the sort or the scope clears it (a bulk
+   * action must never reach rows the teacher can no longer see); kept across
+   * page changes. `all` means "every student matching the filters" without
+   * building a set of them. Live data: a selected student who leaves the list
+   * simply stops counting.
+   */
+  const [selection, setSelection] = useState(NO_SELECTION);
+  const sel = useMemo(
+    () => (selection.key === pageKey ? selection : { ...NO_SELECTION, key: pageKey }),
+    [selection, pageKey]
+  );
+  const selectedRows = useMemo(
+    () => (sel.all ? students : sel.keys.size ? students.filter((s) => sel.keys.has(rowKey(s))) : []),
+    [sel, students]
+  );
+  const pageKeys = useMemo(() => pageRows.map(rowKey), [pageRows]);
+  const onPageSelected = sel.all ? pageKeys.length : pageKeys.filter((k) => sel.keys.has(k)).length;
+  const pageAllSelected = pageKeys.length > 0 && onPageSelected === pageKeys.length;
+  const listRef = useRef(students);
+  listRef.current = students;
+
+  /** The selection as an explicit set ("all matching" expanded). */
+  const explicitKeys = (current) => (current.all ? new Set(listRef.current.map(rowKey)) : new Set(current.keys));
+
+  // One stable callback for every row, so ticking re-renders only that row.
+  const toggleRow = useCallback((key, index, shift) => {
+    setSelection((prev) => {
+      const current = prev.key === pageKey ? prev : { ...NO_SELECTION, key: pageKey };
+      const keys = explicitKeys(current);
+      const on = !keys.has(key);
+      if (shift && current.anchor != null && current.anchor !== index) {
+        const [from, to] = current.anchor < index ? [current.anchor, index] : [index, current.anchor];
+        for (const s of listRef.current.slice(from, to + 1)) {
+          if (on) keys.add(rowKey(s));
+          else keys.delete(rowKey(s));
+        }
+      } else if (on) keys.add(key);
+      else keys.delete(key);
+      return { key: pageKey, keys, all: false, anchor: index };
+    });
+  }, [pageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const togglePage = () => {
+    const keys = explicitKeys(sel);
+    if (pageAllSelected) pageKeys.forEach((k) => keys.delete(k));
+    else pageKeys.forEach((k) => keys.add(k));
+    setSelection({ key: pageKey, keys, all: false, anchor: null });
+  };
+  const selectAllMatching = () => setSelection({ key: pageKey, keys: new Set(), all: true, anchor: null });
+  const clearSelection = useCallback(() => setSelection(NO_SELECTION), []);
+  const prefetchBar = useCallback(() => { loadSelectionBar().catch(() => {}); }, []);
+
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 1500));
+    const cancel = window.cancelIdleCallback ?? clearTimeout;
+    const handle = idle(() => { loadSelectionBar().catch(() => {}); });
+    return () => cancel(handle);
+  }, []);
+
+  const headerBoxRef = useRef(null);
+  useEffect(() => {
+    if (headerBoxRef.current) headerBoxRef.current.indeterminate = onPageSelected > 0 && !pageAllSelected;
+  }, [onPageSelected, pageAllSelected]);
+
   const [blockAmount, setBlockAmount] = useState('');
   const [blockError, setBlockError] = useState(null);
+  const toast = useOptionalToast();
+  const blockSchedule = (selectedStudent && sessionDocs?.[rowSession(selectedStudent)]?.schedule) ?? sessionDoc?.schedule ?? null;
+  const timing = useBlockWhen(blockSchedule);
+  const [showWhenProblem, setShowWhenProblem] = useState(false);
+  const cancelScheduleFor = useCallback(
+    (student) => onCancelSchedule?.(student?.__session ?? session, student),
+    [onCancelSchedule, session]
+  );
 
   // Phase 14: the subjects offered by the class being edited.
   const editDoc = (selectedStudent && sessionDocs?.[rowSession(selectedStudent)]) ?? sessionDoc;
@@ -133,6 +242,8 @@ export default function StudentTable({
     setBlockKind(defaultBlockKind);
     setBlockAmount('');
     setBlockError(null);
+    timing.reset();
+    setShowWhenProblem(false);
     setShowBlockModal(true);
   };
 
@@ -182,6 +293,37 @@ export default function StudentTable({
     if (!selectedStudent) return;
 
     setBlockError(null);
+
+    // 003Fixes / 08: a scheduled block is recorded on the server now and
+    // applied at that minute (the fee is charged then, not now).
+    if (timing.scheduled) {
+      if (timing.problem) { setShowWhenProblem(true); return; }
+      const isFees = blockKind === 'fees' && feesUsable;
+      const amount = Number(blockAmount);
+      if (isFees && (!Number.isInteger(amount) || amount < 1)) {
+        setBlockError('Enter the amount owed, in whole shillings.');
+        return;
+      }
+      setBlocking(true);
+      try {
+        const { runSchedule } = await import('@services/api/students');
+        await runSchedule({
+          items: [{ session: rowSession(selectedStudent), phone: selectedStudent.id }],
+          atMs: timing.atMs,
+          kind: isFees ? 'fees' : 'other',
+          amount: isFees ? amount : undefined,
+          reason: isFees ? undefined : blockReason.trim(),
+        });
+        toast?.showSuccess(`${selectedStudent.studentName} will be blocked from ${formatWhen(timing.atMs)}.`, 'Scheduled');
+        setShowBlockModal(false);
+        setSelectedStudent(null);
+      } catch (error) {
+        setBlockError(error?.message ?? 'Could not schedule that. Nothing was changed.');
+      } finally {
+        setBlocking(false);
+      }
+      return;
+    }
 
     if (blockKind === 'fees' && feesUsable) {
       const amount = Number(blockAmount);
@@ -261,11 +403,60 @@ export default function StudentTable({
 
   return (
     <>
-      <div className="table-responsive">
+      {selectedRows.length > 0 && !suspendBar && !showDeleteModal && !showEditModal && !showBlockModal && (
+        <Suspense fallback={null}>
+          <SelectionBarSlot
+            count={selectedRows.length}
+            action={bulkAction}
+            onAction={onBulkAction ? () => onBulkAction(bulkAction, selectedRows, clearSelection) : null}
+            onClear={clearSelection}
+            busy={bulkBusy}
+          />
+        </Suspense>
+      )}
+
+      {pageAllSelected && students.length > pageRows.length && (
+        <div className="select-all-matching small" data-testid="select-all-matching">
+          {sel.all ? (
+            <>
+              All {students.length} selected.{' '}
+              <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={clearSelection}>
+                Clear selection
+              </button>
+            </>
+          ) : (
+            <>
+              All {pageRows.length} on this page are selected.{' '}
+              <button type="button" className="btn btn-link btn-sm p-0 align-baseline fw-semibold" onClick={selectAllMatching}>
+                Select all {students.length} students matching your filters
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Fetch the selection bar's chunk the moment the teacher reaches for
+          the table, if the idle prefetch has not already (first tick ≈ 0 ms). */}
+      <div className="table-responsive" ref={tableRef} onPointerEnter={prefetchBar} onFocus={prefetchBar}>
         <table className="table table-hover align-middle mb-0">
           <thead className="table-dark">
             <tr>
-              <th style={{ width: '40px' }}>#</th>
+              <th className="select-col-head" style={{ width: '120px' }}>
+                {/* A visible "Select" label (owner request), so the teacher can
+                    see what the column of boxes is for. */}
+                <label className="select-head mb-0" title="Tick students to block, unblock, schedule or approve them together">
+                  <input
+                    ref={headerBoxRef}
+                    type="checkbox"
+                    className="form-check-input row-select m-0"
+                    aria-label="Select all students on this page"
+                    checked={pageAllSelected}
+                    onChange={togglePage}
+                  />
+                  <span className="select-head-text">Select</span>
+                </label>
+                <span className="select-head-num">#</span>
+              </th>
               <th>Student Name</th>
               <th>Parent Phone</th>
               <th>Class</th>
@@ -275,69 +466,51 @@ export default function StudentTable({
               <th style={{ width: '100px' }}>Action</th>
             </tr>
           </thead>
-          <tbody ref={tbodyRef}>
-            {virtual ? (() => {
-              const items = virtualizer.getVirtualItems();
-              const top = items.length ? items[0].start - scrollMargin : 0;
-              const bottom = items.length ? virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin) : 0;
-              return (
-                <>
-                  {top > 0 && <tr aria-hidden="true" style={{ height: top }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
-                  {items.map((item) => {
-                    const student = students[item.index];
-                    return (
-                      <StudentRow
-                        key={rowKey(student)}
-                        student={student}
-                        index={item.index}
-                        session={rowSession(student)}
-                        sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
-                        animated={false}
-                        measureRef={virtualizer.measureElement}
-                        dataIndex={item.index}
-                        onDelete={() => handleDeleteClick(student)}
-                        onEdit={() => handleEditClick(student)}
-                        onView={onView ? () => onView(student) : undefined}
-                        onBlock={() => handleBlockClick(student)}
-                        onUnblock={onUnblock}
-                        onApprove={onApprove}
-                        onDecline={onDecline}
-                        terms={terms}
-                      />
-                    );
-                  })}
-                  {bottom > 0 && <tr aria-hidden="true" style={{ height: bottom }}><td colSpan={8} style={{ padding: 0, border: 0 }} /></tr>}
-                </>
-              );
-            })() : (
-              <AnimatePresence>
-                {students.map((student, index) => (
-                  <StudentRow
-                    key={rowKey(student)}
-                    student={student}
-                    index={index}
-                    session={rowSession(student)}
-                    sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
-                    onDelete={() => handleDeleteClick(student)}
-                    onEdit={() => handleEditClick(student)}
-                    onView={onView ? () => onView(student) : undefined}
-                    onBlock={() => handleBlockClick(student)}
-                    onUnblock={onUnblock}
-                    onApprove={onApprove}
-                    onDecline={onDecline}
-                    terms={terms}
-                  />
-                ))}
-              </AnimatePresence>
-            )}
+          <tbody>
+            {/* Keyed by search and page: a page change or a new search/filter
+                remounts the group, so rows that no longer belong leave at once
+                instead of playing their exit animation beside the new ones
+                (seen in Chromium, 003Fixes/02 and /08). Within the same view,
+                a row removed live still animates out. */}
+            <AnimatePresence key={`${pageKey ?? ''}#${page}`} initial={!paged}>
+              {pageRows.map((student, i) => (
+                <StudentRow
+                  key={rowKey(student)}
+                  student={student}
+                  index={start + i}
+                  selectKey={rowKey(student)}
+                  selected={sel.all || sel.keys.has(rowKey(student))}
+                  onSelect={toggleRow}
+                  onCancelSchedule={onCancelSchedule ? cancelScheduleFor : undefined}
+                  session={rowSession(student)}
+                  sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
+                  animated={!paged}
+                  onDelete={() => handleDeleteClick(student)}
+                  onEdit={() => handleEditClick(student)}
+                  onView={onView ? () => onView(student) : undefined}
+                  onBlock={() => handleBlockClick(student)}
+                  onUnblock={onUnblock}
+                  onApprove={onApprove}
+                  onDecline={onDecline}
+                  terms={terms}
+                />
+              ))}
+            </AnimatePresence>
           </tbody>
         </table>
       </div>
 
+      {pageCount > 1 && <TablePager page={page} pageCount={pageCount} onPage={goToPage} />}
+
       <div className="d-flex justify-content-between align-items-center mt-3 p-3 bg-light rounded">
         <span className="text-muted" data-testid="table-total">
           <i className="bi bi-people me-1" />
-          {totalCount != null && totalCount !== students.length ? (
+          {pageCount > 1 ? (
+            <>
+              Showing <strong>{start + 1}–{start + pageRows.length}</strong> of {students.length}
+              {totalCount != null && totalCount !== students.length ? ` (${totalCount} in total)` : ''} students
+            </>
+          ) : totalCount != null && totalCount !== students.length ? (
             <>Showing <strong>{students.length}</strong> of {totalCount} students</>
           ) : (
             <>Total: <strong>{students.length}</strong> student{students.length !== 1 ? 's' : ''}</>
@@ -492,6 +665,7 @@ export default function StudentTable({
           onConfirm={handleBlockConfirm}
           loading={blocking}
           type="danger"
+          confirmLabel={timing.scheduled ? 'Schedule block' : 'Confirm'}
         >
           <div className="text-center">
             <div className="modal-icon danger mb-3">
@@ -505,93 +679,18 @@ export default function StudentTable({
               <small>Parent Phone: {selectedStudent.id}</small>
             </p>
 
-            <div className="mb-3 text-start">
-              <span className="form-label fw-bold d-block" id="block-kind-label">
-                <i className="bi bi-chat-left-text me-2" />
-                Why?
-              </span>
-              <div className="btn-group w-100 mb-3" role="radiogroup" aria-labelledby="block-kind-label">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={blockKind === 'fees'}
-                  aria-describedby={feesUsable ? undefined : 'block-fees-unavailable'}
-                  className={`btn ${blockKind === 'fees' ? 'btn-primary' : 'btn-outline-primary'}`}
-                  onClick={() => setBlockKind('fees')}
-                  disabled={!feesUsable}
-                >
-                  <i className="bi bi-cash-coin me-1" aria-hidden="true" />
-                  Unpaid fees
-                  {!feesUsable && <i className="bi bi-lock-fill ms-1" aria-hidden="true" />}
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={blockKind === 'other'}
-                  className={`btn ${blockKind === 'other' ? 'btn-primary' : 'btn-outline-primary'}`}
-                  onClick={() => setBlockKind('other')}
-                >
-                  <i className="bi bi-pencil me-1" aria-hidden="true" />
-                  Another reason
-                </button>
-              </div>
-
-              {!feesUsable && (
-                <div id="block-fees-unavailable" className="form-text mb-2">
-                  {feesFlag
-                    ? 'Blocking for unpaid fees records the amount owed, which needs the Silver plan.'
-                    : 'Turn on fee tracking to block for unpaid fees and let students pay by M-Pesa.'}
-                </div>
-              )}
-
-              {blockKind === 'fees' && feesUsable ? (
-                <>
-                  <label className="form-label small fw-semibold" htmlFor="block-amount">
-                    Amount owed (KES)
-                  </label>
-                  <input
-                    id="block-amount"
-                    type="text"
-                    inputMode="numeric"
-                    className={`form-control ${blockError ? 'is-invalid' : ''}`}
-                    value={blockAmount}
-                    onChange={(e) => setBlockAmount(e.target.value.replace(/[^\d]/g, ''))}
-                    placeholder="e.g. 1500"
-                    autoFocus
-                  />
-                  {blockError && <div className="invalid-feedback d-block">{blockError}</div>}
-                  <div className="form-text">
-                    Charged to their fee account. They can pay it by M-Pesa from their own
-                    screen — paying in full unblocks them automatically, and a part payment
-                    lowers the balance but leaves the block for you to lift.
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label className="form-label small fw-semibold" htmlFor="block-reason">
-                    Reason <span className="text-muted fw-normal">(optional)</span>
-                  </label>
-                  <textarea
-                    id="block-reason"
-                    className="form-control"
-                    rows="3"
-                    value={blockReason}
-                    onChange={(e) => setBlockReason(e.target.value)}
-                    placeholder="e.g., Repeated disruption in class"
-                  />
-                  {blockError && <div className="text-danger small mt-1">{blockError}</div>}
-                </>
-              )}
-            </div>
-
-            <div className="alert alert-warning text-start">
-              <i className="bi bi-exclamation-triangle me-2" />
-              <small>
-                {blockKind === 'fees' && feesUsable
-                  ? 'The student sees the balance owed and can clear it by M-Pesa to regain access.'
-                  : 'The student will be blocked until you unblock them from this dashboard.'}
-              </small>
-            </div>
+            <BlockForm
+              kind={blockKind}
+              onKind={setBlockKind}
+              amount={blockAmount}
+              onAmount={setBlockAmount}
+              reason={blockReason}
+              onReason={setBlockReason}
+              error={blockError}
+              feesUsable={feesUsable}
+              feesFlag={feesFlag}
+              timing={{ ...timing, showProblem: showWhenProblem }}
+            />
           </div>
         </Modal>
       )}

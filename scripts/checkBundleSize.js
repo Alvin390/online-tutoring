@@ -67,7 +67,9 @@ const ROUTES = [
   { route: '/', chunks: ['LandingPage'], budget: 120, publicRoute: true },
   { route: '/:slug', chunks: ['SessionRoutePage'], budget: 120, publicRoute: true },
   { route: '/login', chunks: ['StaffShell', 'LoginPage'], budget: 260 },
-  { route: '/dashboard', chunks: ['StaffShell', 'staffDashboard'], budget: 260 },
+  // 003Fixes: raised 260 → 280 by the owner (2026-10-28) for the bulk-action,
+  // scheduling and duplicate work; new UI still loads lazily where it can.
+  { route: '/dashboard', chunks: ['StaffShell', 'staffDashboard'], budget: 280 },
   // Its own chunk since 001Fixes / 04 (it used to ride in the dashboard's).
   { route: '/billing', chunks: ['StaffShell', 'staffBilling'], budget: 260 },
 ];

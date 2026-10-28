@@ -6,7 +6,7 @@ import { authenticate } from '../_lib/auth.js';
 import { forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { clientIp } from '../_lib/rateLimit.js';
-import { effectiveApprovalStatus } from '../_lib/studentState.js';
+import { effectiveApprovalStatus, isBlockedNow } from '../_lib/studentState.js';
 import { issuePass, passBypass } from '../_lib/checkinPass.js';
 
 /**
@@ -122,7 +122,7 @@ export default createHandler({
     // student, judged from the marker read above. In waitUntil, so it never
     // delays the response; skipped while blocked, as before.
     const lastMs = activity.exists ? activity.data().lastAccessed?.toMillis?.() ?? 0 : 0;
-    if (data.blocked !== true && Date.now() - lastMs >= HEARTBEAT_INTERVAL_MS) {
+    if (!isBlockedNow(data) && Date.now() - lastMs >= HEARTBEAT_INTERVAL_MS) {
       waitUntil(
         activityRef.set({ lastAccessed: FieldValue.serverTimestamp() }, { merge: true }).catch((err) => {
           log.warn('lastAccessed update failed', { code: err?.code });
@@ -132,7 +132,7 @@ export default createHandler({
 
     log.info('Student check-in', {
       session,
-      blocked: data.blocked === true,
+      blocked: isBlockedNow(data),
       approvalStatus: effectiveApprovalStatus(data),
       ip: clientIp(req),
     });

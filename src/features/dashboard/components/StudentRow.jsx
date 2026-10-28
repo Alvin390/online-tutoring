@@ -2,6 +2,13 @@ import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { highlightMatches } from '@features/dashboard/search/highlightMatches';
+import { nairobiParts, WEEKDAY_LABELS } from '@utils/dates';
+
+/** "Sun 18:00" (Nairobi) for the scheduled-block tag — 003Fixes / 08. */
+const shortWhen = (ms) => {
+  const p = nairobiParts(new Date(ms));
+  return `${WEEKDAY_LABELS[p.weekday]} ${String(p.hours).padStart(2, '0')}:${String(p.minutes).padStart(2, '0')}`;
+};
 
 // No escapeHtml (removed in Phase 13 / 03 D6). React escapes every text node
 // already; escaping again here displayed "O'Brien" as "O&#039;Brien" and
@@ -10,14 +17,18 @@ import { highlightMatches } from '@features/dashboard/search/highlightMatches';
 /**
  * Entrance stagger cap — Phase 13 / 08 B2. Each row waited `index * 0.05 s`,
  * so on a 500-student class the last row appeared 25 seconds after mount.
- * Only the first rows are staggered now; virtualised rows (above 50) do not
- * animate at all, since they mount and unmount as the teacher scrolls.
+ * Only the first rows are staggered now. Since 003Fixes / 02 the table
+ * shows 20 rows a page, and rows do not animate at all after a page change.
  */
 const STAGGER_ROWS = 10;
 
 function StudentRow({
   student, index, session, onDelete, onEdit, onView, onBlock, onUnblock, onApprove, onDecline,
-  animated = true, measureRef, dataIndex,
+  animated = true,
+  // 003Fixes / 03: the row's checkbox. onSelect is one stable callback for the
+  // whole table, so ticking re-renders only the ticked row.
+  selectKey, selected = false, onSelect,
+  onCancelSchedule,
   // 001Fixes / 04: search terms to mark in the name, phone, class and subjects.
   terms,
   // 001Fixes / 06: shown as a badge in the all-sessions view.
@@ -53,7 +64,10 @@ function StudentRow({
     setIsTouchDevice(checkTouchDevice());
   }, []);
 
-  const handleMouseEnter = () => {
+  const handleMouseEnter = (e) => {
+    // 003Fixes / 03: arriving over the checkbox is ticking, not browsing —
+    // no 1.5 s preview popping up while the teacher ticks down the list.
+    if (e?.target?.closest?.('.row-select-cell')) return;
     // Only use hover on desktop
     if (!isTouchDevice) {
       const timeout = setTimeout(() => {
@@ -104,11 +118,7 @@ function StudentRow({
   return (
     <>
       <m.tr
-        ref={(el) => {
-          rowRef.current = el;
-          measureRef?.(el);
-        }}
-        data-index={dataIndex}
+        ref={rowRef}
         tabIndex={-1}
         initial={animated ? { opacity: 0, x: -20 } : false}
         animate={{ opacity: 1, x: 0 }}
@@ -120,7 +130,26 @@ function StudentRow({
         onClick={handleClick}
         style={{ cursor: 'pointer' }}
       >
-      <td><strong>{index + 1}</strong></td>
+      <td className="row-select-cell">
+        {onSelect && (
+          <input
+            type="checkbox"
+            className="form-check-input me-2 row-select"
+            aria-label={`Select ${student.studentName ?? 'student'}`}
+            title="Select this student"
+            checked={selected}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (hoverTimeout) {
+                clearTimeout(hoverTimeout);
+                setHoverTimeout(null);
+              }
+            }}
+            onChange={(e) => onSelect(selectKey, index, e.nativeEvent?.shiftKey === true)}
+          />
+        )}
+        <strong>{index + 1}</strong>
+      </td>
       <td>
         <div className="d-flex align-items-center gap-2">
           <div
@@ -141,6 +170,20 @@ function StudentRow({
               )}
               {isBlocked && <span className="badge bg-danger">Blocked</span>}
               {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
+              {student.scheduledBlock?.atMs && (
+                <span className="badge rounded-pill text-bg-warning schedule-tag" data-testid="schedule-tag">
+                  <i className="bi bi-clock me-1" aria-hidden="true" />
+                  Block scheduled · {shortWhen(student.scheduledBlock.atMs)}
+                  {onCancelSchedule && (
+                    <button
+                      type="button"
+                      className="btn-close btn-close-sm ms-1 schedule-tag-cancel"
+                      aria-label={`Cancel the scheduled block for ${student.studentName ?? 'this student'}`}
+                      onClick={(e) => { e.stopPropagation(); onCancelSchedule(student); }}
+                    />
+                  )}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -455,6 +498,9 @@ function areEqual(prev, next) {
   // Search terms are memoised per query by the panel, so identity is enough.
   if (prev.terms !== next.terms) return false;
   if (prev.sessionName !== next.sessionName) return false;
+  if (prev.selected !== next.selected || prev.onSelect !== next.onSelect) return false;
+  if ((prev.student?.scheduledBlock?.atMs ?? null) !== (next.student?.scheduledBlock?.atMs ?? null)) return false;
+  if (prev.onCancelSchedule !== next.onCancelSchedule) return false;
 
   // Callback identity: the parent passes inline arrows for onDelete/onEdit/
   // onView, so these change every render and are deliberately NOT compared —

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
+import { useWhatsappPreset } from '@features/whatsapp/whatsappPreset';
 import { useNavigate } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
@@ -60,6 +61,7 @@ export default function DashboardLayout() {
   const feesEnabled = useFlag('fees.enabled');
   const calendarEnabled = useFlag('calendar.enabled');
   const whatsappEnabled = useFlag('whatsapp.broadcast');
+  const whatsappPreset = useWhatsappPreset();
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
@@ -243,7 +245,8 @@ export default function DashboardLayout() {
                 </div>
               }
             >
-              <WhatsAppPanel />
+              {/* 003Fixes / 09: remounted with a prepared message from Recent actions. */}
+              <WhatsAppPanel key={whatsappPreset.version} preset={whatsappPreset.preset} />
             </Suspense>
           </TierGate>
         )}

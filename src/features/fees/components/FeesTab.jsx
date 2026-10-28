@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStudentFees } from '../hooks/useStudentFees';
 import { formatKes } from '@utils/blockReason';
+import { SkeletonLine, SkeletonStyles } from '@components/ui/Skeleton';
 
 /**
  * A student's fee statement and payment entry — Phase 06 D3.
@@ -108,8 +109,8 @@ function AddReceipt({ entryId, onAdd, saving }) {
 
 export default function FeesTab({ session, phone, active }) {
   const {
-    summary, entries, hasMore, loadOlder, feesEnabled, loading, saving, announcement,
-    pay, reverse, addReference,
+    summary, entries, hasMore, loadOlder, feesEnabled, summaryFailed, loading, saving, announcement,
+    pay, reverse, addReference, reload,
   } = useStudentFees({
     session,
     phone,
@@ -122,7 +123,32 @@ export default function FeesTab({ session, phone, active }) {
   const [reverseNote, setReverseNote] = useState('');
   const [error, setError] = useState('');
 
-  if (!feesEnabled && !loading) {
+  // 003Fixes / 01: until the summary answers we do not know whether fees are
+  // on, so hold the tab's place rather than guess (it used to guess "off").
+  if (feesEnabled === null) {
+    if (summaryFailed) {
+      return (
+        <div className="text-center py-4">
+          <p className="text-muted small mb-2">Could not load this student&apos;s fees.</p>
+          <button type="button" className="btn btn-outline-primary btn-sm" onClick={reload}>
+            <i className="bi bi-arrow-clockwise me-1" aria-hidden="true" />
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="py-4 d-flex flex-column gap-2" data-testid="fees-loading" role="status" aria-busy="true">
+        <SkeletonStyles />
+        <SkeletonLine width="40%" height={18} />
+        <SkeletonLine width="70%" />
+        <SkeletonLine width="55%" />
+        <span className="visually-hidden">Loading fees…</span>
+      </div>
+    );
+  }
+
+  if (!feesEnabled) {
     return (
       <p className="text-muted small text-center py-4 mb-0">
         Fee tracking is turned off. Enable it in settings to record payments and

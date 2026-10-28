@@ -824,3 +824,127 @@
     min-height: 44px;
   }
 }
+
+/* 003Fixes / 02 — First / Previous / Next / Last under the student table. */
+.table-pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.table-pager-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.table-pager-label {
+  min-width: 7.5rem;
+  text-align: center;
+}
+
+/* 003Fixes / 03 — the selection bar and the "select all matching" line. */
+.selection-bar {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.6rem;
+  background: #fff;
+  border: 1px solid rgba(102, 126, 234, 0.35);
+  box-shadow: 0 6px 18px rgba(31, 41, 55, 0.12);
+}
+.selection-bar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.select-all-matching {
+  margin-bottom: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.4rem;
+  background: rgba(102, 126, 234, 0.08);
+}
+.row-select {
+  cursor: pointer;
+  vertical-align: middle;
+}
+@media (max-width: 767.98px) {
+  .selection-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 1030;
+    margin: 0;
+    border-radius: 0.75rem 0.75rem 0 0;
+    padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  }
+  .selection-bar-actions .btn {
+    min-height: 44px;
+  }
+  body.has-selection-bar {
+    padding-bottom: 5.5rem;
+  }
+  .row-select {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
+
+/* 003Fixes / 05 — the search box with Recent actions beside it. */
+.student-list-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.student-list-tools > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.recent-actions-btn {
+  flex: 0 0 auto;
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+/* 003Fixes / 08 — the scheduled-block tag on a row, and the "When?" choice. */
+.schedule-tag {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+}
+.schedule-tag-cancel {
+  width: 0.6em;
+  height: 0.6em;
+  padding: 0.15em;
+}
+.block-when input[type="date"],
+.block-when input[type="time"] {
+  min-height: 38px;
+}
+
+/* 003Fixes — the "Select" label on the checkbox column (owner request). */
+.select-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.select-head-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.select-head-num {
+  margin-left: 0.75rem;
+}

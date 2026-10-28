@@ -22,6 +22,22 @@
  * @param {{approvalStatus?: string}|null|undefined} data
  * @returns {'approved'|'pending'|'rejected'|string}
  */
+/**
+ * 003Fixes / 07: a student's scheduled block whose time has come, or null.
+ * Check-in and the class link enforce it from that minute; the per-minute
+ * sweep then records the block properly (fee charge, fields, Undo).
+ */
+export function dueScheduledBlock(data, nowMs = Date.now()) {
+  const scheduled = data?.scheduledBlock;
+  const atMs = scheduled?.atMs ?? scheduled?.at?.toMillis?.() ?? null;
+  return atMs != null && atMs <= nowMs ? scheduled : null;
+}
+
+/** Blocked — explicitly, or by a scheduled block that is now due. */
+export function isBlockedNow(data, nowMs = Date.now()) {
+  return data?.blocked === true || dueScheduledBlock(data, nowMs) !== null;
+}
+
 export function effectiveApprovalStatus(data) {
   const status = data?.approvalStatus;
   return typeof status === 'string' && status.length > 0 ? status : 'approved';

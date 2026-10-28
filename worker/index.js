@@ -261,6 +261,9 @@ const CRON_SCHEDULE_TO_SWEEP = {
   // One trigger, two sweeps (money first): stays within the free plan's
   // cron-trigger allowance — Phase 13 / 06.
   '*/10 * * * *': ['mpesaReconcile', 'notificationsSweep'],
+  // 003Fixes / 07: every minute — apply scheduled blocks that are due. One
+  // query when nothing is due. The fourth of the free plan's five triggers.
+  '* * * * *': 'scheduledBlocksSweep',
 };
 
 export { API_SECURITY_HEADERS, CRON_SCHEDULE_TO_SWEEP };

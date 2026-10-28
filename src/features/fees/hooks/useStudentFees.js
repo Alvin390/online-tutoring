@@ -51,7 +51,10 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
   const [firstPage, setFirstPage] = useState([]);
   const [olderPages, setOlderPages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
-  const [feesEnabled, setFeesEnabled] = useState(false);
+  // null until the summary answers (003Fixes / 01): "not known yet" must not
+  // read as "off", or the tab flashes the turned-off notice before the ledger.
+  const [feesEnabled, setFeesEnabled] = useState(null);
+  const [summaryFailed, setSummaryFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [announcement, setAnnouncement] = useState('');
@@ -63,13 +66,21 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
     if (!enabled || !session || !phone) return;
     try {
       const result = await getFeeSummary(session, phone);
-      setFeesEnabled(result.feesEnabled);
+      setFeesEnabled(result.feesEnabled === true);
       setSummary(result.summary);
+      setSummaryFailed(false);
     } catch (error) {
       logger.error('Fee summary load failed', error);
+      setSummaryFailed(true);
       showError(error?.message ?? 'Could not load fees.');
     }
   }, [enabled, session, phone, showError]);
+
+  // Another student: what we knew about the last one no longer applies.
+  useEffect(() => {
+    setFeesEnabled(null);
+    setSummaryFailed(false);
+  }, [session, phone]);
 
   useEffect(() => {
     loadSummary();
@@ -233,6 +244,7 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
     hasMore,
     loadOlder,
     feesEnabled,
+    summaryFailed,
     loading,
     saving,
     announcement,

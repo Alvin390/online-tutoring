@@ -27,7 +27,7 @@ async function renderBilling({ scheduled }) {
     initializeCheckout: vi.fn(), cancelSubscription: vi.fn(), resumeSubscription: vi.fn(),
     scheduleDowngrade: vi.fn(), cancelDowngrade,
   }));
-  vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess, showError: vi.fn() }) }));
+  vi.doMock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess, showError: vi.fn() }), useOptionalToast: () => null }));
   vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: () => false }));
   vi.doMock('@features/auth/context/AuthContext', () => ({ useAuthState: () => ({ tierRank: 3, isSuperadmin: false }) }));
   const { default: BillingPage } = await import('@/pages/BillingPage.jsx');
