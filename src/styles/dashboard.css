@@ -948,3 +948,39 @@
 .select-head-num {
   margin-left: 0.75rem;
 }
+
+/* 003Fixes / 13 — possible duplicates. */
+.pending-duplicate {
+  background: var(--bs-warning-bg-subtle, #fff3cd);
+  border-left: 4px solid var(--bs-warning, #ffc107);
+}
+.duplicate-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.duplicate-side {
+  background: var(--bs-light, #f8f9fa);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  min-width: 0;
+}
+.duplicate-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.5rem;
+  margin-top: 0.5rem;
+}
+.duplicate-facts dt {
+  font-weight: 600;
+  color: var(--bs-secondary-color, #6c757d);
+}
+.duplicate-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+@media (max-width: 575.98px) {
+  .duplicate-sides {
+    grid-template-columns: 1fr;
+  }
+}

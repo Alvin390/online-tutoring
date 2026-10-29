@@ -2,7 +2,7 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { tryWriteAudit } from '../_lib/audit.js';
-import { declineDuplicate, mergeDuplicate, keepBoth, allowNumber } from '../_lib/duplicateActions.js';
+import { declineDuplicate, mergeDuplicate, keepBoth, allowNumber, listRetired } from '../_lib/duplicateActions.js';
 
 /**
  * POST /api/students/duplicates — 003Fixes / 12. Teacher only.
@@ -11,6 +11,7 @@ import { declineDuplicate, mergeDuplicate, keepBoth, allowNumber } from '../_lib
  *   { action: 'merge', session, keep, remove, cursor? } notes and money to `keep`
  *   { action: 'keepBoth', session, a, b }               never flagged again
  *   { action: 'allowNumber', session, phone }           lift a retired number
+ *   { action: 'listRetired', sessions }                 the retired numbers (003Fixes / 13)
  *
  * Audited with counts only; no reply carries a student's name.
  */
@@ -22,6 +23,7 @@ const schema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('merge'), session: sessionSchema, keep: phoneSchema, remove: phoneSchema, cursor: cursor.optional() }).strict(),
   z.object({ action: z.literal('keepBoth'), session: sessionSchema, a: phoneSchema, b: phoneSchema }).strict(),
   z.object({ action: z.literal('allowNumber'), session: sessionSchema, phone: phoneSchema }).strict(),
+  z.object({ action: z.literal('listRetired'), sessions: z.array(sessionSchema).min(1).max(10) }).strict(),
 ]);
 
 export default createHandler({
@@ -54,6 +56,8 @@ export default createHandler({
         }
         return { ok: true, ...result };
       }
+      case 'listRetired':
+        return { retired: await listRetired({ db, sessions: [...new Set(body.sessions)] }) };
       case 'keepBoth': {
         const result = await keepBoth({ db, session, a: body.a, b: body.b });
         await audit('students.duplicate_kept', `${session}/${body.a}`, { kept: 2 });

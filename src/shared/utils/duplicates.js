@@ -16,13 +16,14 @@
 const DIACRITICS = /[̀-ͯ]/g;
 const APOSTROPHES = /['’‘`]/g;
 const NON_ALNUM = /[^a-z0-9]+/g;
+const ASCII = /^[ -~]*$/; // printable ASCII
 const MPESA_CODE = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{10}\b/;
 
 /** Case, accents, apostrophes, punctuation and spacing ignored. */
 export function normaliseName(name) {
-  return String(name ?? '')
-    .normalize('NFD')
-    .replace(DIACRITICS, '')
+  const text = String(name ?? '');
+  // Most names are plain ASCII: skip the (slow) accent folding for those.
+  return (ASCII.test(text) ? text : text.normalize('NFD').replace(DIACRITICS, ''))
     .toLowerCase()
     .replace(APOSTROPHES, '')
     .replace(NON_ALNUM, '');

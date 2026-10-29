@@ -197,3 +197,14 @@ describe('access and cost', () => {
     }
   });
 });
+
+describe('listRetired (003Fixes / 13)', () => {
+  it('lists the retired numbers of the sessions asked for, with the reason and kept suffix only', async () => {
+    await act({ action: 'merge', keep: KEEP, remove: DUP });
+    const res = await call('/api/students/duplicates', { token: teacher, body: { action: 'listRetired', sessions: ['morning'] } });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.retired).toEqual([expect.objectContaining({ session: 'morning', phone: DUP, reason: 'merged', keptSuffix: '678' })]);
+    expect(JSON.stringify(res.body)).not.toMatch(/Amina/);
+    expect((await call('/api/students/duplicates', { token: teacher, body: { action: 'listRetired', sessions: ['nope'] } })).status).toBe(404);
+  });
+});

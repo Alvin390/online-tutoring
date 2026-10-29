@@ -34,6 +34,26 @@ export async function declineDuplicate({ db, session, phone, user }) {
   return { notesRemoved: removed.noteCount, balanceClosed: removed.balanceClosed };
 }
 
+/** Retired numbers in these sessions, newest first (one query each; the teacher's own data). */
+export async function listRetired({ db, sessions }) {
+  const out = [];
+  for (const session of sessions) {
+    // eslint-disable-next-line no-await-in-loop
+    const snap = await db.collection(`sessions/${session}/retiredNumbers`).get();
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      out.push({
+        session,
+        phone: doc.id,
+        reason: data.reason === 'merged' ? 'merged' : 'duplicate',
+        keptSuffix: data.keptSuffix ?? null,
+        atMs: data.at?.toMillis?.() ?? null,
+      });
+    }
+  }
+  return out.sort((x, y) => (y.atMs ?? 0) - (x.atMs ?? 0));
+}
+
 export async function allowNumber({ db, session, phone }) {
   const ref = retiredRef(db, session, phone);
   const snap = await ref.get();
