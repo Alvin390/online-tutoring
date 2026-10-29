@@ -2,9 +2,8 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { notFound } from '../_lib/errors.js';
-import { deleteRecursively } from '../_lib/sessions.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
-import { closeDeletedStudentAccount } from '../_lib/ledger.js';
+import { removeStudentRecord } from '../_lib/studentRemoval.js';
 
 /**
  * Delete a student, and everything beneath them — Phase 05 Part B.
@@ -49,29 +48,11 @@ export default createHandler({
 
     const data = snap.data();
 
-    // Batched since Phase 13 / 03. Counted by collection: the student also
-    // has a meta/activity marker since Phase 13 / 08 B3.
-    const { byCollection } = await deleteRecursively(db, ref);
-    const noteCount = byCollection?.notes ?? 0;
+    // Batched since Phase 13 / 03; the fee record is RETAINED and any balance
+    // closed (Phase 13 / 03 D2). Shared with the duplicate actions (003Fixes / 12).
+    const { noteCount, feeRecordRetained, balanceClosed } = await removeStudentRecord({ db, session, phone, user });
 
-    // The fee record is RETAINED (Phase 13 / 03 D2): the ledger is a financial
-    // record, append-only by design. It is marked so fee views can tell the
-    // student is gone, and any remaining balance is CLOSED with a ledger entry
-    // so the student no longer counts towards "Total outstanding".
-    const account = db.doc(`fees/accounts/items/${phone}`);
-    const accountSnap = await account.get();
-    let balanceClosed = 0;
-    if (accountSnap.exists) {
-      const deletedAt = new Date();
-      await account.set({ studentDeletedAt: deletedAt, studentDeletedBy: user.uid }, { merge: true });
-      ({ closed: balanceClosed } = await closeDeletedStudentAccount({
-        phone,
-        recordedBy: user.uid,
-        closeKey: String(deletedAt.getTime()),
-      }));
-    }
-
-    log.info('Student deleted', { session, notesRemoved: noteCount, feeRecordRetained: accountSnap.exists, balanceClosed });
+    log.info('Student deleted', { session, notesRemoved: noteCount, feeRecordRetained, balanceClosed });
 
     await tryWriteAudit(
       {
@@ -83,7 +64,7 @@ export default createHandler({
           class: data.class ?? null,
           approvalStatus: data.approvalStatus ?? null,
           notesRemoved: noteCount,
-          feeRecordRetained: accountSnap.exists,
+          feeRecordRetained,
           balanceClosed,
         },
         context: { requestId: log.requestId },

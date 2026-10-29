@@ -7,7 +7,7 @@ import { projectStudent } from '../_lib/studentProjection.js';
 import { issuePass } from '../_lib/checkinPass.js';
 import { sessionClasses } from '../_lib/sessions.js';
 import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
-import { isDuplicatePair } from '../_lib/duplicates.js';
+import { isDuplicatePair, retiredMessage } from '../_lib/duplicates.js';
 
 /**
  * Student registration — Phase 13 / 08 A1.
@@ -60,7 +60,15 @@ export default createHandler({
 
     // The class must be one this session offers (the teacher edits the list
     // per session). A session with no document yet offers the defaults.
-    const sessionSnap = await db.doc(`sessions/${session}`).get();
+    // 003Fixes / 12: a number the teacher declined or merged is refused, with
+    // what to do instead — read alongside the session, no extra request.
+    const [sessionSnap, retiredSnap] = await db.getAll(
+      db.doc(`sessions/${session}`), db.doc(`sessions/${session}/retiredNumbers/${phone}`),
+    );
+    if (retiredSnap.exists) {
+      const retired = retiredSnap.data();
+      throw new ApiError(409, 'retired_number', retiredMessage(retired.reason, retired.keptSuffix));
+    }
     const sessionDoc = sessionSnap.exists ? sessionSnap.data() : null;
     const offered = sessionClasses(sessionDoc);
     if (!offered.includes(body.class)) {

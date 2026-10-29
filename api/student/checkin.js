@@ -105,11 +105,24 @@ export default createHandler({
     const db = getDb();
     const ref = db.doc(`sessions/${session}/students/${phone}`);
     const activityRef = db.doc(`sessions/${session}/students/${phone}/meta/activity`);
-    const [[snap, activity]] = await Promise.all([db.getAll(ref, activityRef), phoneLimit]);
+    // 003Fixes / 12: a number the teacher declined or merged, in the same batchGet.
+    const retiredRef = db.doc(`sessions/${session}/retiredNumbers/${phone}`);
+    const [[snap, activity, retiredSnap]] = await Promise.all([db.getAll(ref, activityRef, retiredRef), phoneLimit]);
 
     if (!snap.exists) {
       // Deliberately identical in shape to the found case — no timing or
       // wording difference that would confirm whether a number is registered.
+      // A RETIRED number is told what to do instead (owner decision): only
+      // why, and for a merge the kept number's last 3 digits.
+      const retired = retiredSnap?.exists ? retiredSnap.data() : null;
+      if (retired) {
+        return {
+          exists: false,
+          student: null,
+          retired: retired.reason === 'merged' ? 'merged' : 'duplicate',
+          ...(retired.reason === 'merged' && retired.keptSuffix ? { keptSuffix: retired.keptSuffix } : {}),
+        };
+      }
       return { exists: false, student: null };
     }
 

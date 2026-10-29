@@ -130,7 +130,7 @@ export const useRegistration = (session) => {
     setLoading(true);
     setPhoneNumber(phone);
     try {
-      const { exists, student, pass } = await checkinStudent(session, phone, passFor(phone));
+      const { exists, student, pass, retired, keptSuffix } = await checkinStudent(session, phone, passFor(phone));
       if (flow !== flowRef.current) return STALE;
       keepPass(phone, pass);
 
@@ -142,7 +142,8 @@ export const useRegistration = (session) => {
         setIsReturningStudent(false);
       }
 
-      return { exists, data: student };
+      // 003Fixes / 12: a number the teacher declined or merged.
+      return { exists, data: student, ...(retired ? { retired, keptSuffix } : {}) };
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
       logger.error('Check student failed', error);
@@ -178,7 +179,9 @@ export const useRegistration = (session) => {
       if (flow !== flowRef.current) return STALE;
       logger.error('Registration failed', error);
 
-      if (error.code === 'already_registered' || error.code === 'permission-denied') {
+      if (error.code === 'retired_number') {
+        showError(error.message);
+      } else if (error.code === 'already_registered' || error.code === 'permission-denied') {
         showError('Registration failed. You may already be registered.');
       } else if (error.status === 400) {
         showError(error.message || 'Please check the form and try again.');

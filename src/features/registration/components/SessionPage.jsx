@@ -10,6 +10,7 @@ import SuccessScreen from './SuccessScreen';
 import { useRegistration } from '../hooks/useRegistration';
 import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
+import { retiredMessage } from '@utils/duplicates';
 import { providerLabel } from '@utils/classLink';
 import { formatSchedule, formatTime } from '@utils/formatSchedule';
 import { addFlowBreadcrumb, reportApiFailure } from '@utils/monitoring';
@@ -78,6 +79,18 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   } = useRegistration(session);
 
   /** Single place that maps student state to a screen. */
+  // 003Fixes / 12: why this number can't be used, when the teacher retired it.
+  const [retired, setRetired] = useState(null);
+  /** Not registered: the form — or, for a retired number, what to do instead. */
+  const notRegistered = (result) => {
+    if (result.retired) {
+      setRetired({ reason: result.retired, keptSuffix: result.keptSuffix ?? null });
+      setStep('retired');
+      return;
+    }
+    setStep(GATE.REGISTER);
+  };
+
   const routeTo = useCallback(
     (student) => {
       const { screen } = resolveStudentGate(student, { requireApproval });
@@ -140,7 +153,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     if (!result) return;
 
     if (!result.exists) {
-      setStep(GATE.REGISTER);
+      notRegistered(result);
       return;
     }
 
@@ -194,7 +207,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     const result = settle(await checkStudent(phoneNumber));
     if (!result) return;
     if (!result.exists) {
-      setStep(GATE.REGISTER);
+      notRegistered(result);
       return;
     }
     routeTo(result.data);
@@ -348,6 +361,28 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   onBack={handleBack}
                   loading={loading}
                 />
+              )}
+
+              {step === 'retired' && retired && (
+                <m.div
+                  key="retired"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="glass-card"
+                  data-testid="retired-number"
+                >
+                  <div className="py-4 text-center">
+                    <div className="mb-3" style={{ fontSize: '2.5rem', color: '#d97706' }}>
+                      <i className="bi bi-telephone-x" aria-hidden="true" />
+                    </div>
+                    <h3 className="fw-bold mb-2">Please use your other number</h3>
+                    <p className="text-muted mb-4">{retiredMessage(retired.reason, retired.keptSuffix)}</p>
+                    <button type="button" className="btn btn-primary btn-lg w-100" onClick={handleBack}>
+                      <i className="bi bi-arrow-left me-2" aria-hidden="true" />
+                      Use a different number
+                    </button>
+                  </div>
+                </m.div>
               )}
 
               {step === GATE.REJECTED && (
