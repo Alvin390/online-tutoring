@@ -336,9 +336,10 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                 </Suspense>
               )}
 
-              {step === GATE.PENDING && (
+              {(step === GATE.PENDING || step === GATE.DUPLICATE) && (
                 <PendingApprovalScreen
-                  key="pending"
+                  key={step}
+                  duplicate={step === GATE.DUPLICATE}
                   session={session}
                   studentData={studentData}
                   onRefresh={handled('refresh', handleRefresh)}

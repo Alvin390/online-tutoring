@@ -31,6 +31,8 @@ export function projectStudent(data) {
     receiptStatus: data.receiptStatus ?? 'pending',
     hasPendingReceipt: Boolean(data.pendingReceipt),
     feeBalance: typeof data.feeBalance === 'number' ? data.feeBalance : 0,
+    // 003Fixes / 11: held as a possible duplicate (who it matched stays server-side).
+    duplicateHold: data.duplicateHold === true,
     registeredAt: data.registeredAt?.toDate?.()?.toISOString() ?? null,
   };
 }

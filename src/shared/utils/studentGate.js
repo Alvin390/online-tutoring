@@ -11,6 +11,7 @@ import { effectiveApprovalStatus } from './studentState';
  *
  *   | approvalStatus | blocked | screen   |
  *   |----------------|---------|----------|
+ *   | pending + held | any     | duplicate (003Fixes / 11; flag on or off) |
  *   | pending        | any     | pending  |
  *   | rejected       | any     | rejected |
  *   | approved       | true    | blocked  |
@@ -29,6 +30,7 @@ import { effectiveApprovalStatus } from './studentState';
 
 export const GATE = {
   PENDING: 'pending',
+  DUPLICATE: 'duplicate',
   REJECTED: 'rejected',
   BLOCKED: 'blocked',
   WELCOME: 'welcome',
@@ -55,6 +57,12 @@ export function resolveStudentGate(student, { requireApproval = false } = {}) {
   // explicit 'pending', enforced by firestore.rules.
   // Same rule as the server (Phase 13 / 03 D3): missing means approved.
   const approval = effectiveApprovalStatus(student);
+
+  // 003Fixes / 11: held as a possible duplicate. The class link refuses it
+  // whether or not approval is required, so the screen does too.
+  if (student.duplicateHold === true && approval === 'pending') {
+    return { screen: GATE.DUPLICATE, reason: null };
+  }
 
   if (requireApproval) {
     if (approval === 'pending') {

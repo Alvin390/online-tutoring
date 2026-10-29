@@ -163,13 +163,14 @@ export const useRegistration = (session) => {
       // The response carries the created record (the same projection as
       // check-in), so the caller routes on the real approval state without a
       // second request.
-      const { student, pass } = await registerStudentApi({ session, phone, ...formData });
+      const { student, pass, held } = await registerStudentApi({ session, phone, ...formData });
       // Registered either way; but if the student has left this flow, the
       // screens must not move on its account.
       if (flow !== flowRef.current) return STALE;
       keepPass(phone, pass);
       trackRegistration(session);
-      showSuccess('Registration successful!');
+      // 003Fixes / 11: a registration held as a possible duplicate is received, not done.
+      showSuccess(held ? 'Registration received — your teacher will review it.' : 'Registration successful!');
       setStudentData(student);
 
       return { success: true, student };

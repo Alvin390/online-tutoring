@@ -33,7 +33,7 @@ export const AUTO_CHECK_MAX = 10;
  * /api/class/link server-side; this screen is the explanation, not the control.
  */
 export default function PendingApprovalScreen({
-  session, studentData, onBack, onRefresh, loading, classTime = null, waitSeconds = 0,
+  session, studentData, onBack, onRefresh, loading, classTime = null, waitSeconds = 0, duplicate = false,
 }) {
   // Manual "Check again": a growing rest after each tap.
   const [taps, setTaps] = useState(0);
@@ -79,6 +79,7 @@ export default function PendingApprovalScreen({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="glass-card"
+      data-testid={duplicate ? 'duplicate-hold' : undefined}
     >
       <div className="py-4 text-center">
         <m.div
@@ -100,16 +101,29 @@ export default function PendingApprovalScreen({
               color: '#d97706',
             }}
           >
-            <i className="bi bi-hourglass-split" aria-hidden="true" />
+            <i className={`bi ${duplicate ? 'bi-people' : 'bi-hourglass-split'}`} aria-hidden="true" />
           </div>
         </m.div>
 
-        <h3 className="fw-bold mb-2">You&apos;re registered — just waiting on your teacher</h3>
-        <p className="text-muted mb-2">
-          {studentData?.studentName ? `Thanks, ${studentData.studentName}. ` : ''}
-          Your teacher reviews new students before class.
-          {classTime ? <> Class starts at <strong>{classTime}</strong>.</> : null}
-        </p>
+        {duplicate ? (
+          <>
+            {/* 003Fixes / 11: owner-approved wording; names no one else. */}
+            <h3 className="fw-bold mb-2">Your teacher will review this registration</h3>
+            <p className="text-muted mb-2">
+              It looks like you may already be registered for this class with another number.
+              Your teacher will review this. If you have your original number, check in with it.
+            </p>
+          </>
+        ) : (
+          <>
+            <h3 className="fw-bold mb-2">You&apos;re registered — just waiting on your teacher</h3>
+            <p className="text-muted mb-2">
+              {studentData?.studentName ? `Thanks, ${studentData.studentName}. ` : ''}
+              Your teacher reviews new students before class.
+              {classTime ? <> Class starts at <strong>{classTime}</strong>.</> : null}
+            </p>
+          </>
+        )}
         <p className="text-muted mb-4" data-testid="auto-check-note">
           {autoStopped
             ? 'Automatic checking has stopped — tap Check again to see if you have been approved.'
