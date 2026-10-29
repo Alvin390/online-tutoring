@@ -84,6 +84,9 @@ export default createHandler({
                 // overridden the strikes, and leaving it set would block a
                 // student the teacher just admitted.
                 resubmitBlockedUntil: null,
+                // 003Fixes / 11: the teacher has looked; the pair stays listed
+                // under Possible duplicates through duplicateOf.
+                duplicateHold: FieldValue.delete(),
               },
               { merge: true }
             );
@@ -101,6 +104,7 @@ export default createHandler({
               rejectedAt: FieldValue.serverTimestamp(),
               rejectedBy: user.uid,
               rejectionCount,
+              duplicateHold: FieldValue.delete(),
               // Stops the approval queue being used as a spam target: after
               // three rejections the number cannot resubmit for 24 hours.
               resubmitBlockedUntil: softBlocked

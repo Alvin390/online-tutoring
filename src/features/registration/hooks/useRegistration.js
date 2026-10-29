@@ -130,7 +130,7 @@ export const useRegistration = (session) => {
     setLoading(true);
     setPhoneNumber(phone);
     try {
-      const { exists, student, pass } = await checkinStudent(session, phone, passFor(phone));
+      const { exists, student, pass, retired, keptSuffix } = await checkinStudent(session, phone, passFor(phone));
       if (flow !== flowRef.current) return STALE;
       keepPass(phone, pass);
 
@@ -142,7 +142,8 @@ export const useRegistration = (session) => {
         setIsReturningStudent(false);
       }
 
-      return { exists, data: student };
+      // 003Fixes / 12: a number the teacher declined or merged.
+      return { exists, data: student, ...(retired ? { retired, keptSuffix } : {}) };
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
       logger.error('Check student failed', error);
@@ -163,13 +164,14 @@ export const useRegistration = (session) => {
       // The response carries the created record (the same projection as
       // check-in), so the caller routes on the real approval state without a
       // second request.
-      const { student, pass } = await registerStudentApi({ session, phone, ...formData });
+      const { student, pass, held } = await registerStudentApi({ session, phone, ...formData });
       // Registered either way; but if the student has left this flow, the
       // screens must not move on its account.
       if (flow !== flowRef.current) return STALE;
       keepPass(phone, pass);
       trackRegistration(session);
-      showSuccess('Registration successful!');
+      // 003Fixes / 11: a registration held as a possible duplicate is received, not done.
+      showSuccess(held ? 'Registration received — your teacher will review it.' : 'Registration successful!');
       setStudentData(student);
 
       return { success: true, student };
@@ -177,7 +179,9 @@ export const useRegistration = (session) => {
       if (flow !== flowRef.current) return STALE;
       logger.error('Registration failed', error);
 
-      if (error.code === 'already_registered' || error.code === 'permission-denied') {
+      if (error.code === 'retired_number') {
+        showError(error.message);
+      } else if (error.code === 'already_registered' || error.code === 'permission-denied') {
         showError('Registration failed. You may already be registered.');
       } else if (error.status === 400) {
         showError(error.message || 'Please check the form and try again.');

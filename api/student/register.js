@@ -7,6 +7,7 @@ import { projectStudent } from '../_lib/studentProjection.js';
 import { issuePass } from '../_lib/checkinPass.js';
 import { sessionClasses } from '../_lib/sessions.js';
 import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
+import { isDuplicatePair, retiredMessage } from '../_lib/duplicates.js';
 
 /**
  * Student registration — Phase 13 / 08 A1.
@@ -59,7 +60,15 @@ export default createHandler({
 
     // The class must be one this session offers (the teacher edits the list
     // per session). A session with no document yet offers the defaults.
-    const sessionSnap = await db.doc(`sessions/${session}`).get();
+    // 003Fixes / 12: a number the teacher declined or merged is refused, with
+    // what to do instead — read alongside the session, no extra request.
+    const [sessionSnap, retiredSnap] = await db.getAll(
+      db.doc(`sessions/${session}`), db.doc(`sessions/${session}/retiredNumbers/${phone}`),
+    );
+    if (retiredSnap.exists) {
+      const retired = retiredSnap.data();
+      throw new ApiError(409, 'retired_number', retiredMessage(retired.reason, retired.keptSuffix));
+    }
     const sessionDoc = sessionSnap.exists ? sessionSnap.data() : null;
     const offered = sessionClasses(sessionDoc);
     if (!offered.includes(body.class)) {
@@ -68,6 +77,16 @@ export default createHandler({
     const subjects = checkSubjectChoice(subjectsForClass(sessionDoc, body.class), body.subjects, body.class);
     if (!subjects.ok) throw new ApiError(400, 'invalid_subjects', subjects.message);
     if (subjects.text.length > MAX_SUBJECTS_TEXT) throw new ApiError(400, 'invalid_subjects', 'Too many subjects.');
+
+    // 003Fixes / 11: the same student registering again under another number
+    // (same name and class, plus the same receipt or a near-identical number)
+    // is accepted but HELD for the teacher. One query, on registration only;
+    // the student is never told who the other record is.
+    const sameClass = await db.collection(`sessions/${session}/students`).where('class', '==', body.class).get();
+    const candidate = { parentPhone: phone, studentName: body.studentName, class: body.class, receiptMessage: body.receiptMessage };
+    const original = sameClass.docs
+      .map((doc) => ({ ...doc.data(), parentPhone: doc.data().parentPhone ?? doc.id }))
+      .find((other) => isDuplicatePair(candidate, other));
 
     // Mandated initial state — identical to the rules: never blocked, never
     // pre-approved, no receipt approved, no balance.
@@ -83,6 +102,7 @@ export default createHandler({
       approvalStatus: 'pending',
       receiptStatus: 'pending',
       feeBalance: 0,
+      ...(original ? { duplicateHold: true, duplicateOf: original.parentPhone } : {}),
     };
 
     try {
@@ -107,12 +127,13 @@ export default createHandler({
       }, { merge: true });
     }
 
-    log.info('Student registered', { session });
+    log.info('Student registered', { session, held: Boolean(original) });
     // 002Fixes / 07: a new student usually goes straight to the waiting
     // screen; its "Check again" and automatic checks carry this pass.
     const pass = issuePass({ session, phone });
     return {
       ok: true,
+      ...(original ? { held: 'duplicate' } : {}),
       student: projectStudent({ ...student, registeredAt: { toDate: () => new Date() } }),
       ...(pass ? { pass } : {}),
     };

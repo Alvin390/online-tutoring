@@ -1,4 +1,5 @@
 import { toDate, fromNairobi } from '@utils/dates';
+import { duplicatePhoneSet } from '../duplicates/duplicatePairs';
 import { effectiveApprovalStatus } from '@shared/utils/studentState';
 import { parseSubjects, subjectsForClass } from '@shared/constants/subjects';
 import logger from '@utils/logger';
@@ -28,7 +29,7 @@ export const MAX_QUERY_LENGTH = 100;
 export const MAX_TOKENS = 12;
 
 /** Status chips, in display order. */
-export const STATUS_KEYS = ['review', 'owes', 'blocked', 'scheduled', 'awaiting', 'rejected'];
+export const STATUS_KEYS = ['review', 'owes', 'blocked', 'scheduled', 'awaiting', 'duplicate', 'rejected'];
 
 export const STATUS_LABELS = Object.freeze({
   review: 'Receipt to review',
@@ -37,6 +38,8 @@ export const STATUS_LABELS = Object.freeze({
   // 003Fixes / 08: a block waiting to start (scheduledBlock on the student).
   scheduled: 'Block scheduled',
   awaiting: 'Awaiting approval',
+  // 003Fixes / 13: in a possible-duplicate pair (computed from the roster).
+  duplicate: 'Possible duplicate',
   rejected: 'Rejected',
 });
 
@@ -148,9 +151,9 @@ export function parseQuery(q) {
 
 // ------------------------------------------------------------------ the index
 
-const EMPTY_FLAGS = Object.freeze({ review: false, owes: false, blocked: false, scheduled: false, awaiting: false, rejected: false });
+const EMPTY_FLAGS = Object.freeze({ review: false, owes: false, blocked: false, scheduled: false, awaiting: false, duplicate: false, rejected: false });
 
-function makeRecord(student, session) {
+function makeRecord(student, session, duplicates = null) {
   if (!student || typeof student !== 'object') return null;
   const name = normalize(student.studentName);
   const cls = normalize(student.class);
@@ -185,6 +188,7 @@ function makeRecord(student, session) {
       blocked: student.blocked === true,
       scheduled: Boolean(student.scheduledBlock?.batchId),
       awaiting: approval === 'pending',
+      duplicate: Boolean(duplicates?.has(String(student.parentPhone ?? student.id ?? ''))),
       rejected: approval === 'rejected',
     },
   };
@@ -206,10 +210,13 @@ export function buildIndex(students, session = null) {
   let index;
   try {
     const records = [];
+    // 003Fixes / 13: who is in a possible-duplicate pair, once per snapshot.
+    let duplicates = null;
+    try { duplicates = duplicatePhoneSet(list); } catch { duplicates = null; }
     for (const student of list) {
       let record = null;
       try {
-        record = makeRecord(student, session);
+        record = makeRecord(student, session, duplicates);
       } catch {
         record = null; // A malformed document is skipped, never thrown on.
       }

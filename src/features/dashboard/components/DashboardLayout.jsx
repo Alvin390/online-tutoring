@@ -207,6 +207,7 @@ export default function DashboardLayout() {
           <Suspense fallback={null}>
             <PendingApprovalsPanel
               pending={pendingApprovals}
+              rosters={studentsBySession}
               onApprove={approveStudents}
               onReject={rejectStudents}
               loading={loading}

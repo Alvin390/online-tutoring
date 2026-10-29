@@ -121,6 +121,15 @@ export default createHandler({
 
       const data = snap.data();
 
+      // 003Fixes / 11: held as a possible duplicate — the teacher decides,
+      // whether or not approval is required.
+      if (data.duplicateHold === true && effectiveApprovalStatus(data) === 'pending') {
+        throw forbidden(
+          'It looks like you may already be registered for this class with another number. Your teacher will review this.',
+          'duplicate_hold'
+        );
+      }
+
       if (isBlockedNow(data)) {
         throw forbidden(
           projectStudent(data).blockReason || 'Your access is currently on hold. Please contact your teacher.',

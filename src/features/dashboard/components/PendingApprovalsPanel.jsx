@@ -1,6 +1,13 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { nextClassWindow } from '@utils/classTime';
+import { retiredMessage, matchReasons } from '@utils/duplicates';
+import { declineDuplicate } from '@services/api/students';
+import { useOptionalToast } from '@/context/ToastContext';
+import { matchedLine, suffixOf } from '../duplicates/duplicatePairs';
+
+// 003Fixes / 13: the side-by-side view, loaded when Compare is pressed.
+const DuplicatePair = lazy(() => import('./duplicates/DuplicatePair'));
 
 /**
  * Before-class urgency — 002Fixes / 08. On 26 Oct students were approved
@@ -47,19 +54,28 @@ function useClock() {
  *     hard-to-reverse action that does not name what it affects is how people
  *     approve twenty students they meant to review.
  */
-export default function PendingApprovalsPanel({ pending, onApprove, onReject, loading, sessions = [] }) {
+export default function PendingApprovalsPanel({ pending, onApprove, onReject, loading, sessions = [], rosters = null }) {
   const [rejectingPhone, setRejectingPhone] = useState(null);
   const [reason, setReason] = useState('');
   // What a bulk approval would cover: null (none open), 'all', or one
   // session's id (its pre-class banner, 002Fixes / 08).
   const [confirmScope, setConfirmScope] = useState(null);
   const [busy, setBusy] = useState(false);
+  // 003Fixes / 13: a held duplicate being declined, or compared side by side.
+  const [decliningId, setDecliningId] = useState(null);
+  const [comparingId, setComparingId] = useState(null);
+  const toast = useOptionalToast();
   const now = useClock();
 
   const count = pending?.length ?? 0;
+  // Held duplicates need a decision each, so "Approve all" leaves them out.
+  const held = (pending ?? []).filter((s) => s.duplicateHold === true);
+  const approvable = (pending ?? []).filter((s) => s.duplicateHold !== true);
+  const originalOf = (student) => (rosters?.[student.session] ?? []).find((s) => (s.parentPhone ?? s.id) === student.duplicateOf) ?? null;
   const grouped = useMemo(() => {
     const map = new Map();
     for (const student of pending ?? []) {
+      if (student.duplicateHold === true) continue;
       if (!map.has(student.session)) map.set(student.session, []);
       map.get(student.session).push(student);
     }
@@ -75,7 +91,7 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
     return [{ session, waiting, window }];
   }), [sessions, grouped, now]);
 
-  const confirmList = confirmScope === 'all' ? (pending ?? []) : (grouped.get(confirmScope) ?? []);
+  const confirmList = confirmScope === 'all' ? approvable : (grouped.get(confirmScope) ?? []);
   const scopeName = (id) => sessions.find((x) => x.id === id)?.name ?? id;
 
   const handleApprove = async (student) => {
@@ -91,6 +107,19 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
     setRejectingPhone(null);
     setReason('');
     setBusy(false);
+  };
+
+  const handleDecline = async (student) => {
+    setBusy(true);
+    try {
+      await declineDuplicate(student.session, student.id);
+      toast?.showSuccess(`${suffixOf(student.id)} declined as a duplicate.`, 'Possible duplicate');
+      setDecliningId(null);
+    } catch (err) {
+      toast?.showError(err?.message ?? 'Could not decline that. Please try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleBulkApprove = async () => {
@@ -141,14 +170,16 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
           </span>
         </h5>
 
-        {count > 1 && (
+        {approvable.length > 1 && (
           <button
             className="btn btn-sm btn-outline-success"
             onClick={() => setConfirmScope('all')}
             disabled={busy}
           >
             <i className="bi bi-check2-all me-1" aria-hidden="true" />
-            Approve all ({count})
+            {held.length > 0
+              ? `Approve all ${approvable.length} (${held.length} possible duplicate${held.length === 1 ? ' needs' : 's need'} a look)`
+              : `Approve all (${approvable.length})`}
           </button>
         )}
       </div>
@@ -186,7 +217,7 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
         <div className="card-body border-bottom bg-light">
           <p className="fw-semibold mb-2">
             {confirmScope === 'all'
-              ? `Approve all ${count} students?`
+              ? `Approve all ${approvable.length} students?`
               : `Approve ${confirmList.length} student${confirmList.length === 1 ? '' : 's'} for ${scopeName(confirmScope)}?`}
           </p>
           <ul className="small mb-3" style={{ maxHeight: 160, overflowY: 'auto' }}>
@@ -220,7 +251,8 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0, height: 0 }}
-              className="border-bottom p-3"
+              className={`border-bottom p-3${student.duplicateHold === true ? ' pending-duplicate' : ''}`}
+              data-testid={student.duplicateHold === true ? 'pending-duplicate' : undefined}
             >
               <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                 <div className="flex-grow-1" style={{ minWidth: 220 }}>
@@ -229,7 +261,16 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
                     <span className="badge text-bg-light text-muted ms-2 text-capitalize">
                       {student.session}
                     </span>
+                    {student.duplicateHold === true && (
+                      <span className="badge text-bg-warning ms-2">Possible duplicate</span>
+                    )}
                   </div>
+                  {student.duplicateHold === true && (
+                    <div className="small fw-semibold text-warning-emphasis mt-1">
+                      <i className="bi bi-people me-1" aria-hidden="true" />
+                      {matchedLine(student, originalOf(student))}
+                    </div>
+                  )}
                   <div className="small text-muted">
                     {student.class} · {student.subjects}
                   </div>
@@ -264,18 +305,72 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
                     <i className="bi bi-check-lg me-1" aria-hidden="true" />
                     Approve
                   </button>
-                  <button
-                    className="btn btn-outline-danger btn-sm"
-                    onClick={() => {
-                      setRejectingPhone(student.id);
-                      setReason('');
-                    }}
-                    disabled={busy}
-                  >
-                    Reject
-                  </button>
+                  {student.duplicateHold === true ? (
+                    <>
+                      <button
+                        className="btn btn-outline-danger btn-sm"
+                        onClick={() => setDecliningId(decliningId === student.id ? null : student.id)}
+                        disabled={busy}
+                      >
+                        Decline as duplicate
+                      </button>
+                      <button
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => setComparingId(comparingId === student.id ? null : student.id)}
+                        disabled={busy}
+                        aria-expanded={comparingId === student.id}
+                      >
+                        Compare
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="btn btn-outline-danger btn-sm"
+                      onClick={() => {
+                        setRejectingPhone(student.id);
+                        setReason('');
+                      }}
+                      disabled={busy}
+                    >
+                      Reject
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {decliningId === student.id && (
+                <div className="mt-3 small">
+                  <p className="mb-2">
+                    Remove {suffixOf(student.id)}? It will be told:
+                    <span className="d-block fst-italic mt-1">“{retiredMessage('duplicate')}”</span>
+                  </p>
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDecline(student)} disabled={busy}>
+                      {`Yes, decline ${suffixOf(student.id)}`}
+                    </button>
+                    <button className="btn btn-outline-secondary btn-sm" onClick={() => setDecliningId(null)} disabled={busy}>
+                      Back
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {comparingId === student.id && (
+                <div className="mt-3">
+                  {originalOf(student) ? (
+                    <Suspense fallback={<p className="small text-muted mb-0">Loading…</p>}>
+                      <DuplicatePair
+                        session={student.session}
+                        pair={{ key: `${student.duplicateOf}|${student.id}`, a: originalOf(student), b: student, reasons: matchReasons(originalOf(student), student) }}
+                        showSuccess={toast?.showSuccess}
+                        showError={toast?.showError}
+                      />
+                    </Suspense>
+                  ) : (
+                    <p className="small text-muted mb-0">The other registration isn't in the lists loaded here.</p>
+                  )}
+                </div>
+              )}
 
               {rejectingPhone === student.id && (
                 <div className="mt-3">

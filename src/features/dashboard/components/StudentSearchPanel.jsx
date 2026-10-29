@@ -15,9 +15,13 @@ import { formatWhen } from '../bulk/scheduleTime';
 import { rememberBulk, markUndone, useUndoableCount } from '../bulk/recentBulk';
 
 // 003Fixes / 05: both load on first use.
+import { pairsAcross } from '../duplicates/duplicatePairs';
 const BulkActionModal = lazy(() => import('./bulk/BulkActionModal'));
 const RecentActionsPanel = lazy(() => import('./bulk/RecentActionsPanel'));
 const ScheduledPanel = lazy(() => import('./bulk/ScheduledPanel'));
+// 003Fixes / 13: loaded on open, prefetched when the browser is idle.
+const loadDuplicatesPanel = () => import('./duplicates/DuplicatesPanel');
+const DuplicatesPanel = lazy(loadDuplicatesPanel);
 
 // The table re-renders only when its (deferred) results change, never per
 // keystroke: typing re-renders the bar and chips, the table catches up.
@@ -107,11 +111,22 @@ export default function StudentSearchPanel({
   const [bulk, setBulk] = useState(null);
   const [showRecent, setShowRecent] = useState(false);
   const [showScheduled, setShowScheduled] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   const undoable = useUndoableCount();
   const sessionOf = useCallback((row) => row?.__session ?? session, [session]);
 
   // 003Fixes / 08: scheduled blocks, read off the rosters already loaded.
   const rosters = useMemo(() => studentsBySession ?? { [session]: students }, [studentsBySession, session, students]);
+  // 003Fixes / 13: possible-duplicate pairs, from the same rosters (cached per snapshot).
+  const duplicateCount = useMemo(() => pairsAcross(rosters).length, [rosters]);
+  useEffect(() => {
+    if (duplicateCount === 0) return undefined;
+    const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 1500));
+    const cancel = window.cancelIdleCallback ?? clearTimeout;
+    const id = idle(() => { loadDuplicatesPanel().catch(() => {}); });
+    return () => cancel(id);
+  }, [duplicateCount]);
+
   const scheduledCount = useMemo(() => {
     const ids = new Set();
     for (const list of Object.values(rosters)) for (const s of list ?? []) if (s?.scheduledBlock?.batchId) ids.add(s.scheduledBlock.batchId);
@@ -296,6 +311,16 @@ export default function StudentSearchPanel({
             <span className="d-none d-sm-inline">Scheduled</span>
             {scheduledCount > 0 && <span className="badge text-bg-warning ms-1">{scheduledCount}</span>}
           </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary recent-actions-btn"
+            onClick={() => setShowDuplicates(true)}
+            aria-label={duplicateCount > 0 ? `Possible duplicates (${duplicateCount})` : 'Possible duplicates'}
+          >
+            <i className="bi bi-people me-1" aria-hidden="true" />
+            <span className="d-none d-sm-inline">Possible duplicates</span>
+            {duplicateCount > 0 && <span className="badge text-bg-warning ms-1">{duplicateCount}</span>}
+          </button>
         </div>
         {canSearchAll && (
           <div className="form-check form-switch all-sessions-toggle mb-0">
@@ -388,7 +413,7 @@ export default function StudentSearchPanel({
           bulkAction={bulkActionFor(deferred.statuses)}
           onBulkAction={handleBulkAction}
           onCancelSchedule={handleCancelSchedule}
-          suspendBar={Boolean(bulk) || showRecent || showScheduled}
+          suspendBar={Boolean(bulk) || showRecent || showScheduled || showDuplicates}
           terms={terms}
           loading={false}
           onExport={handleExport}
@@ -414,6 +439,17 @@ export default function StudentSearchPanel({
             rosters={rosters}
             sessionNames={sessionNames}
             onClose={() => setShowScheduled(false)}
+            showSuccess={toast?.showSuccess}
+            showError={toast?.showError}
+          />
+        </Suspense>
+      )}
+      {showDuplicates && (
+        <Suspense fallback={null}>
+          <DuplicatesPanel
+            rosters={rosters}
+            sessionNames={sessionNames}
+            onClose={() => setShowDuplicates(false)}
             showSuccess={toast?.showSuccess}
             showError={toast?.showError}
           />

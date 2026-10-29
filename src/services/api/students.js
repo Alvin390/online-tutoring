@@ -139,3 +139,23 @@ export async function removeFromSchedule(items, onProgress) {
   }
   return { ...result, total: items.length, failed: [] };
 }
+
+// ------------------------------------------------- duplicates (003Fixes / 12–13)
+
+const duplicates = (body) => apiPost('/api/students/duplicates', body);
+
+/** Remove a duplicate registration and retire its number. */
+export const declineDuplicate = (session, phone) => duplicates({ action: 'decline', session, phone });
+
+/** Merge `remove` into `keep`; a large note set continues over several calls. */
+export async function mergeDuplicates(session, keep, remove) {
+  let res = await duplicates({ action: 'merge', session, keep, remove });
+  for (let calls = 1; !res.done && res.cursor && calls < 50; calls += 1) {
+    res = await duplicates({ action: 'merge', session, keep, remove, cursor: res.cursor });
+  }
+  return res;
+}
+
+export const keepBothDuplicates = (session, a, b) => duplicates({ action: 'keepBoth', session, a, b });
+export const allowRetiredNumber = (session, phone) => duplicates({ action: 'allowNumber', session, phone });
+export const listRetiredNumbers = (sessions) => duplicates({ action: 'listRetired', sessions });

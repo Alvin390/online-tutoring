@@ -86,7 +86,9 @@ service cloud.firestore {
         'feeBalance', 'lastPaymentAt', 'nextDueDate', 'overdue',
         'studentUid', 'parentPhone', 'registeredAt',
         // 003Fixes / 07: only the server schedules or cancels a block.
-        'scheduledBlock'
+        'scheduledBlock',
+        // 003Fixes / 11: only the server holds, links or keeps duplicates.
+        'duplicateHold', 'duplicateOf', 'duplicateKeep'
       ];
     }
 
