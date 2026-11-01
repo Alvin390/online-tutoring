@@ -1,5 +1,5 @@
 import { FieldValue, Timestamp } from './firebaseAdmin.js';
-import { badRequest, forbidden, notFound } from './errors.js';
+import { badRequest, notFound } from './errors.js';
 import { openBatch, applyStudents, MAX_ITEMS } from './bulkStudents.js';
 import { subrequestsRemaining } from './firestoreRest.js';
 
@@ -22,6 +22,11 @@ import { subrequestsRemaining } from './firestoreRest.js';
  * While a schedule is waiting it carries `dueAtMs` (removed once applied or
  * cancelled), so the per-minute sweep finds due ones with a single-field
  * range query and no composite index.
+ *
+ * 004Fixes / 02 (owner decision): every staff account of the school sees and
+ * manages every schedule, not only the one that made it — several teachers
+ * look after the same roster. `createdBy` / `lastChangedBy` and the audit
+ * trail keep who did what.
  */
 
 export const MIN_LEAD_MS = 5 * 60_000;
@@ -32,6 +37,7 @@ const memberId = (session, phone) => `${session}__${String(phone).replace(/\D/g,
 const scheduleRef = (db, id) => db.doc(`scheduledBlocks/${id}`);
 const memberRef = (db, id, session, phone) => db.doc(`scheduledBlocks/${id}/members/${memberId(session, phone)}`);
 const studentRef = (db, session, phone) => db.doc(`sessions/${session}/students/${phone}`);
+const who = (user) => ({ uid: user.uid, email: user.email ?? null });
 
 export function assertWhen(atMs, nowMs) {
   if (!Number.isFinite(atMs)) throw badRequest('Choose when the block should start.', 'bad_time');
@@ -39,22 +45,22 @@ export function assertWhen(atMs, nowMs) {
   if (atMs > nowMs + MAX_LEAD_MS) throw badRequest('Choose a time within the next 60 days.', 'too_far');
 }
 
-async function ownSchedule(db, user, id) {
+/** A schedule that is still waiting — any staff account may change it. */
+async function waitingSchedule(db, id) {
   const ref = scheduleRef(db, id);
   const snap = await ref.get();
   if (!snap.exists) throw notFound('That scheduled block was not found.', 'schedule_not_found');
   const data = snap.data();
-  if (data.uid !== user.uid && user.role !== 'superadmin') throw forbidden('That schedule belongs to someone else.', 'schedule_forbidden');
   if (data.status !== 'scheduled') throw badRequest('That block has already started or was cancelled.', 'schedule_closed');
   return { ref, data };
 }
 
-/** Creates a schedule, or adds students to one (same teacher, still waiting). */
+/** Creates a schedule, or adds students to one that is still waiting. */
 export async function createSchedule({ db, user, batchId = null, items, atMs, kind, amount = null, reason = null, nowMs }) {
   let ref;
   let data;
   if (batchId) {
-    ({ ref, data } = await ownSchedule(db, user, batchId));
+    ({ ref, data } = await waitingSchedule(db, batchId));
   } else {
     assertWhen(atMs, nowMs);
     ref = db.collection('scheduledBlocks').doc();
@@ -68,6 +74,7 @@ export async function createSchedule({ db, user, batchId = null, items, atMs, ki
       reason: kind === 'fees' ? null : (reason ?? ''),
       status: 'scheduled',
       createdAtMs: nowMs,
+      createdBy: who(user),
     };
   }
 
@@ -92,21 +99,25 @@ export async function createSchedule({ db, user, batchId = null, items, atMs, ki
     writes.set(studentRef(db, item.session, item.phone), { scheduledBlock: field }, { merge: true });
     added += 1;
   });
-  if (batchId) writes.update(ref, { count: FieldValue.increment(added) });
+  if (batchId) writes.update(ref, { count: FieldValue.increment(added), lastChangedBy: who(user) });
   else writes.set(ref, { ...data, count: added });
   await writes.commit();
 
   return { batchId: ref.id, added, skipped: missing ? { missing } : {}, atMs: data.atMs };
 }
 
-/** This teacher's waiting schedules, soonest first. */
-export async function listSchedules({ db, user }) {
+/** Every waiting schedule (any staff account's), soonest first. */
+export async function listSchedules({ db }) {
   const snap = await db.collection('scheduledBlocks').where('dueAtMs', '>=', 0).get();
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((s) => s.uid === user.uid && s.status === 'scheduled')
+    .filter((s) => s.status === 'scheduled')
     .sort((a, b) => a.atMs - b.atMs)
-    .map((s) => ({ id: s.id, atMs: s.atMs, kind: s.kind, amount: s.amount ?? null, reason: s.reason ?? null, count: s.count ?? 0 }));
+    .map((s) => ({
+      id: s.id, atMs: s.atMs, kind: s.kind, amount: s.amount ?? null, reason: s.reason ?? null, count: s.count ?? 0,
+      // Older schedules (before 004Fixes) carry no email: shown as "another staff account".
+      createdBy: s.createdBy?.email ?? null,
+    }));
 }
 
 /**
@@ -131,10 +142,10 @@ async function forEachMember(db, id, onStudent, memberUpdate) {
 }
 
 export async function rescheduleSchedule({ db, user, batchId, atMs, nowMs }) {
-  const { ref } = await ownSchedule(db, user, batchId);
+  const { ref } = await waitingSchedule(db, batchId);
   assertWhen(atMs, nowMs);
   const at = Timestamp.fromMillis(atMs);
-  await ref.update({ at, atMs, dueAtMs: atMs });
+  await ref.update({ at, atMs, dueAtMs: atMs, lastChangedBy: who(user) });
   await forEachMember(db, batchId, (writes, sRef, current) => {
     writes.set(sRef, { scheduledBlock: { ...current, at, atMs } }, { merge: true });
   });
@@ -142,16 +153,16 @@ export async function rescheduleSchedule({ db, user, batchId, atMs, nowMs }) {
 }
 
 export async function cancelSchedule({ db, user, batchId }) {
-  const { ref } = await ownSchedule(db, user, batchId);
+  const { ref } = await waitingSchedule(db, batchId);
   const visited = await forEachMember(db, batchId, (writes, sRef) => {
     writes.set(sRef, { scheduledBlock: FieldValue.delete() }, { merge: true });
   }, { status: 'removed', removedBecause: 'cancelled' });
-  await ref.update({ status: 'cancelled', dueAtMs: FieldValue.delete(), count: 0 });
+  await ref.update({ status: 'cancelled', dueAtMs: FieldValue.delete(), count: 0, lastChangedBy: who(user) });
   return { batchId, cancelled: visited };
 }
 
 export async function removeMember({ db, user, batchId, session, phone }) {
-  const { ref } = await ownSchedule(db, user, batchId);
+  const { ref } = await waitingSchedule(db, batchId);
   const sRef = studentRef(db, session, phone);
   const snap = await sRef.get();
   const writes = db.batch();
@@ -159,7 +170,7 @@ export async function removeMember({ db, user, batchId, session, phone }) {
     writes.set(sRef, { scheduledBlock: FieldValue.delete() }, { merge: true });
   }
   writes.set(memberRef(db, batchId, session, phone), { status: 'removed', removedBecause: 'removed' }, { merge: true });
-  writes.update(ref, { count: FieldValue.increment(-1) });
+  writes.update(ref, { count: FieldValue.increment(-1), lastChangedBy: who(user) });
   await writes.commit();
   return { batchId, removed: 1 };
 }
@@ -198,11 +209,11 @@ export async function applyDueSchedules({ db, nowMs, log }) {
         try {
           batch = await openBatch({
             db, user: owner, batchId: bulkId, action: 'block', kind: schedule.kind, amount: schedule.amount,
-            reason: schedule.reason, nowMs, source: 'scheduled',
+            reason: schedule.reason, nowMs, source: 'scheduled', createdBy: schedule.createdBy,
           });
         } catch {
           // The first chunk's undo window has closed (a very long schedule): a new record.
-          batch = await openBatch({ db, user: owner, action: 'block', kind: schedule.kind, amount: schedule.amount, reason: schedule.reason, nowMs, source: 'scheduled' });
+          batch = await openBatch({ db, user: owner, action: 'block', kind: schedule.kind, amount: schedule.amount, reason: schedule.reason, nowMs, source: 'scheduled', createdBy: schedule.createdBy });
         }
         bulkId = batch.id;
         result = await applyStudents({
@@ -244,7 +255,7 @@ export async function applyDueSchedules({ db, nowMs, log }) {
 
 /**
  * Takes several students out of whatever schedule each is in — 003Fixes / 08
- * ("Cancel schedule" on a selection). Only this teacher's waiting schedules.
+ * ("Cancel schedule" on a selection). Any waiting schedule (004Fixes / 02).
  */
 export async function removeMembers({ db, user, items }) {
   const seen = new Set();
@@ -252,10 +263,7 @@ export async function removeMembers({ db, user, items }) {
   const students = await db.getAll(...list.map((i) => studentRef(db, i.session, i.phone)));
   const batchIds = [...new Set(students.map((s) => (s.exists ? s.data().scheduledBlock?.batchId : null)).filter(Boolean))];
   const schedules = batchIds.length ? await db.getAll(...batchIds.map((id) => scheduleRef(db, id))) : [];
-  const usable = new Set(batchIds.filter((id, k) => {
-    const s = schedules[k];
-    return s.exists && s.data().status === 'scheduled' && (s.data().uid === user.uid || user.role === 'superadmin');
-  }));
+  const usable = new Set(batchIds.filter((id, k) => schedules[k].exists && schedules[k].data().status === 'scheduled'));
 
   const writes = db.batch();
   const perBatch = new Map();
@@ -269,7 +277,7 @@ export async function removeMembers({ db, user, items }) {
     perBatch.set(batchId, (perBatch.get(batchId) ?? 0) + 1);
     removed += 1;
   });
-  for (const [id, n] of perBatch) writes.update(scheduleRef(db, id), { count: FieldValue.increment(-n) });
+  for (const [id, n] of perBatch) writes.update(scheduleRef(db, id), { count: FieldValue.increment(-n), lastChangedBy: who(user) });
   if (removed) await writes.commit();
   return { removed, skipped: notScheduled ? { notScheduled } : {} };
 }

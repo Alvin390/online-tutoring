@@ -39,13 +39,15 @@ const campaign = (values) => call('/api/whatsapp/campaign', {
 });
 
 describe('who a bulk action reached', () => {
-  it('lists the students it changed, for its own teacher only', async () => {
+  // 004Fixes / 02: any staff account may read it (it was its own teacher only).
+  it('lists the students it changed, for any staff account', async () => {
     await seed('morning', phoneN(1));
     await seed('morning', phoneN(2), { approvalStatus: 'pending' });
     const res = await call('/api/students/bulk', { token: gold, body: { action: 'block', kind: 'other', items: [{ session: 'morning', phone: phoneN(1) }, { session: 'morning', phone: phoneN(2) }] } });
     const items = await call('/api/students/bulk', { token: gold, body: { action: 'items', batchId: res.body.batchId } });
     expect(items.body.items).toEqual([{ session: 'morning', phone: phoneN(1) }]);
-    expect((await call('/api/students/bulk', { token: other, body: { action: 'items', batchId: res.body.batchId } })).status).toBe(403);
+    expect((await call('/api/students/bulk', { token: other, body: { action: 'items', batchId: res.body.batchId } })).body.items)
+      .toEqual([{ session: 'morning', phone: phoneN(1) }]);
   });
 });
 

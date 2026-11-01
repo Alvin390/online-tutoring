@@ -50,19 +50,31 @@ export default createHandler({
 
     switch (body.action) {
       case 'list':
-        return { schedules: await listSchedules({ db, user }) };
-      case 'reschedule':
-        return { ok: true, ...(await rescheduleSchedule({ db, user, batchId: body.batchId, atMs: body.atMs, nowMs })) };
+        return { schedules: await listSchedules({ db }) };
+      case 'reschedule': {
+        // 004Fixes / 02: any staff account may move any schedule, so record who.
+        const result = await rescheduleSchedule({ db, user, batchId: body.batchId, atMs: body.atMs, nowMs });
+        await tryWriteAudit({ action: 'students.schedule_rescheduled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, after: { atMs: body.atMs }, context: { requestId: log.requestId } }, log);
+        return { ok: true, ...result };
+      }
       case 'cancel': {
         const result = await cancelSchedule({ db, user, batchId: body.batchId });
         await tryWriteAudit({ action: 'students.schedule_cancelled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, context: { requestId: log.requestId } }, log);
         return { ok: true, ...result };
       }
-      case 'removeMembers':
-        return { ok: true, ...(await removeMembers({ db, user, items: body.items })) };
-      case 'removeMember':
+      case 'removeMembers': {
+        const result = await removeMembers({ db, user, items: body.items });
+        if (result.removed) {
+          await tryWriteAudit({ action: 'students.schedule_members_removed', actor: user.uid, actorRole: user.role, target: 'scheduledBlocks', after: { removed: result.removed }, context: { requestId: log.requestId } }, log);
+        }
+        return { ok: true, ...result };
+      }
+      case 'removeMember': {
         await assertSessionExists(db, body.session);
-        return { ok: true, ...(await removeMember({ db, user, batchId: body.batchId, session: body.session, phone: body.phone })) };
+        const result = await removeMember({ db, user, batchId: body.batchId, session: body.session, phone: body.phone });
+        await tryWriteAudit({ action: 'students.schedule_members_removed', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, after: { removed: 1 }, context: { requestId: log.requestId } }, log);
+        return { ok: true, ...result };
+      }
       default: {
         if (body.kind === 'fees') {
           requireTier(user, 'silver');

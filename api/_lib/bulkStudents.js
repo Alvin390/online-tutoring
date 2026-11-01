@@ -3,7 +3,7 @@ import { postEntries, reverseEntries } from './ledger.js';
 import { effectiveApprovalStatus } from './studentState.js';
 import { shouldAutoUnblock } from './feeState.js';
 import { approvalFields, receiptIdFor, mpesaCodeFrom } from './receiptApproval.js';
-import { badRequest, forbidden, notFound, ApiError } from './errors.js';
+import { badRequest, notFound, ApiError } from './errors.js';
 
 /**
  * Bulk actions on many students at once — 003Fixes / 04.
@@ -74,12 +74,18 @@ function uniqueItems(items) {
   return out;
 }
 
+const who = (user) => ({ uid: user.uid, email: user.email ?? null });
+
 /**
  * Opens a new batch (returns the document to create in the same commit) or
- * checks that an existing one may be appended to: same teacher, same action,
- * not undone, still inside its undo window.
+ * checks that an existing one may be appended to: same action, not undone,
+ * still inside its undo window. Any staff account may continue it — 004Fixes /
+ * 02: every account of the school sees and manages every bulk action.
+ * `createdBy` is who made it (the scheduled sweep passes the schedule's maker).
  */
-export async function openBatch({ db, user, batchId, action, kind = null, amount = null, reason = null, nowMs, source = 'dashboard' }) {
+export async function openBatch({
+  db, user, batchId, action, kind = null, amount = null, reason = null, nowMs, source = 'dashboard', createdBy = null,
+}) {
   if (!batchId) {
     const ref = db.collection('bulkActions').doc();
     const data = {
@@ -94,6 +100,7 @@ export async function openBatch({ db, user, batchId, action, kind = null, amount
       createdAtMs: nowMs,
       undoUntilMs: nowMs + UNDO_WINDOW_MS,
       counts: {},
+      createdBy: createdBy ?? who(user),
     };
     return { id: ref.id, ref, data, isNew: true };
   }
@@ -102,7 +109,6 @@ export async function openBatch({ db, user, batchId, action, kind = null, amount
   const snap = await ref.get();
   if (!snap.exists) throw notFound('That bulk action was not found.', 'batch_not_found');
   const data = snap.data();
-  if (data.uid !== user.uid) throw forbidden('That bulk action belongs to someone else.', 'batch_forbidden');
   if (data.action !== action || data.status !== 'done' || nowMs > data.undoUntilMs) {
     throw new ApiError(409, 'batch_closed', 'That bulk action can no longer be added to. Start a new one.');
   }
@@ -282,9 +288,6 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
   const snap = await ref.get();
   if (!snap.exists) throw notFound('That bulk action was not found.', 'batch_not_found');
   const batch = snap.data();
-  if (batch.uid !== user.uid && user.role !== 'superadmin') {
-    throw forbidden('That bulk action belongs to someone else.', 'batch_forbidden');
-  }
   if (batch.status === 'undone') {
     return { batchId, status: 'undone', remaining: false, undone: 0, changedSince: 0, missing: 0, failed: 0 };
   }
@@ -331,6 +334,7 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
   const remaining = itemsSnap.docs.length > limit;
   const increments = {};
   for (const [key, n] of Object.entries(tally)) if (n) increments[`counts.${key}`] = FieldValue.increment(n);
+  increments.lastChangedBy = who(user);
   if (!remaining) {
     increments.status = 'undone';
     increments.undoneAtMs = nowMs;
@@ -341,14 +345,12 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
   return { batchId, status: remaining ? 'undoing' : 'undone', remaining, ...tally };
 }
 
-/** This teacher's actions from the last 30 minutes, newest first. */
-export async function listRecent({ db, user, nowMs }) {
-  // One single-field range query (no composite index); the uid filter is in
-  // memory — a teacher makes a handful of bulk actions in 30 minutes.
+/** Every staff account's actions from the last 30 minutes, newest first. */
+export async function listRecent({ db, nowMs }) {
+  // One single-field range query (no composite index).
   const snap = await db.collection('bulkActions').where('createdAtMs', '>=', nowMs - UNDO_WINDOW_MS).get();
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((b) => b.uid === user.uid)
     .sort((a, b) => b.createdAtMs - a.createdAtMs)
     .slice(0, 20)
     .map((b) => ({
@@ -362,6 +364,8 @@ export async function listRecent({ db, user, nowMs }) {
       createdAtMs: b.createdAtMs,
       undoUntilMs: b.undoUntilMs,
       counts: b.counts ?? {},
+      // Older actions (before 004Fixes) carry no email: shown as "another staff account".
+      createdBy: b.createdBy?.email ?? null,
     }));
 }
 
@@ -370,16 +374,13 @@ export function assertChunkSize(items, max) {
 }
 
 /**
- * The students a bulk action actually changed (outcome done), for the
- * teacher who made it — 003Fixes / 09, "Message these parents on WhatsApp".
+ * The students a bulk action actually changed (outcome done) — 003Fixes / 09,
+ * "Message these parents on WhatsApp". Any staff account (004Fixes / 02).
  */
-export async function listBatchItems({ db, user, batchId }) {
+export async function listBatchItems({ db, batchId }) {
   const ref = batchRef(db, batchId);
   const snap = await ref.get();
   if (!snap.exists) throw notFound('That bulk action was not found.', 'batch_not_found');
-  if (snap.data().uid !== user.uid && user.role !== 'superadmin') {
-    throw forbidden('That bulk action belongs to someone else.', 'batch_forbidden');
-  }
   const items = await ref.collection('items').where('outcome', '==', 'done').limit(500).get();
   return items.docs.map((d) => ({ session: d.data().session, phone: d.data().phone }));
 }

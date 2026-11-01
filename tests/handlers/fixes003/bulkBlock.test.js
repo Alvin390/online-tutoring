@@ -167,12 +167,12 @@ describe('undo', () => {
     expect(await student('morning', phoneN(420))).toMatchObject({ blocked: true, blockReason: 'Unpaid term', receiptStatus: 'expired' });
   });
 
-  it('only the teacher who did it; a second undo changes nothing; after 30 minutes it is too late', async () => {
+  // 004Fixes / 02: any staff account may undo (it was only the teacher who did it).
+  it('another staff account may undo it; a second undo changes nothing; after 30 minutes it is too late', async () => {
     await seed('morning', phoneN(430));
     const res = await bulk({ action: 'block', kind: 'other', items: items(430, 1) });
-    expect((await bulk({ action: 'undo', batchId: res.body.batchId }, other)).status).toBe(403);
 
-    const first = await bulk({ action: 'undo', batchId: res.body.batchId });
+    const first = await bulk({ action: 'undo', batchId: res.body.batchId }, other);
     const second = await bulk({ action: 'undo', batchId: res.body.batchId });
     expect(first.body.undone).toBe(1);
     expect(second.body).toMatchObject({ status: 'undone', undone: 0 });
@@ -197,13 +197,14 @@ describe('undo', () => {
 });
 
 describe('list, validation and cost', () => {
-  it('lists this teacher\'s actions from the last 30 minutes, with the chunk sizes', async () => {
+  // 004Fixes / 02: every staff account's actions (it was only this teacher's).
+  it('lists every staff account\'s actions from the last 30 minutes, newest first, with the chunk sizes', async () => {
     await seed('morning', phoneN(600));
     await bulk({ action: 'block', kind: 'other', reason: 'r', items: items(600, 1) });
     await bulk({ action: 'block', kind: 'other', items: items(600, 1) }, other);
     const res = await bulk({ action: 'list' });
-    expect(res.body.actions).toHaveLength(1);
-    expect(res.body.actions[0]).toMatchObject({ action: 'block', kind: 'other', status: 'done', counts: { done: 1 } });
+    expect(res.body.actions).toHaveLength(2);
+    expect(res.body.actions[1]).toMatchObject({ action: 'block', kind: 'other', reason: 'r', status: 'done', counts: { done: 1 } });
     expect(res.body.limits).toMatchObject({ block: 25, blockFees: 25, unblock: 25, approveReceipts: 25 });
   });
 
