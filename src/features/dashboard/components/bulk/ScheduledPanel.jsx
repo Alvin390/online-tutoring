@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Modal from '@components/ui/Modal';
 import { listSchedules, rescheduleSchedule, cancelSchedule, removeFromSchedule } from '@services/api/students';
+import { useAuthState } from '@features/auth/context/AuthContext';
 import { formatKes } from '@utils/blockReason';
 import { formatWhen, toInputs, fromInputs, whenProblem } from '../../bulk/scheduleTime';
+import { byWho } from '../../bulk/bulkText';
 
 /**
  * Scheduled — 003Fixes / 08. Every waiting scheduled block: whole batches and
@@ -10,6 +12,11 @@ import { formatWhen, toInputs, fromInputs, whenProblem } from '../../bulk/schedu
  * opened to take one student out. Names come from the rosters the dashboard
  * already holds (each student's `scheduledBlock.batchId`), not from a request.
  * A lazy chunk, opened from the student list's toolbar.
+ *
+ * 004Fixes / 03: every staff account's schedules, each saying who made it.
+ * `expectedCount` is the toolbar badge (schedules seen on the roster); if the
+ * list has fewer, the sweep is part-way through one, so it says so rather than
+ * "Nothing scheduled".
  */
 
 function what(schedule) {
@@ -17,7 +24,8 @@ function what(schedule) {
   return schedule.reason ? `“${schedule.reason}”` : 'no reason given';
 }
 
-export default function ScheduledPanel({ rosters, sessionNames = {}, onClose, showSuccess, showError }) {
+export default function ScheduledPanel({ rosters, sessionNames = {}, expectedCount = 0, onClose, showSuccess, showError }) {
+  const { user } = useAuthState();
   const [schedules, setSchedules] = useState(null);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(null);
@@ -77,7 +85,12 @@ export default function ScheduledPanel({ rosters, sessionNames = {}, onClose, sh
         </div>
       )}
       {schedules === null && !error && <p className="text-center text-muted small py-3">Loading…</p>}
-      {schedules?.length === 0 && <p className="text-center text-muted small py-3" data-testid="scheduled-empty">Nothing scheduled.</p>}
+      {schedules && schedules.length < expectedCount && (
+        <p className="small text-muted" data-testid="scheduled-catching-up">
+          A scheduled block is being applied right now. Students it has not reached yet still show the tag; refresh in a minute.
+        </p>
+      )}
+      {schedules?.length === 0 && expectedCount === 0 && <p className="text-center text-muted small py-3" data-testid="scheduled-empty">Nothing scheduled.</p>}
       <ul className="list-group" data-testid="scheduled-list">
         {(schedules ?? []).map((s) => {
           const single = s.count === 1;
@@ -89,7 +102,7 @@ export default function ScheduledPanel({ rosters, sessionNames = {}, onClose, sh
                   <div className="fw-semibold small">
                     {single ? nameOf(s) : `${s.count} students`} · {what(s)}
                   </div>
-                  <div className="text-muted small">Blocked from {formatWhen(s.atMs)}</div>
+                  <div className="text-muted small">Blocked from {formatWhen(s.atMs)} · {byWho(s.createdBy, user?.email)}</div>
                 </div>
                 <div className="d-flex gap-1 flex-wrap">
                   {!single && (

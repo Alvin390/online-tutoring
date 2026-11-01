@@ -16,10 +16,20 @@ const SKIP_TEXT = {
   notBlocked: (n) => `${n} not blocked`,
   noReceipt: (n) => `${n} with no receipt to review`,
   missing: (n) => `${n} no longer registered`,
-  notScheduled: (n) => `${n} not scheduled`,
+  notScheduled: (n) => `${n} no longer scheduled`,
 };
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Who made a schedule or bulk action — 004Fixes / 03. Every staff account
+ * sees everyone's; records from before 004Fixes carry no email.
+ */
+export function byWho(email, myEmail) {
+  if (!email) return 'by another staff account';
+  if (myEmail && email.toLowerCase() === myEmail.toLowerCase()) return 'by you';
+  return `by ${email}`;
+}
 
 export const describeSkipped = (skipped = {}) =>
   Object.entries(skipped)

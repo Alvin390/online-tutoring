@@ -7,13 +7,14 @@ import { setWhatsappPreset, blockedParentsDraft } from '@features/whatsapp/whats
 import { formatKes } from '@utils/blockReason';
 import { formatTime } from '@utils/dates';
 import { replaceRecent, markUndone } from '../../bulk/recentBulk';
-import { BULK_TEXT } from '../../bulk/bulkText';
+import { BULK_TEXT, byWho } from '../../bulk/bulkText';
 
 /**
  * Recent actions — 003Fixes / 05. The bulk actions of the last 30 minutes,
  * each with Undo while its window is open. Fetched from the server when
  * opened, so it survives a reload and shows actions done on another device.
  * A lazy chunk, opened from the student list's toolbar.
+ * 004Fixes / 03: every staff account's actions, each saying who did it.
  */
 const minutesLeft = (until, now) => Math.max(0, Math.ceil((until - now) / 60_000));
 
@@ -33,7 +34,7 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
   const [working, setWorking] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   // 003Fixes / 09: messaging chosen students is Gold + whatsapp.advanced, as in the WhatsApp panel.
-  const { tierRank, isSuperadmin } = useAuthState();
+  const { tierRank, isSuperadmin, user } = useAuthState();
   const broadcast = useFlag('whatsapp.broadcast');
   const advanced = useFlag('whatsapp.advanced');
   const canMessage = broadcast && advanced && (isSuperadmin || (tierRank ?? 0) >= 3);
@@ -116,7 +117,7 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
                 <div>
                   <div className="fw-semibold small">{describe(a)}</div>
                   <div className="text-muted small">
-                    {formatTime(new Date(a.createdAtMs))}
+                    {formatTime(new Date(a.createdAtMs))} · {byWho(a.createdBy, user?.email)}
                     {a.status === 'undone' && ' · undone'}
                     {a.status === 'done' && (left > 0 ? ` · ${left} min left to undo` : ' · too late to undo')}
                   </div>
