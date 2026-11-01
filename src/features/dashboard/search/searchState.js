@@ -10,11 +10,14 @@
  */
 
 import { STUDENT_SEARCH_STORAGE_KEY } from './searchStorage';
+import { STATUS_KEYS, SORTS } from './studentSearch';
 
 export { STUDENT_SEARCH_STORAGE_KEY, clearStoredSearch } from './searchStorage';
 
-const STATUS_VALUES = ['review', 'owes', 'blocked', 'awaiting', 'rejected'];
-const SORT_VALUES = ['newest', 'oldest', 'name', 'name-desc', 'class', 'balance'];
+// The chips' own lists (004Fixes / 01): a separate copy here missed the
+// "scheduled" and "duplicate" statuses, so reading the URL dropped them.
+const STATUS_VALUES = STATUS_KEYS;
+const SORT_VALUES = SORTS;
 const SCOPE_VALUES = ['session', 'all'];
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_LABEL = 60;
