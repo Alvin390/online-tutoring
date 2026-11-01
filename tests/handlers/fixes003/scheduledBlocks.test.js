@@ -163,17 +163,20 @@ describe('paying before the time takes the student out', () => {
 });
 
 describe('list, reschedule, cancel, remove one', () => {
-  it('lists this teacher\'s waiting schedules soonest first', async () => {
+  // 004Fixes / 02: every staff account's waiting schedules (it was this teacher's only).
+  it('lists every staff account\'s waiting schedules soonest first', async () => {
     await seed(phoneN(30));
     await seed(phoneN(31));
+    await seed(phoneN(33));
     const later = Date.now() + 2 * 86_400_000;
     const sooner = Date.now() + 86_400_000;
+    const soonest = Date.now() + 3_600_000;
     await sched({ action: 'create', items: items(phoneN(30)), atMs: later, kind: 'other' });
     await sched({ action: 'create', items: items(phoneN(31)), atMs: sooner, kind: 'fees', amount: 900 });
-    await sched({ action: 'create', items: items(phoneN(31)), atMs: sooner, kind: 'other' }, other);
+    await sched({ action: 'create', items: items(phoneN(33)), atMs: soonest, kind: 'other' }, other);
     const res = await sched({ action: 'list' });
-    expect(res.body.schedules.map((s) => s.atMs)).toEqual([sooner, later]);
-    expect(res.body.schedules[0]).toMatchObject({ kind: 'fees', amount: 900, count: 1 });
+    expect(res.body.schedules.map((s) => s.atMs)).toEqual([soonest, sooner, later]);
+    expect(res.body.schedules[1]).toMatchObject({ kind: 'fees', amount: 900, count: 1 });
   });
 
   it('a student scheduled twice is only in the newer schedule', async () => {
@@ -204,10 +207,11 @@ describe('list, reschedule, cancel, remove one', () => {
     expect((await sched({ action: 'cancel', batchId: id })).status).toBe(400);
   });
 
-  it('another teacher cannot touch it; fee schedules need Silver and an amount', async () => {
+  // 004Fixes / 02: another staff account may cancel it (it was 403).
+  it('another staff account may cancel it; fee schedules need Silver and an amount', async () => {
     await seed(phoneN(50));
     const res = await sched({ action: 'create', items: items(phoneN(50)), atMs: Date.now() + 86_400_000, kind: 'other' });
-    expect((await sched({ action: 'cancel', batchId: res.body.batchId }, other)).status).toBe(403);
+    expect((await sched({ action: 'cancel', batchId: res.body.batchId }, other)).status).toBe(200);
     const bronze = await userWithClaims('fx003-sched-bronze', teacherClaims.bronze);
     expect((await sched({ action: 'create', items: items(phoneN(50)), atMs: Date.now() + 86_400_000, kind: 'fees', amount: 10 }, bronze)).status).toBe(403);
     expect((await sched({ action: 'create', items: items(phoneN(50)), atMs: Date.now() + 86_400_000, kind: 'fees' })).status).toBe(400);
@@ -256,7 +260,8 @@ describe('batched ledger posting (postEntries)', () => {
 });
 
 describe('removeMembers (Cancel schedule on a selection) — 003Fixes / 08', () => {
-  it('takes students out of whichever schedule each is in; not-scheduled and other teachers\' are skipped', async () => {
+  // 004Fixes / 02: another staff account's schedules are included (they were skipped).
+  it('takes students out of whichever schedule each is in, whoever made it; not-scheduled are skipped', async () => {
     for (const n of [60, 61, 62, 63]) await seed(phoneN(n));
     const a = await sched({ action: 'create', items: items(phoneN(60), phoneN(61)), atMs: Date.now() + 86_400_000, kind: 'other' });
     const b = await sched({ action: 'create', items: items(phoneN(62)), atMs: Date.now() + 2 * 86_400_000, kind: 'other' });
@@ -264,11 +269,11 @@ describe('removeMembers (Cancel schedule on a selection) — 003Fixes / 08', () 
 
     const res = await sched({ action: 'removeMembers', items: items(phoneN(60), phoneN(62), phoneN(63), phoneN(64)) });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ removed: 2, skipped: { notScheduled: 2 } });
+    expect(res.body).toMatchObject({ removed: 3, skipped: { notScheduled: 1 } });
     expect((await student(phoneN(60))).scheduledBlock).toBeUndefined();
     expect((await student(phoneN(62))).scheduledBlock).toBeUndefined();
     expect((await student(phoneN(61))).scheduledBlock.batchId).toBe(a.body.batchId);
-    expect((await student(phoneN(63))).scheduledBlock).toBeTruthy();
+    expect((await student(phoneN(63))).scheduledBlock).toBeUndefined();
     const list = (await sched({ action: 'list' })).body.schedules;
     expect(list.find((s) => s.id === a.body.batchId).count).toBe(1);
     expect(list.find((s) => s.id === b.body.batchId).count).toBe(0);

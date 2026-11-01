@@ -135,7 +135,16 @@ export default function StudentSearchPanel({
   const handleCancelSchedule = useCallback(async (rowSession, student) => {
     try {
       const { removeFromSchedule } = await import('@services/api/students');
-      await removeFromSchedule([{ session: rowSession, phone: student.id }]);
+      const result = await removeFromSchedule([{ session: rowSession, phone: student.id }]);
+      // 004Fixes / 03: the server removed nobody (the block already started,
+      // or was cancelled meanwhile) — never say it worked.
+      if (!result?.done) {
+        toast?.showWarning(
+          `${student.studentName} is no longer scheduled. The block may already have started or been cancelled. Refresh to see the latest.`,
+          'Nothing to cancel'
+        );
+        return;
+      }
       toast?.showSuccess(`${student.studentName} will not be blocked.`, 'Scheduled block cancelled');
     } catch (err) {
       toast?.showError(err?.message ?? 'Could not cancel that. Try again from Scheduled.');
@@ -438,6 +447,7 @@ export default function StudentSearchPanel({
           <ScheduledPanel
             rosters={rosters}
             sessionNames={sessionNames}
+            expectedCount={scheduledCount}
             onClose={() => setShowScheduled(false)}
             showSuccess={toast?.showSuccess}
             showError={toast?.showError}
