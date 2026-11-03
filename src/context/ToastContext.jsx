@@ -34,8 +34,10 @@ export const ToastProvider = ({ children }) => {
 
   /**
    * @param {'success'|'error'|'warning'|'info'} type
-   * @param {{duration?: number, action?: {label: string, onClick: () => void}}} [options]
+   * @param {{duration?: number, action?: {label: string, onClick: () => void, doubleClick?: boolean, hint?: string}}} [options]
    *        `action` adds a button (e.g. "Undo"); clicking it also dismisses.
+   *        `doubleClick` (004Fixes / 05) makes it run only on a double-click,
+   *        with `hint` shown under it ("Double-click Undo to …").
    */
   const showToast = useCallback((type, title, message, duration = 5000, options = {}) => {
     const id = newId();

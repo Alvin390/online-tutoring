@@ -74,7 +74,8 @@ function uniqueItems(items) {
   return out;
 }
 
-const who = (user) => ({ uid: user.uid, email: user.email ?? null });
+// `device` (004Fixes / 05) is set by the handler from the request (api/_lib/device.js).
+const who = (user) => ({ uid: user.uid, email: user.email ?? null, device: user.device ?? null });
 
 /**
  * Opens a new batch (returns the document to create in the same commit) or
@@ -338,6 +339,8 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
   if (!remaining) {
     increments.status = 'undone';
     increments.undoneAtMs = nowMs;
+    // 004Fixes / 05: who undid it (and from which device), shown in Recent actions.
+    increments.undoneBy = who(user);
   }
   if (Object.keys(increments).length) writes.update(ref, increments);
   await writes.commit();
@@ -366,6 +369,8 @@ export async function listRecent({ db, nowMs }) {
       counts: b.counts ?? {},
       // Older actions (before 004Fixes) carry no email: shown as "another staff account".
       createdBy: b.createdBy?.email ?? null,
+      undoneBy: b.undoneBy?.email ?? null,
+      undoneAtMs: b.undoneAtMs ?? null,
     }));
 }
 

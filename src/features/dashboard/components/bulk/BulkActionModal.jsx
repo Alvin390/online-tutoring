@@ -190,7 +190,15 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
 
   // Confirm.
   const when = scheduling ? ` from ${formatWhen(timing.atMs)}` : '';
-  const confirmLabel = n > 0 ? (scheduling ? `Schedule ${plural(n, 'block')}` : `${text.verb} ${plural(n, 'student')}`) : 'Nothing to do';
+  // 004Fixes / 05: "Now" stays the default (owner), so the confirmation says
+  // plainly that it starts now — on the panel and on the button.
+  const blockingNow = action === 'block' && !scheduling && n > 0;
+  let confirmLabel = 'Nothing to do';
+  if (n > 0 && scheduling) confirmLabel = `Schedule ${plural(n, 'block')} for ${formatWhen(timing.atMs)}`;
+  else if (n > 0) confirmLabel = `${text.verb} ${plural(n, 'student')}${blockingNow ? ' now' : ''}`;
+  const nowWarning = n === 1
+    ? `Starts now: this student loses access to class immediately${isFees ? `, and is charged ${formatKes(Number(amount))} now` : ''}.`
+    : `Starts now: these ${n} students lose access to class immediately${isFees ? `, and each is charged ${formatKes(Number(amount))} now` : ''}.`;
   return (
     <Modal
       title={`${text.verb} ${plural(n, 'student')}${when}?`}
@@ -201,6 +209,9 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
       cancelLabel="Back"
     >
       <div data-testid="bulk-confirm">
+        {blockingNow && (
+          <div className="alert alert-danger py-2 small fw-semibold" data-testid="bulk-now-warning">{nowWarning}</div>
+        )}
         {plan.perClass.length > 0 && (
           <p className="mb-2 small">
             {plan.perClass.map(([cls, count]) => `${cls}: ${count}`).join(' · ')}

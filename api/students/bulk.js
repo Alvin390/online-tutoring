@@ -6,6 +6,7 @@ import { badRequest, forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
 import { tryWriteAudit } from '../_lib/audit.js';
+import { withDevice } from '../_lib/device.js';
 import {
   MAX_ITEMS, openBatch, applyStudents, undoBatch, listRecent, assertChunkSize, listBatchItems,
 } from '../_lib/bulkStudents.js';
@@ -45,9 +46,12 @@ export default createHandler({
   role: 'teacher',
   schema,
   rateLimit: { bucket: 'students_bulk', limit: 600, windowSeconds: 3600, keyBy: 'ip' },
-  handle: async ({ body, user, log }) => {
+  handle: async ({ req, body, user: signedIn, log }) => {
     const db = getDb();
     const nowMs = Date.now();
+    // 004Fixes / 05: the staff member plus a coarse device note, kept on the
+    // records and in the audit (Cloudflare's request logs last 3 days).
+    const user = withDevice(signedIn, req);
 
     if (body.action === 'items') {
       return { items: await listBatchItems({ db, user, batchId: body.batchId }) };
@@ -66,7 +70,7 @@ export default createHandler({
           actor: user.uid,
           actorRole: user.role,
           target: `bulkActions/${body.batchId}`,
-          context: { requestId: log.requestId },
+          context: { requestId: log.requestId, device: user.device },
         }, log);
       }
       return { ok: true, ...result };
@@ -122,7 +126,7 @@ export default createHandler({
         actorRole: user.role,
         target: `bulkActions/${batch.id}`,
         after: { kind: body.kind ?? null, amount: isFees ? body.amount : null },
-        context: { requestId: log.requestId },
+        context: { requestId: log.requestId, device: user.device },
       }, log);
     }
 

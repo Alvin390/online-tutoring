@@ -6,6 +6,7 @@ import { badRequest, forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
 import { tryWriteAudit } from '../_lib/audit.js';
+import { withDevice } from '../_lib/device.js';
 import {
   MAX_CREATE_ITEMS, createSchedule, listSchedules, rescheduleSchedule, cancelSchedule, removeMember, removeMembers,
 } from '../_lib/scheduledBlocks.js';
@@ -44,9 +45,11 @@ export default createHandler({
   role: 'teacher',
   schema,
   rateLimit: { bucket: 'students_scheduled', limit: 600, windowSeconds: 3600, keyBy: 'ip' },
-  handle: async ({ body, user, log }) => {
+  handle: async ({ req, body, user: signedIn, log }) => {
     const db = getDb();
     const nowMs = Date.now();
+    // 004Fixes / 05: the staff member plus a coarse device note (see bulk.js).
+    const user = withDevice(signedIn, req);
 
     switch (body.action) {
       case 'list':
@@ -54,25 +57,25 @@ export default createHandler({
       case 'reschedule': {
         // 004Fixes / 02: any staff account may move any schedule, so record who.
         const result = await rescheduleSchedule({ db, user, batchId: body.batchId, atMs: body.atMs, nowMs });
-        await tryWriteAudit({ action: 'students.schedule_rescheduled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, after: { atMs: body.atMs }, context: { requestId: log.requestId } }, log);
+        await tryWriteAudit({ action: 'students.schedule_rescheduled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, after: { atMs: body.atMs }, context: { requestId: log.requestId, device: user.device } }, log);
         return { ok: true, ...result };
       }
       case 'cancel': {
         const result = await cancelSchedule({ db, user, batchId: body.batchId });
-        await tryWriteAudit({ action: 'students.schedule_cancelled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, context: { requestId: log.requestId } }, log);
+        await tryWriteAudit({ action: 'students.schedule_cancelled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, context: { requestId: log.requestId, device: user.device } }, log);
         return { ok: true, ...result };
       }
       case 'removeMembers': {
         const result = await removeMembers({ db, user, items: body.items });
         if (result.removed) {
-          await tryWriteAudit({ action: 'students.schedule_members_removed', actor: user.uid, actorRole: user.role, target: 'scheduledBlocks', after: { removed: result.removed }, context: { requestId: log.requestId } }, log);
+          await tryWriteAudit({ action: 'students.schedule_members_removed', actor: user.uid, actorRole: user.role, target: 'scheduledBlocks', after: { removed: result.removed }, context: { requestId: log.requestId, device: user.device } }, log);
         }
         return { ok: true, ...result };
       }
       case 'removeMember': {
         await assertSessionExists(db, body.session);
         const result = await removeMember({ db, user, batchId: body.batchId, session: body.session, phone: body.phone });
-        await tryWriteAudit({ action: 'students.schedule_members_removed', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, after: { removed: 1 }, context: { requestId: log.requestId } }, log);
+        await tryWriteAudit({ action: 'students.schedule_members_removed', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${body.batchId}`, after: { removed: 1 }, context: { requestId: log.requestId, device: user.device } }, log);
         return { ok: true, ...result };
       }
       default: {
@@ -88,7 +91,7 @@ export default createHandler({
         });
         log.info('Block scheduled', { added: result.added, kind: body.kind });
         if (!body.batchId) {
-          await tryWriteAudit({ action: 'students.block_scheduled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${result.batchId}`, after: { atMs: result.atMs, kind: body.kind }, context: { requestId: log.requestId } }, log);
+          await tryWriteAudit({ action: 'students.block_scheduled', actor: user.uid, actorRole: user.role, target: `scheduledBlocks/${result.batchId}`, after: { atMs: result.atMs, kind: body.kind }, context: { requestId: log.requestId, device: user.device } }, log);
         }
         return { ok: true, ...result };
       }
