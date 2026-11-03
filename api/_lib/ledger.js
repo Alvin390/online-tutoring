@@ -67,6 +67,26 @@ export const collectedMonthKey = (date = new Date()) =>
   new Date(date.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 7);
 
 /**
+ * The aggregate writes for ONE session — 004Fixes / 09 ("per session is also
+ * good", owner). `aggregates/dashboard.bySession.{slug}` mirrors the school
+ * totals: `totalOutstanding` moves by every delta, `collectedThisMonth` by
+ * payments, restarting when its own `collectedMonth` stamp is an earlier
+ * month. Same document, same transaction: no extra read.
+ *
+ * @param {object|undefined} current  aggregates/dashboard data, as read in the transaction
+ */
+export function sessionTotals(current, session, delta, collected = 0) {
+  const fields = { totalOutstanding: FieldValue.increment(delta) };
+  if (collected > 0) {
+    const month = collectedMonthKey();
+    const sameMonth = current?.bySession?.[session]?.collectedMonth === month;
+    fields.collectedThisMonth = sameMonth ? FieldValue.increment(collected) : collected;
+    fields.collectedMonth = month;
+  }
+  return fields;
+}
+
+/**
  * Posts one entry.
  *
  * Everything below happens inside a SINGLE Firestore transaction:
@@ -236,6 +256,7 @@ export async function postEntry(opts) {
       {
         totalOutstanding: FieldValue.increment(delta),
         ...collected,
+        bySession: { [session]: sessionTotals(aggregatesSnap.data(), session, delta, type === 'payment' ? amount : 0) },
         updatedAt: now,
       },
       { merge: true }
@@ -303,6 +324,8 @@ export async function postEntries(list) {
     const results = [];
     let totalDelta = 0;
     let collectedToday = 0;
+    // 004Fixes / 09: the same sums per session.
+    const perSession = new Map();
     const now = FieldValue.serverTimestamp();
 
     for (const p of plans) {
@@ -322,6 +345,10 @@ export async function postEntries(list) {
       const balanceAfter = previousBalance + delta;
       balances.set(p.account.path, balanceAfter);
       totalDelta += delta;
+      const sums = perSession.get(opts.session) ?? { delta: 0, collected: 0 };
+      sums.delta += delta;
+      if (opts.type === 'payment') sums.collected += opts.amount;
+      perSession.set(opts.session, sums);
       const when = opts.occurredAt ?? new Date();
 
       tx.set(p.entry, {
@@ -379,7 +406,9 @@ export async function postEntries(list) {
           collectedMonth: month,
         };
       }
-      tx.set(aggregates, { totalOutstanding: FieldValue.increment(totalDelta), ...collected, updatedAt: now }, { merge: true });
+      const bySession = {};
+      for (const [slug, sums] of perSession) bySession[slug] = sessionTotals(aggregatesSnap.data(), slug, sums.delta, sums.collected);
+      tx.set(aggregates, { totalOutstanding: FieldValue.increment(totalDelta), ...collected, bySession, updatedAt: now }, { merge: true });
     }
     return results;
   });

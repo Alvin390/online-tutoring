@@ -4,6 +4,7 @@ import { z, sessionSchema } from '../_lib/validate.js';
 import {
   accountRef,
   accountKey,
+  sessionTotals,
   ledgerRef,
   invoiceRef,
   nextSequence,
@@ -222,6 +223,8 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
           db.doc('aggregates/dashboard'),
           {
             totalOutstanding: FieldValue.increment(amount),
+            // 004Fixes / 09: and this session's outstanding (an invoice collects nothing).
+            bySession: { [session]: sessionTotals(undefined, session, amount) },
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }

@@ -33,6 +33,13 @@ import logger from '@utils/logger';
 
 const PAGE = 50;
 
+/**
+ * The fee account id for one registration — 004Fixes / 06 and 09. Mirrors
+ * `accountKey` in api/_lib/ledger.js: each session's registration is its own
+ * student for money, so the same number in two sessions has two accounts.
+ */
+export const feeAccountId = (session, phone) => `${session}__${phone}`;
+
 const toIso = (value) => value?.toDate?.()?.toISOString?.() ?? (typeof value === 'string' ? value : null);
 
 function fromDoc(d) {
@@ -86,16 +93,17 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
     loadSummary();
   }, [loadSummary]);
 
-  // Live ledger + live account.
+  // Live ledger + live account — this registration's (session + phone).
   useEffect(() => {
-    if (!enabled || !phone) return undefined;
+    if (!enabled || !session || !phone) return undefined;
+    const accountId = feeAccountId(session, phone);
 
     setLoading(true);
     setOlderPages([]);
     let initial = true;
 
     const ledgerQuery = query(
-      collection(db, 'fees', 'accounts', 'items', phone, 'ledger'),
+      collection(db, 'fees', 'accounts', 'items', accountId, 'ledger'),
       orderBy('occurredAt', 'desc'),
       limit(PAGE)
     );
@@ -130,7 +138,7 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
     );
 
     const unsubscribeAccount = onSnapshot(
-      doc(db, 'fees', 'accounts', 'items', phone),
+      doc(db, 'fees', 'accounts', 'items', accountId),
       (snap) => setAccount(snap.exists() ? snap.data() : null),
       (error) => logger.error('Account listener failed', error)
     );
@@ -139,13 +147,13 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
       unsubscribeLedger();
       unsubscribeAccount();
     };
-  }, [enabled, phone]);
+  }, [enabled, session, phone]);
 
   const loadOlder = useCallback(async () => {
-    if (!lastDocRef.current || !phone) return;
+    if (!lastDocRef.current || !session || !phone) return;
     const snap = await getDocs(
       query(
-        collection(db, 'fees', 'accounts', 'items', phone, 'ledger'),
+        collection(db, 'fees', 'accounts', 'items', feeAccountId(session, phone), 'ledger'),
         orderBy('occurredAt', 'desc'),
         startAfter(lastDocRef.current),
         limit(PAGE)
@@ -154,7 +162,7 @@ export const useStudentFees = ({ session, phone, enabled = false }) => {
     setOlderPages((prev) => [...prev, ...snap.docs.map(fromDoc)]);
     lastDocRef.current = snap.docs[snap.docs.length - 1] ?? lastDocRef.current;
     setHasMore(snap.docs.length === PAGE);
-  }, [phone]);
+  }, [session, phone]);
 
   const pay = useCallback(
     async (payload) => {
