@@ -95,7 +95,8 @@ export async function seed({ students = 500 } = {}) {
 
   for (let i = 0; i < 200; i += 1) {
     const { phone, session } = phones[i % 100];
-    await put(`fees/accounts/items/${phone}/ledger/seed_${i}`, {
+    // 004Fixes / 06: accounts are per registration, `{session}__{phone}`.
+    await put(`fees/accounts/items/${session}__${phone}/ledger/seed_${i}`, {
       type: i % 2 ? 'payment' : 'invoice', amount: 1500, method: i % 2 ? 'mpesa' : null,
       reference: i % 2 ? `TJK${String(i).padStart(7, '0')}` : null,
       occurredAt: new Date(Date.now() - i * 86_400_000), recordedAt: new Date(),
@@ -104,7 +105,7 @@ export async function seed({ students = 500 } = {}) {
   }
   for (let i = 0; i < 100; i += 1) {
     const { phone, session } = phones[i];
-    await put(`fees/accounts/items/${phone}`, { phone, session, balance: 1500, updatedAt: new Date() });
+    await put(`fees/accounts/items/${session}__${phone}`, { key: `${session}__${phone}`, phone, session, balance: 1500, updatedAt: new Date() });
   }
 
   for (let i = 0; i < 50; i += 1) {

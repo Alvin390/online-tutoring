@@ -42,7 +42,8 @@ const owe = async (phone, amount) => {
   expect(res.status).toBe(200);
 };
 const student = async (phone) => (await db.doc(`sessions/morning/students/${phone}`).get()).data();
-const ledger = async (phone) => (await db.collection(`fees/accounts/items/${phone}/ledger`).get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+// 004Fixes / 06: accounts are per registration, `{session}__{phone}`.
+const ledger = async (phone) => (await db.collection(`fees/accounts/items/morning__${phone}/ledger`).get()).docs.map((d) => ({ id: d.id, ...d.data() }));
 const bulk = (body) => call('/api/students/bulk', { body, token: gold });
 const items = (...phones) => phones.map((phone) => ({ session: 'morning', phone }));
 

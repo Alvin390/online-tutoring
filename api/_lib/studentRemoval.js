@@ -1,5 +1,5 @@
 import { deleteRecursively } from './sessions.js';
-import { closeDeletedStudentAccount } from './ledger.js';
+import { closeDeletedStudentAccount, accountRef } from './ledger.js';
 
 /**
  * Removing a student record — shared by /api/student/remove and the duplicate
@@ -18,13 +18,16 @@ export async function removeStudentRecord({ db, session, phone, user, closeKey }
   const { byCollection } = await deleteRecursively(db, ref);
   const noteCount = byCollection?.notes ?? 0;
 
-  const account = db.doc(`fees/accounts/items/${phone}`);
+  // 004Fixes / 06: only this registration's account. The same number in the
+  // other session keeps its balance (a delete never writes off its debt).
+  const account = accountRef(db, session, phone);
   const accountSnap = await account.get();
   let balanceClosed = 0;
   if (accountSnap.exists) {
     const deletedAt = new Date();
     await account.set({ studentDeletedAt: deletedAt, studentDeletedBy: user.uid }, { merge: true });
     ({ closed: balanceClosed } = await closeDeletedStudentAccount({
+      session,
       phone,
       recordedBy: user.uid,
       closeKey: closeKey ?? String(deletedAt.getTime()),

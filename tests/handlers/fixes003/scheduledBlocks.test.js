@@ -104,7 +104,7 @@ describe('the sweep applies a due schedule', () => {
     await sched({ action: 'create', items: items(phoneN(10), phoneN(11), phoneN(12)), atMs: at, kind: 'fees', amount: 1200 });
 
     expect((await sweep()).body.schedules ?? 0).toBe(0); // nothing due yet
-    expect(await db.collection(`fees/accounts/items/${phoneN(10)}/ledger`).get()).toHaveProperty('size', 0);
+    expect(await db.collection(`fees/accounts/items/morning__${phoneN(10)}/ledger`).get()).toHaveProperty('size', 0);
 
     goTo(at + 30_000);
     const res = await sweep();
@@ -233,7 +233,7 @@ describe('batched ledger posting (postEntries)', () => {
       expect((await db.doc('aggregates/dashboard').get()).data().totalOutstanding).toBe(15_000);
       for (const p of phones.slice(0, 3)) {
         expect((await student(p)).feeBalance).toBe(600);
-        expect((await db.collection(`fees/accounts/items/${p}/ledger`).get()).size).toBe(1);
+        expect((await db.collection(`fees/accounts/items/morning__${p}/ledger`).get()).size).toBe(1);
       }
       // A fee batch undoes 25 a call (its reversals are one transaction too).
       const undo = await call('/api/students/bulk', { token: gold, body: { action: 'undo', batchId: res.body.batchId } });
@@ -246,7 +246,10 @@ describe('batched ledger posting (postEntries)', () => {
     }
   });
 
-  it('the same number in two sessions in one chunk: its balance runs through both entries', async () => {
+  // 004Fixes / 06 (owner: fees per session): was "its balance runs through both
+  // entries" (one shared account, 1,000 on the evening record). Each
+  // registration now has its own account, so each owes its own 500.
+  it('the same number in two sessions in one chunk: each registration owes its own amount', async () => {
     await seed(phoneN(300));
     await db.doc('sessions/evening').set({ slug: 'evening', name: 'Evening', active: true });
     await db.doc(`sessions/evening/students/${phoneN(300)}`).set({
@@ -254,8 +257,10 @@ describe('batched ledger posting (postEntries)', () => {
     });
     const res = await call('/api/students/bulk', { token: gold, body: { action: 'block', kind: 'fees', amount: 500, items: [{ session: 'morning', phone: phoneN(300) }, { session: 'evening', phone: phoneN(300) }] } });
     expect(res.body.done).toBe(2);
-    expect((await db.doc(`fees/accounts/items/${phoneN(300)}`).get()).data().balance).toBe(1000);
-    expect((await db.doc(`sessions/evening/students/${phoneN(300)}`).get()).data().feeBalance).toBe(1000);
+    expect((await db.doc(`fees/accounts/items/morning__${phoneN(300)}`).get()).data().balance).toBe(500);
+    expect((await db.doc(`fees/accounts/items/evening__${phoneN(300)}`).get()).data().balance).toBe(500);
+    expect((await db.doc(`sessions/evening/students/${phoneN(300)}`).get()).data().feeBalance).toBe(500);
+    expect((await db.doc(`sessions/morning/students/${phoneN(300)}`).get()).data().feeBalance).toBe(500);
   });
 });
 

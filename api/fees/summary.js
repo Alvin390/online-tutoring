@@ -59,7 +59,8 @@ export default createHandler({
     }
 
     const db = getDb();
-    const accountSnap = await accountRef(db, phone).get();
+    // 004Fixes / 06: that registration's account (session + phone).
+    const accountSnap = await accountRef(db, session, phone).get();
     const account = accountSnap.exists ? accountSnap.data() : null;
 
     const summary = {
@@ -73,7 +74,7 @@ export default createHandler({
     // Statement entries are STAFF ONLY.
     let entries = null;
     if (isStaff) {
-      const snap = await ledgerRef(db, phone).orderBy('occurredAt', 'desc').limit(50).get();
+      const snap = await ledgerRef(db, session, phone).orderBy('occurredAt', 'desc').limit(50).get();
       entries = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),

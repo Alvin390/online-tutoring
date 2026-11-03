@@ -8,6 +8,7 @@ import { issuePass } from '../_lib/checkinPass.js';
 import { sessionClasses } from '../_lib/sessions.js';
 import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
 import { isDuplicatePair, retiredMessage } from '../_lib/duplicates.js';
+import { accountRef } from '../_lib/ledger.js';
 
 /**
  * Student registration — Phase 13 / 08 A1.
@@ -116,7 +117,8 @@ export default createHandler({
 
     // The same number registering again after being deleted: the fee account
     // (closed at zero on deletion) belongs to a live student once more.
-    const account = db.doc(`fees/accounts/items/${phone}`);
+    // 004Fixes / 06: this session's account only.
+    const account = accountRef(db, session, phone);
     const accountSnap = await account.get();
     if (accountSnap.exists && accountSnap.data().studentDeletedAt) {
       await account.set({

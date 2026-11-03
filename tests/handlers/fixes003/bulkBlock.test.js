@@ -93,7 +93,7 @@ describe('block, kind "fees"', () => {
     expect(res.body.done).toBe(2);
     const s = await student('morning', phoneN(200));
     expect(s).toMatchObject({ blocked: true, blockReason: '', feeBalance: 1500 });
-    const ledger = await db.collection(`fees/accounts/items/${phoneN(200)}/ledger`).get();
+    const ledger = await db.collection(`fees/accounts/items/morning__${phoneN(200)}/ledger`).get();
     expect(ledger.docs.map((d) => d.data().type)).toEqual(['invoice']);
     expect((await db.doc('aggregates/dashboard').get()).data().totalOutstanding).toBe(3000);
   });
@@ -105,7 +105,7 @@ describe('block, kind "fees"', () => {
     await db.doc(`bulkActions/${first.body.batchId}/items/morning__${phoneN(210).slice(1)}`).delete();
     await db.doc(`sessions/morning/students/${phoneN(210)}`).set({ blocked: false }, { merge: true });
     await bulk({ action: 'block', kind: 'fees', amount: 900, items: items(210, 1), batchId: first.body.batchId });
-    expect((await db.collection(`fees/accounts/items/${phoneN(210)}/ledger`).get()).size).toBe(1);
+    expect((await db.collection(`fees/accounts/items/morning__${phoneN(210)}/ledger`).get()).size).toBe(1);
     expect((await student('morning', phoneN(210))).feeBalance).toBe(900);
   });
 
@@ -157,7 +157,7 @@ describe('undo', () => {
     const undo = await bulk({ action: 'undo', batchId: res.body.batchId });
     expect(undo.body).toMatchObject({ undone: 1, changedSince: 1 });
     expect(await student('morning', phoneN(410))).toMatchObject({ blocked: false, feeBalance: 0 });
-    expect((await db.collection(`fees/accounts/items/${phoneN(410)}/ledger`).get()).size).toBe(2);
+    expect((await db.collection(`fees/accounts/items/morning__${phoneN(410)}/ledger`).get()).size).toBe(2);
   });
 
   it('an unblock: re-blocked with the old reason', async () => {

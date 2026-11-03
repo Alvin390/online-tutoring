@@ -92,7 +92,7 @@ export default createHandler({
     if (!studentSnap.exists) throw notFound('No registration found for that number.');
 
     // --- The amount, from the ledger.
-    const accountSnap = await accountRef(db, phone).get();
+    const accountSnap = await accountRef(db, session, phone).get();
     const balance = accountSnap.exists ? (accountSnap.data().balance ?? 0) : 0;
 
     if (balance <= 0) {

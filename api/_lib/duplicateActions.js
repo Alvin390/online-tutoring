@@ -1,6 +1,6 @@
 import { FieldValue } from './firebaseAdmin.js';
 import { badRequest, notFound } from './errors.js';
-import { postEntry } from './ledger.js';
+import { postEntry, accountRef } from './ledger.js';
 import { removeStudentRecord } from './studentRemoval.js';
 
 /**
@@ -129,7 +129,8 @@ export async function mergeDuplicate({ db, session, keep, remove, cursor = null,
   await batch.commit();
 
   // 3. Money: in to the kept account, then out of the removed one.
-  const accountSnap = await db.doc(`fees/accounts/items/${remove}`).get();
+  // 004Fixes / 06: a duplicate is always inside one session, so both accounts are that session's.
+  const accountSnap = await accountRef(db, session, remove).get();
   const balance = accountSnap.exists ? (accountSnap.data().balance ?? 0) : 0;
   if (balance !== 0) {
     const common = { session, type: 'adjustment', amount: Math.abs(balance), recordedBy: user.uid };

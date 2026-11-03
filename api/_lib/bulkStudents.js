@@ -1,5 +1,5 @@
 import { FieldValue, Timestamp } from './firebaseAdmin.js';
-import { postEntries, reverseEntries } from './ledger.js';
+import { postEntries, reverseEntries, accountRef } from './ledger.js';
 import { effectiveApprovalStatus } from './studentState.js';
 import { shouldAutoUnblock } from './feeState.js';
 import { approvalFields, receiptIdFor, mpesaCodeFrom } from './receiptApproval.js';
@@ -133,8 +133,9 @@ export async function applyStudents({
   const list = uniqueItems(items);
   const studentRefs = list.map((i) => studentRef(db, i.session, i.phone));
   const itemRefs = list.map((i) => itemRef(db, batch.id, i.session, i.phone));
-  // Approving receipts needs each fee account's balance as well.
-  const accountRefs = action === 'approveReceipts' ? list.map((i) => db.doc(`fees/accounts/items/${i.phone}`)) : [];
+  // Approving receipts needs each fee account's balance as well — that
+  // registration's account (004Fixes / 06: session + phone).
+  const accountRefs = action === 'approveReceipts' ? list.map((i) => accountRef(db, i.session, i.phone)) : [];
   // One round trip for the students, their items (a retry's done marks) and accounts.
   const snaps = await db.getAll(...studentRefs, ...(batch.isNew ? [] : itemRefs), ...accountRefs);
   const studentSnaps = snaps.slice(0, list.length);

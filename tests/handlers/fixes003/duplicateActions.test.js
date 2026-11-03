@@ -59,7 +59,8 @@ const owe = async (phone, amount) => {
   expect(res.status, JSON.stringify(res.body)).toBe(200);
 };
 const outstanding = async () => (await db.doc('aggregates/dashboard').get()).data()?.totalOutstanding ?? 0;
-const balance = async (phone) => (await db.doc(`fees/accounts/items/${phone}`).get()).data()?.balance ?? 0;
+// 004Fixes / 06: accounts are per registration, `{session}__{phone}`.
+const balance = async (phone) => (await db.doc(`fees/accounts/items/morning__${phone}`).get()).data()?.balance ?? 0;
 const subreq = (res) => Number(/subreq;desc="(\d+)"/.exec(res.headers.get('server-timing'))[1]);
 
 describe('decline', () => {

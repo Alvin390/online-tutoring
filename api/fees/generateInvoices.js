@@ -3,6 +3,7 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, sessionSchema } from '../_lib/validate.js';
 import {
   accountRef,
+  accountKey,
   ledgerRef,
   invoiceRef,
   nextSequence,
@@ -104,9 +105,11 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
   // in memory; deliberately not done now, because it trades a simple resume
   // (find the key in a stable list) for one that has to survive a query cursor
   // AND a roster that changes between ticks.
-  const accountSnaps = await db.getAll(candidates.map((c) => accountRef(db, c.phone)));
-  const accountsByPhone = new Map(
-    candidates.map((c, i) => [c.phone, accountSnaps[i].exists ? accountSnaps[i].data() : null])
+  // 004Fixes / 06: one account per registration (session + phone). A map keyed
+  // by the phone alone would hand the evening row the morning account.
+  const accountSnaps = await db.getAll(candidates.map((c) => accountRef(db, c.session, c.phone)));
+  const accountsByRow = new Map(
+    candidates.map((c, i) => [`${c.session}/${c.phone}`, accountSnaps[i].exists ? accountSnaps[i].data() : null])
   );
 
   const perStudent = async ({ session, studentDoc, phone }) => {
@@ -119,7 +122,7 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
       return;
     }
 
-    const account = accountsByPhone.get(phone) ?? null;
+    const account = accountsByRow.get(`${session}/${phone}`) ?? null;
 
     const amount = resolveFeeAmount({ student, account, config });
 
@@ -144,20 +147,22 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
 
     // Idempotency: same phone + same period = same entry ID.
     const entryId = `invoice_${targetPeriod}`;
-    const entryDoc = ledgerRef(db, phone).doc(entryId);
+    const entryDoc = ledgerRef(db, session, phone).doc(entryId);
 
     try {
       const outcome = await db.runTransaction(async (tx) => {
         const existing = await tx.get(entryDoc);
         if (existing.exists) return { duplicate: true };
 
-        const accountNow = await tx.get(accountRef(db, phone));
+        const accountNow = await tx.get(accountRef(db, session, phone));
         const previousBalance = accountNow.exists ? (accountNow.data().balance ?? 0) : 0;
         const balanceAfter = previousBalance + amount;
 
         const sequence = await nextSequence(tx, db, `invoice-${year}`);
         const invoiceNumber = formatInvoiceNumber(config.invoicePrefix, year, sequence);
-        const invoiceId = `${targetPeriod}_${phone}`;
+        // 004Fixes / 06: per registration, so the second session's invoice
+        // can't overwrite the first's.
+        const invoiceId = `${targetPeriod}_${accountKey(session, phone)}`;
         const dueAt = computeNextDueDate(config);
 
         tx.set(entryDoc, {
@@ -178,8 +183,9 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
         });
 
         tx.set(
-          accountRef(db, phone),
+          accountRef(db, session, phone),
           {
+            key: accountKey(session, phone),
             phone,
             session,
             balance: balanceAfter,

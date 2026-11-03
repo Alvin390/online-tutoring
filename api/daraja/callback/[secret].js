@@ -134,6 +134,7 @@ export default async function handler(req, res) {
         const lateAmount = fromDarajaAmount(meta.Amount);
         if (lateReceipt && lateAmount === tx.expectedAmount) {
           const filled = await fillMissingReference({
+            session: tx.session,
             phone: tx.phone,
             entryId: tx.ledgerEntryId ?? `mpesa_${checkoutRequestId}`,
             reference: String(lateReceipt),
