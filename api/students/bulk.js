@@ -33,6 +33,8 @@ const schema = z.discriminatedUnion('action', [
     items,
     kind: z.enum(['fees', 'other']),
     amount: z.number().int().min(1).max(10_000_000).optional(),
+    // 006Fixes / 09 (owner): false = "block for what they owe", no new charge.
+    charge: z.boolean().optional(),
     reason: z.string().trim().max(500).optional(),
     batchId: batchId.optional(),
   }).strict(),
@@ -115,11 +117,13 @@ export default createHandler({
     }
 
     const isFees = body.action === 'block' && body.kind === 'fees';
+    // 006Fixes / 09: a fee block charges unless the teacher chose "for what they owe".
+    const charge = isFees && body.charge !== false;
     if (isFees) {
       // The same gates as /api/fees/post: Silver, and fees switched on.
       requireTier(user, 'silver');
       if (!(await isEnabled('fees.enabled'))) throw forbidden('Fees are not enabled.', 'feature_disabled');
-      if (!body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
+      if (charge && !body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
     }
     assertChunkSize(body.items, isFees ? MAX_ITEMS.blockFees : MAX_ITEMS[body.action]);
 
@@ -135,10 +139,11 @@ export default createHandler({
       batchId: body.batchId,
       action: body.action,
       kind: body.action === 'block' ? body.kind : null,
-      amount: isFees ? body.amount : null,
+      amount: charge ? body.amount : null,
       reason: body.action === 'block' && !isFees ? (body.reason ?? '') : null,
       nowMs,
       payment: body.action === 'approveReceipts' ? (body.payment ?? 'full') : null,
+      charge: isFees ? charge : null,
     });
 
     const result = await applyStudents({
@@ -148,7 +153,8 @@ export default createHandler({
       action: body.action,
       items: body.items,
       kind: body.action === 'block' ? body.kind : null,
-      amount: isFees ? body.amount : null,
+      amount: charge ? body.amount : null,
+      charge,
       reason: body.action === 'block' ? (body.reason ?? '') : null,
       nowMs,
       recordedBy: user.uid,
@@ -165,7 +171,7 @@ export default createHandler({
         actor: user.uid,
         actorRole: user.role,
         target: `bulkActions/${batch.id}`,
-        after: { kind: body.kind ?? null, amount: isFees ? body.amount : null },
+        after: { kind: body.kind ?? null, amount: charge ? body.amount : null, ...(isFees ? { charge } : {}) },
         context: { requestId: log.requestId, device: user.device },
       }, log);
     }

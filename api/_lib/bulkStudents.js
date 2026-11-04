@@ -93,6 +93,7 @@ const who = (user) => ({ uid: user.uid, email: user.email ?? null, device: user.
  */
 export async function openBatch({
   db, user, batchId, action, kind = null, amount = null, reason = null, nowMs, source = 'dashboard', createdBy = null, payment = null,
+  charge = null,
 }) {
   if (!batchId) {
     const ref = db.collection('bulkActions').doc();
@@ -113,6 +114,8 @@ export async function openBatch({
       ...(action === 'delete' ? { undoable: false } : {}),
       // 006Fixes / 05: how receipts were approved (complete or partial).
       ...(payment ? { payment } : {}),
+      // 006Fixes / 09: a fee block without a new charge ("for what they owe").
+      ...(charge === false ? { charge: false } : {}),
     };
     return { id: ref.id, ref, data, isNew: true };
   }
@@ -141,7 +144,7 @@ export async function openBatch({
  */
 export async function applyStudents({
   db, user, batch, action, items, kind = 'other', amount = null, reason = null, nowMs, recordedBy,
-  feesEnabled = false, payment = 'full',
+  feesEnabled = false, payment = 'full', charge = true,
 }) {
   const list = uniqueItems(items);
   const studentRefs = list.map((i) => studentRef(db, i.session, i.phone));
@@ -178,6 +181,9 @@ export async function applyStudents({
     if (action === 'block') {
       if (effectiveApprovalStatus(data) === 'pending') { skip('awaitingApproval', item); return; }
       if (data.blocked === true) { skip('alreadyBlocked', item); return; }
+      // 006Fixes / 09: "for what they owe" needs something owed (the
+      // feeBalance the ledger keeps equal to the account — no extra read).
+      if (kind === 'fees' && charge === false && !((Number(data.feeBalance) || 0) > 0)) { skip('nothingOwed', item); return; }
     } else if (action === 'unblock') {
       if (data.blocked !== true) { skip('notBlocked', item); return; }
     } else if (action === 'approveReceipts') {
@@ -202,7 +208,7 @@ export async function applyStudents({
   // these students is touched (blocked with no balance to pay is a dead end).
   const ledgerWork = [];
   for (const item of toApply) {
-    if (action === 'block' && kind === 'fees') {
+    if (action === 'block' && kind === 'fees' && charge !== false) {
       ledgerWork.push({ item, opts: {
         phone: item.phone, session: item.session, type: 'invoice', amount,
         note: 'Fees due — recorded when blocking', recordedBy,
@@ -404,6 +410,7 @@ export async function listRecent({ db, nowMs }) {
       amount: b.amount ?? null,
       reason: b.reason ?? null,
       payment: b.payment ?? null,
+      ...(b.kind === 'fees' ? { charge: b.charge !== false } : {}),
       source: b.source ?? 'dashboard',
       status: b.status,
       createdAtMs: b.createdAtMs,

@@ -28,6 +28,8 @@ const schema = z.discriminatedUnion('action', [
     atMs,
     kind: z.enum(['fees', 'other']),
     amount: z.number().int().min(1).max(10_000_000).optional(),
+    // 006Fixes / 09: false = "block for what they owe", no new charge.
+    charge: z.boolean().optional(),
     reason: z.string().trim().max(500).optional(),
     batchId: id.optional(),
   }).strict(),
@@ -82,12 +84,13 @@ export default createHandler({
         if (body.kind === 'fees') {
           requireTier(user, 'silver');
           if (!(await isEnabled('fees.enabled'))) throw forbidden('Fees are not enabled.', 'feature_disabled');
-          if (!body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
+          if (body.charge !== false && !body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
         }
         for (const slug of new Set(body.items.map((i) => i.session))) await assertSessionExists(db, slug);
         const result = await createSchedule({
           db, user, batchId: body.batchId, items: body.items, atMs: body.atMs, kind: body.kind,
-          amount: body.amount ?? null, reason: body.reason ?? null, nowMs,
+          amount: body.charge === false ? null : (body.amount ?? null), reason: body.reason ?? null, nowMs,
+          charge: body.kind === 'fees' ? body.charge !== false : null,
         });
         log.info('Block scheduled', { added: result.added, kind: body.kind });
         if (!body.batchId) {

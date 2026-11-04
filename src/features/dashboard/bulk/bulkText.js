@@ -21,6 +21,8 @@ const SKIP_TEXT = {
   notScheduled: (n) => `${n} no longer scheduled`,
   // 006Fixes / 05: a partial amount of 0, the whole balance or more.
   amountInvalid: (n) => `${n} with no valid amount`,
+  // 006Fixes / 09: "block for what they owe" skips anyone owing nothing.
+  nothingOwed: (n) => `${n} owing nothing`,
 };
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

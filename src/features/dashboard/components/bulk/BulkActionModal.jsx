@@ -33,7 +33,7 @@ function partialAmount(text, owed) {
  * continue the same action — the server never applies a student twice.
  */
 /** Who the action applies to, and who it skips — the same rules as the server. */
-export function planBulk(action, rows) {
+export function planBulk(action, rows, { noCharge = false } = {}) {
   const eligible = [];
   const skipped = {};
   const skip = (key) => { skipped[key] = (skipped[key] ?? 0) + 1; };
@@ -41,6 +41,8 @@ export function planBulk(action, rows) {
     if (action === 'block') {
       if (effectiveApprovalStatus(row) === 'pending') skip('awaitingApproval');
       else if (row.blocked === true) skip('alreadyBlocked');
+      // 006Fixes / 09: "for what they owe" skips anyone owing nothing (as the server).
+      else if (noCharge && !((Number(row.feeBalance) || 0) > 0)) skip('nothingOwed');
       else eligible.push(row);
     } else if (action === 'unblock') {
       if (row.blocked === true) eligible.push(row);
@@ -71,6 +73,14 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
 
   const [step, setStep] = useState(action === 'block' ? 'form' : 'confirm');
   const [kind, setKind] = useState(feesUsable ? 'fees' : 'other');
+  // 006Fixes / 09 (owner): when anyone selected already owes, the default is
+  // "Block for what they owe" (no new charge).
+  const owing = useMemo(() => {
+    if (action !== 'block') return null;
+    const owes = rows.filter((r) => owedOf(r) > 0);
+    return { count: owes.length, total: owes.reduce((s, r) => s + owedOf(r), 0), nothing: rows.length - owes.length };
+  }, [action, rows]);
+  const [charge, setCharge] = useState(() => !(owing?.count > 0));
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState(null);
@@ -88,11 +98,14 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
   // A scheduled block takes every selected student: the skip rules apply at
   // the time it starts, not now (someone may be approved meanwhile).
   const scheduling = action === 'block' && timing.scheduled;
+  const noCharge = action === 'block' && kind === 'fees' && feesUsable && owing?.count > 0 && !charge;
   const plan = useMemo(() => {
-    const p = planBulk(action, rows);
+    const p = planBulk(action, rows, { noCharge });
     return scheduling ? { ...p, eligible: rows, skipped: {}, perClass: planBulk('unblock', rows.map((r) => ({ ...r, blocked: true }))).perClass } : p;
-  }, [action, rows, scheduling]);
-  const isFees = action === 'block' && kind === 'fees' && feesUsable;
+  }, [action, rows, scheduling, noCharge]);
+  // A fee block that charges (isFees) vs one "for what they owe" (noCharge).
+  const isFees = action === 'block' && kind === 'fees' && feesUsable && !noCharge;
+  const feeKind = action === 'block' && kind === 'fees' && feesUsable;
   // 006Fixes / 07: the partial step's lines and sums.
   const approving = action === 'approveReceipts' && feesUsable;
   const owingRows = useMemo(() => (approving ? plan.eligible.filter((r) => owedOf(r) > 0) : []), [approving, plan]);
@@ -139,9 +152,10 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
         const res = await runSchedule({
           items,
           atMs: timing.atMs,
-          kind: isFees ? 'fees' : 'other',
+          kind: feeKind ? 'fees' : 'other',
           amount: isFees ? Number(amount) : undefined,
-          reason: isFees ? undefined : reason.trim(),
+          ...(feeKind ? { charge: !noCharge } : {}),
+          reason: feeKind ? undefined : reason.trim(),
           onProgress: (done, total) => setProgress({ done, total }),
         });
         onDone({ ...res, done: res.added, action, scheduled: true, failed: [] });
@@ -158,14 +172,15 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
           ? validLines.map((l) => ({ session: sessionOf(l.row), phone: l.row.id, amount: l.value }))
           : plan.eligible.map((row) => ({ session: sessionOf(row), phone: row.id })),
         ...(approving ? { payment: isPartial ? 'partial' : 'full' } : {}),
-        kind: action === 'block' ? (isFees ? 'fees' : 'other') : undefined,
+        kind: action === 'block' ? (feeKind ? 'fees' : 'other') : undefined,
         amount: isFees ? Number(amount) : undefined,
-        reason: action === 'block' && !isFees ? reason.trim() : undefined,
+        ...(feeKind ? { charge: !noCharge } : {}),
+        reason: action === 'block' && !feeKind ? reason.trim() : undefined,
         onProgress: (done, total) => setProgress({ done, total }),
         resume,
       });
       onDone({
-        ...result, action, kind: action === 'block' ? (isFees ? 'fees' : 'other') : null, amount: isFees ? Number(amount) : null, reason,
+        ...result, action, kind: action === 'block' ? (feeKind ? 'fees' : 'other') : null, amount: isFees ? Number(amount) : null, reason,
         payment: approving ? (isPartial ? 'partial' : 'full') : null,
       });
     } catch (err) {
@@ -201,6 +216,9 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
           feesFlag={feesFlag}
           count={rows.length}
           timing={{ ...timing, showProblem: showWhenProblem }}
+          owing={owing}
+          charge={charge}
+          onCharge={setCharge}
         />
       </Modal>
     );
@@ -239,9 +257,11 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
   if (n > 0 && scheduling) confirmLabel = `Schedule ${plural(n, 'block')} for ${formatWhen(timing.atMs)}`;
   else if (n > 0 && isPartial) confirmLabel = `Approve ${n} (partial)`;
   else if (n > 0) confirmLabel = `${text.verb} ${plural(n, 'student')}${blockingNow ? ' now' : ''}`;
+  const tail = isFees ? (n === 1 ? `, and is charged ${formatKes(Number(amount))} now` : `, and each is charged ${formatKes(Number(amount))} now`)
+    : noCharge ? ' (no new charge)' : '';
   const nowWarning = n === 1
-    ? `Starts now: this student loses access to class immediately${isFees ? `, and is charged ${formatKes(Number(amount))} now` : ''}.`
-    : `Starts now: these ${n} students lose access to class immediately${isFees ? `, and each is charged ${formatKes(Number(amount))} now` : ''}.`;
+    ? `Starts now: this student loses access to class immediately${tail}.`
+    : `Starts now: these ${n} students lose access to class immediately${tail}.`;
   return (
     <Modal
       title={`${text.verb} ${plural(n, 'student')}${when}?`}
@@ -276,7 +296,8 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
           <p className="mb-2 small">
             {isFees
               ? `Each will owe ${formatKes(Number(amount))} and see it on their screen.`
-              : reason.trim() ? `They will see: “${reason.trim()}”` : 'They will be told to contact you.'}
+              : noCharge ? 'No new charge: each sees what they already owe on their screen.'
+                : reason.trim() ? `They will see: “${reason.trim()}”` : 'They will be told to contact you.'}
           </p>
         )}
         {approving && owingRows.length > 0 && (

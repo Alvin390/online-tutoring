@@ -205,6 +205,8 @@ export default function StudentTable({
   }, [onPageSelected, pageAllSelected]);
 
   const [blockAmount, setBlockAmount] = useState('');
+  // 006Fixes / 09: for someone who already owes, "Block for what they owe" (default).
+  const [blockCharge, setBlockCharge] = useState(true);
   const [blockError, setBlockError] = useState(null);
   const toast = useOptionalToast();
   const blockSchedule = (selectedStudent && sessionDocs?.[rowSession(selectedStudent)]?.schedule) ?? sessionDoc?.schedule ?? null;
@@ -241,6 +243,8 @@ export default function StudentTable({
     setBlockReason('');
     setBlockKind(defaultBlockKind);
     setBlockAmount('');
+    // 006Fixes / 09: someone who owes defaults to "Block for what they owe".
+    setBlockCharge(!((Number(student?.feeBalance) || 0) > 0));
     setBlockError(null);
     timing.reset();
     setShowWhenProblem(false);
@@ -294,11 +298,16 @@ export default function StudentTable({
 
     setBlockError(null);
 
+    // 006Fixes / 09: "for what they owe" — a fee block with no new charge.
+    const owesNow = (Number(selectedStudent.feeBalance) || 0) > 0;
+    const noCharge = blockKind === 'fees' && feesUsable && owesNow && !blockCharge;
+
     // 003Fixes / 08: a scheduled block is recorded on the server now and
     // applied at that minute (the fee is charged then, not now).
     if (timing.scheduled) {
       if (timing.problem) { setShowWhenProblem(true); return; }
-      const isFees = blockKind === 'fees' && feesUsable;
+      const feeKind = blockKind === 'fees' && feesUsable;
+      const isFees = feeKind && !noCharge;
       const amount = Number(blockAmount);
       if (isFees && (!Number.isInteger(amount) || amount < 1)) {
         setBlockError('Enter the amount owed, in whole shillings.');
@@ -310,9 +319,10 @@ export default function StudentTable({
         await runSchedule({
           items: [{ session: rowSession(selectedStudent), phone: selectedStudent.id }],
           atMs: timing.atMs,
-          kind: isFees ? 'fees' : 'other',
+          kind: feeKind ? 'fees' : 'other',
           amount: isFees ? amount : undefined,
-          reason: isFees ? undefined : blockReason.trim(),
+          ...(feeKind ? { charge: !noCharge } : {}),
+          reason: feeKind ? undefined : blockReason.trim(),
         });
         toast?.showSuccess(`${selectedStudent.studentName} will be blocked from ${formatWhen(timing.atMs)}.`, 'Scheduled');
         setShowBlockModal(false);
@@ -325,7 +335,10 @@ export default function StudentTable({
       return;
     }
 
-    if (blockKind === 'fees' && feesUsable) {
+    if (noCharge) {
+      // No new charge: the block message reads the balance they already owe.
+      setBlocking(true);
+    } else if (blockKind === 'fees' && feesUsable) {
       const amount = Number(blockAmount);
       if (!Number.isInteger(amount) || amount < 1) {
         setBlockError('Enter the amount owed, in whole shillings.');
@@ -691,6 +704,11 @@ export default function StudentTable({
               feesUsable={feesUsable}
               feesFlag={feesFlag}
               timing={{ ...timing, showProblem: showWhenProblem }}
+              owing={(Number(selectedStudent.feeBalance) || 0) > 0
+                ? { count: 1, total: Number(selectedStudent.feeBalance), nothing: 0 }
+                : null}
+              charge={blockCharge}
+              onCharge={setBlockCharge}
             />
           </div>
         </Modal>

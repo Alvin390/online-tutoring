@@ -47,7 +47,7 @@ const mergeSkipped = (into, from = {}) => {
  * @param {(done: number, total: number) => void} [opts.onProgress]
  * @param {{ batchId: string, next: number, result: object }} [opts.resume]  from a BulkInterrupted
  */
-export async function runBulk({ action, items, kind, amount, reason, payment, limits = DEFAULT_LIMITS, onProgress, resume = null }) {
+export async function runBulk({ action, items, kind, amount, reason, payment, charge, limits = DEFAULT_LIMITS, onProgress, resume = null }) {
   const size = action === 'block' && kind === 'fees' ? limits.blockFees : limits[action];
   let batchId = resume?.batchId ?? null;
   const result = resume?.result ?? { done: 0, skipped: {}, failed: [], undoUntilMs: null };
@@ -68,7 +68,9 @@ export async function runBulk({ action, items, kind, amount, reason, payment, li
         action,
         items: chunk,
         ...(action === 'block' ? { kind } : {}),
-        ...(action === 'block' && kind === 'fees' ? { amount } : {}),
+        // 006Fixes / 09: charge false = "block for what they owe" (no amount).
+        ...(action === 'block' && kind === 'fees' && charge === false ? { charge: false } : {}),
+        ...(action === 'block' && kind === 'fees' && charge !== false ? { amount, ...(charge === true ? { charge: true } : {}) } : {}),
         ...(action === 'block' && kind !== 'fees' && reason ? { reason } : {}),
         // 006Fixes / 01: the server checks the teacher typed DELETE.
         ...(action === 'delete' ? { confirm: 'DELETE' } : {}),
@@ -121,7 +123,7 @@ export const cancelSchedule = (batchId) => scheduled({ action: 'cancel', batchId
  * Schedules a block for `items`, 25 a call under one schedule id.
  * @returns {{ batchId, added, skipped, atMs }}
  */
-export async function runSchedule({ items, atMs, kind, amount, reason, onProgress }) {
+export async function runSchedule({ items, atMs, kind, amount, reason, charge, onProgress }) {
   let batchId = null;
   const result = { added: 0, skipped: {} };
   onProgress?.(0, items.length);
@@ -131,7 +133,8 @@ export async function runSchedule({ items, atMs, kind, amount, reason, onProgres
       items: items.slice(next, next + SCHEDULE_CHUNK),
       atMs,
       kind,
-      ...(kind === 'fees' ? { amount } : {}),
+      ...(kind === 'fees' && charge === false ? { charge: false } : {}),
+      ...(kind === 'fees' && charge !== false ? { amount } : {}),
       ...(kind !== 'fees' && reason ? { reason } : {}),
       ...(batchId ? { batchId } : {}),
     });
