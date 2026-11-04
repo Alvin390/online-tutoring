@@ -384,18 +384,22 @@ export const useDashboard = () => {
   const approveReceipt = useCallback(async (session, phoneNumber, studentName, options = {}) => {
     try {
       if (feesEnabled) {
+        // 006Fixes / 06 (owner): `payment` is 'full' or 'partial' (+ amount),
+        // chosen in the approve pop-up when the student owes.
         const result = await approveReceiptWithPayment({
           session,
           phone: phoneNumber,
-          ...(options.amount ? { amount: options.amount, method: options.method ?? 'mpesa' } : {}),
+          ...(options.payment ? { payment: options.payment } : {}),
+          ...(options.amount ? { amount: options.amount } : {}),
+          ...(options.amount && options.method ? { method: options.method } : {}),
           ...(options.reference ? { reference: options.reference } : {}),
         });
 
-        if (result.stillBlocked) {
-          // The partial-payment rule surfacing in the teacher's own words.
-          showSuccess(
-            `Receipt approved for ${studentName}, but KES ${Number(result.balance).toLocaleString('en-KE')} is still outstanding, so they remain blocked.`
-          );
+        const kes = (n) => `KES ${Number(n).toLocaleString('en-KE')}`;
+        if (result.posted && result.balance > 0) {
+          showSuccess(`Receipt approved for ${studentName}. ${kes(result.paid)} recorded; ${kes(result.balance)} still owed.`);
+        } else if (result.posted) {
+          showSuccess(`Receipt approved for ${studentName}. ${kes(result.paid)} recorded; nothing owed.`);
         } else {
           showSuccess(`Payment receipt approved for ${studentName}`);
         }

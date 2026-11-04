@@ -57,7 +57,7 @@ async function waitingSchedule(db, id) {
 }
 
 /** Creates a schedule, or adds students to one that is still waiting. */
-export async function createSchedule({ db, user, batchId = null, items, atMs, kind, amount = null, reason = null, nowMs }) {
+export async function createSchedule({ db, user, batchId = null, items, atMs, kind, amount = null, reason = null, nowMs, charge = null }) {
   let ref;
   let data;
   if (batchId) {
@@ -71,7 +71,9 @@ export async function createSchedule({ db, user, batchId = null, items, atMs, ki
       atMs,
       dueAtMs: atMs,
       kind,
-      amount: kind === 'fees' ? amount : null,
+      amount: kind === 'fees' && charge !== false ? amount : null,
+      // 006Fixes / 09: false = "for what they owe" (no invoice when it runs).
+      ...(kind === 'fees' && charge === false ? { charge: false } : {}),
       reason: kind === 'fees' ? null : (reason ?? ''),
       status: 'scheduled',
       createdAtMs: nowMs,
@@ -116,6 +118,8 @@ export async function listSchedules({ db }) {
     .sort((a, b) => a.atMs - b.atMs)
     .map((s) => ({
       id: s.id, atMs: s.atMs, kind: s.kind, amount: s.amount ?? null, reason: s.reason ?? null, count: s.count ?? 0,
+      // 006Fixes / 09: schedules from before have no field and charge.
+      ...(s.kind === 'fees' ? { charge: s.charge !== false } : {}),
       // Older schedules (before 004Fixes) carry no email: shown as "another staff account".
       createdBy: s.createdBy?.email ?? null,
     }));
@@ -202,6 +206,8 @@ export async function applyDueSchedules({ db, nowMs, log }) {
       // Only students still carrying THIS schedule (not paid, moved or cancelled since).
       const ours = list.filter((m, i) => snaps[i].exists && snaps[i].data().scheduledBlock?.batchId === doc.id);
       const owner = { uid: schedule.uid, role: 'teacher' };
+      // 006Fixes / 09: only an explicit false means "for what they owe".
+      const scheduleCharge = schedule.kind === 'fees' ? schedule.charge !== false : null;
 
       let bulkId = schedule.bulkActionId ?? null;
       let result = { outcomes: {} };
@@ -210,16 +216,17 @@ export async function applyDueSchedules({ db, nowMs, log }) {
         try {
           batch = await openBatch({
             db, user: owner, batchId: bulkId, action: 'block', kind: schedule.kind, amount: schedule.amount,
-            reason: schedule.reason, nowMs, source: 'scheduled', createdBy: schedule.createdBy,
+            reason: schedule.reason, nowMs, source: 'scheduled', createdBy: schedule.createdBy, charge: scheduleCharge,
           });
         } catch {
           // The first chunk's undo window has closed (a very long schedule): a new record.
-          batch = await openBatch({ db, user: owner, action: 'block', kind: schedule.kind, amount: schedule.amount, reason: schedule.reason, nowMs, source: 'scheduled', createdBy: schedule.createdBy });
+          batch = await openBatch({ db, user: owner, action: 'block', kind: schedule.kind, amount: schedule.amount, reason: schedule.reason, nowMs, source: 'scheduled', createdBy: schedule.createdBy, charge: scheduleCharge });
         }
         bulkId = batch.id;
         result = await applyStudents({
           db, user: owner, batch, action: 'block', kind: schedule.kind, amount: schedule.amount, reason: schedule.reason,
           items: ours.map((m) => ({ session: m.session, phone: m.phone })), nowMs, recordedBy: 'system:scheduledBlocks',
+          charge: scheduleCharge,
         });
       }
 

@@ -49,11 +49,13 @@ function sessionLine(totals, thisMonth) {
 }
 
 /**
- * @param {{ sessions?: Array<{slug: string, name?: string}> }} props
+ * @param {{ sessions?: Array<{slug: string, name?: string}>, partial?: object }} props
  *   004Fixes / 09: the active sessions, for one line each under the cards
  *   (owner: money per session). A session with no fee activity reads 0.
+ *   006Fixes / 08: `partial` = partialSummary() of the rosters already loaded:
+ *   "N on partial payment owe KES X", and per session.
  */
-export default function FeeKpiCards({ sessions = [] }) {
+export default function FeeKpiCards({ sessions = [], partial = null }) {
   const [aggregates, setAggregates] = useState(null);
 
   useEffect(() => {
@@ -70,7 +72,7 @@ export default function FeeKpiCards({ sessions = [] }) {
 
   return (
     <>
-    <div className={`row g-3 ${sessions.length ? 'mb-2' : 'mb-4'}`}>
+    <div className={`row g-3 ${sessions.length || partial?.count ? 'mb-2' : 'mb-4'}`}>
       {CARDS.map((card) => {
         // A total stamped with an earlier month is last month's: this month
         // has collected nothing yet. (No stamp: written before the stamp
@@ -106,12 +108,18 @@ export default function FeeKpiCards({ sessions = [] }) {
         );
       })}
     </div>
+    {partial?.count > 0 && (
+      <p className={`small fw-semibold text-warning-emphasis ${sessions.length ? 'mb-1' : 'mb-4'}`} data-testid="fee-kpi-partial">
+        {partial.count} on partial payment owe{partial.count === 1 ? 's' : ''} {formatKes(partial.owed)}
+      </p>
+    )}
     {sessions.length > 0 && (
       <ul className="list-unstyled small text-muted mb-4 d-flex flex-wrap column-gap-4 row-gap-1" data-testid="fee-kpi-sessions" aria-label="Money per session">
         {sessions.map((s) => (
           <li key={s.slug} data-testid="fee-kpi-session">
             <span className="fw-semibold text-body">{s.name ?? s.slug}:</span>{' '}
             {sessionLine(aggregates.bySession?.[s.slug], thisMonth)}
+            {partial?.bySession?.[s.slug]?.count > 0 && ` · ${partial.bySession[s.slug].count} on partial payment`}
           </li>
         ))}
       </ul>

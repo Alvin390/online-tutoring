@@ -4,8 +4,7 @@ import { collectTree } from './sessions.js';
 import { leaveSchedulesOnDelete } from './studentRemoval.js';
 import { auditRecord, AuditAction } from './audit.js';
 import { effectiveApprovalStatus } from './studentState.js';
-import { shouldAutoUnblock } from './feeState.js';
-import { approvalFields, receiptIdFor, mpesaCodeFrom } from './receiptApproval.js';
+import { approvalFields, receiptIdFor, mpesaCodeFrom, paymentChoice } from './receiptApproval.js';
 import { badRequest, notFound, ApiError } from './errors.js';
 
 /**
@@ -48,12 +47,13 @@ export const MAX_ITEMS = Object.freeze({
   delete: 12,
 });
 
-const BEFORE_FIELDS = ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt', 'receiptMessage', 'receiptApprovedAt'];
+const BEFORE_FIELDS = ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt', 'receiptMessage', 'receiptApprovedAt', 'partialPayment'];
 // What Undo writes back, by action (only what that action changed).
 const RESTORED = {
   block: ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt'],
   unblock: ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt'],
-  approveReceipts: ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'receiptMessage', 'receiptApprovedAt'],
+  // 006Fixes / 05: and the partial-payment marker as it was.
+  approveReceipts: ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'receiptMessage', 'receiptApprovedAt', 'partialPayment'],
 };
 
 export const batchRef = (db, id) => db.doc(`bulkActions/${id}`);
@@ -92,7 +92,8 @@ const who = (user) => ({ uid: user.uid, email: user.email ?? null, device: user.
  * `createdBy` is who made it (the scheduled sweep passes the schedule's maker).
  */
 export async function openBatch({
-  db, user, batchId, action, kind = null, amount = null, reason = null, nowMs, source = 'dashboard', createdBy = null,
+  db, user, batchId, action, kind = null, amount = null, reason = null, nowMs, source = 'dashboard', createdBy = null, payment = null,
+  charge = null,
 }) {
   if (!batchId) {
     const ref = db.collection('bulkActions').doc();
@@ -111,6 +112,10 @@ export async function openBatch({
       createdBy: createdBy ?? who(user),
       // 006Fixes / 01 (owner): a delete can't be undone.
       ...(action === 'delete' ? { undoable: false } : {}),
+      // 006Fixes / 05: how receipts were approved (complete or partial).
+      ...(payment ? { payment } : {}),
+      // 006Fixes / 09: a fee block without a new charge ("for what they owe").
+      ...(charge === false ? { charge: false } : {}),
     };
     return { id: ref.id, ref, data, isNew: true };
   }
@@ -131,13 +136,15 @@ export async function openBatch({
  * approveReceipts (003Fixes / 06, owner decision): each student's whole
  * balance is recorded as paid, referenced with the M-Pesa code from their
  * receipt, then the receipt is approved exactly as the single approval does
- * (api/_lib/receiptApproval.js) — which lifts the block once nothing is owed.
+ * (api/_lib/receiptApproval.js). 006Fixes / 05 (owner): `payment: 'partial'`
+ * records each item's own `amount` instead (1 .. owed - 1, else skipped as
+ * amountInvalid) and marks it; complete or partial, the student is let in.
  *
  * @returns {{ batchId, done, skipped: object, failed: Array<{index, code}>, undoUntilMs }}
  */
 export async function applyStudents({
   db, user, batch, action, items, kind = 'other', amount = null, reason = null, nowMs, recordedBy,
-  feesEnabled = false,
+  feesEnabled = false, payment = 'full', charge = true,
 }) {
   const list = uniqueItems(items);
   const studentRefs = list.map((i) => studentRef(db, i.session, i.phone));
@@ -174,13 +181,26 @@ export async function applyStudents({
     if (action === 'block') {
       if (effectiveApprovalStatus(data) === 'pending') { skip('awaitingApproval', item); return; }
       if (data.blocked === true) { skip('alreadyBlocked', item); return; }
+      // 006Fixes / 09: "for what they owe" needs something owed (the
+      // feeBalance the ledger keeps equal to the account — no extra read).
+      if (kind === 'fees' && charge === false && !((Number(data.feeBalance) || 0) > 0)) { skip('nothingOwed', item); return; }
     } else if (action === 'unblock') {
       if (data.blocked !== true) { skip('notBlocked', item); return; }
     } else if (action === 'approveReceipts') {
       if (!data.pendingReceipt) { skip('noReceipt', item); return; }
     }
     const account = accountSnaps[i];
-    toApply.push({ ...item, data, balance: account?.exists ? (account.data().balance ?? 0) : (data.feeBalance ?? 0) });
+    const balance = account?.exists ? (account.data().balance ?? 0) : (data.feeBalance ?? 0);
+    let choice = null;
+    if (action === 'approveReceipts' && feesEnabled) {
+      try {
+        choice = paymentChoice({ payment, amount: item.amount ?? null, owed: balance });
+      } catch {
+        skip('amountInvalid', item);
+        return;
+      }
+    }
+    toApply.push({ ...item, data, balance, choice });
   });
 
   // Ledger work first, all of the chunk in ONE transaction (postEntries): a
@@ -188,20 +208,31 @@ export async function applyStudents({
   // these students is touched (blocked with no balance to pay is a dead end).
   const ledgerWork = [];
   for (const item of toApply) {
-    if (action === 'block' && kind === 'fees') {
+    if (action === 'block' && kind === 'fees' && charge !== false) {
       ledgerWork.push({ item, opts: {
         phone: item.phone, session: item.session, type: 'invoice', amount,
         note: 'Fees due — recorded when blocking', recordedBy,
         idempotencyKey: `bulk_${batch.id}_${itemId(item.session, item.phone)}`,
       } });
-    } else if (action === 'approveReceipts' && feesEnabled && item.balance > 0) {
+    } else if (action === 'approveReceipts' && feesEnabled && item.choice?.amount > 0) {
+      const receiptId = receiptIdFor(item.phone, item.data, nowMs);
       ledgerWork.push({ item, opts: {
-        phone: item.phone, session: item.session, type: 'payment', amount: item.balance, method: 'mpesa',
-        reference: mpesaCodeFrom(item.data.pendingReceipt), note: 'Recorded on receipt approval (bulk)', recordedBy,
-        sourceReceiptId: receiptIdFor(item.phone, item.data, nowMs),
+        phone: item.phone, session: item.session, type: 'payment', amount: item.choice.amount, method: 'mpesa',
+        reference: mpesaCodeFrom(item.data.pendingReceipt),
+        note: item.choice.partial
+          ? `Recorded on receipt approval (bulk, partial: KES ${item.choice.amount.toLocaleString('en-KE')} of ${item.balance.toLocaleString('en-KE')})`
+          : 'Recorded on receipt approval (bulk)',
+        recordedBy,
+        sourceReceiptId: receiptId,
         // Keyed by the batch, not the receipt: if this approval is undone,
         // approving the same receipt again later must post a fresh payment.
         idempotencyKey: `bulk_${batch.id}_${itemId(item.session, item.phone)}`,
+        ...(item.choice.partial ? {
+          partialPayment: {
+            paid: item.choice.amount, owedBefore: item.balance, owedAfter: item.balance - item.choice.amount,
+            at: Timestamp.fromMillis(nowMs), by: user.uid, receiptId,
+          },
+        } : {}),
       } });
     }
   }
@@ -227,7 +258,8 @@ export async function applyStudents({
     applied.push({
       ...item,
       entryId: posted?.entryId ?? null,
-      clearBlock: action === 'approveReceipts' && posted ? shouldAutoUnblock(posted.balance) : true,
+      // 006Fixes / 04-05 (owner): an approval lets the student in, complete or partial.
+      clearBlock: true,
     });
     outcomes[itemId(item.session, item.phone)] = 'done';
   }
@@ -284,6 +316,8 @@ function stillAsLeft(action, data, item) {
 function restoreFields(action, before) {
   const fields = {};
   for (const key of RESTORED[action] ?? RESTORED.block) fields[key] = before?.[key] ?? null;
+  // 006Fixes / 05: no marker before means none after (removed, not null).
+  if ('partialPayment' in fields && fields.partialPayment === null) fields.partialPayment = FieldValue.delete();
   fields.blocked = before?.blocked === true;
   if (typeof fields.blockReason !== 'string') fields.blockReason = '';
   return fields;
@@ -375,6 +409,8 @@ export async function listRecent({ db, nowMs }) {
       kind: b.kind ?? null,
       amount: b.amount ?? null,
       reason: b.reason ?? null,
+      payment: b.payment ?? null,
+      ...(b.kind === 'fees' ? { charge: b.charge !== false } : {}),
       source: b.source ?? 'dashboard',
       status: b.status,
       createdAtMs: b.createdAtMs,

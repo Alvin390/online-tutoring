@@ -20,6 +20,8 @@ import { byWho } from '../../bulk/bulkText';
  */
 
 function what(schedule) {
+  // 006Fixes / 09: a fee schedule with no new charge blocks for what they owe.
+  if (schedule.kind === 'fees' && schedule.charge === false) return 'unpaid fees · for what they owe';
   if (schedule.kind === 'fees') return `unpaid fees ${schedule.amount ? formatKes(schedule.amount) : ''}`.trim();
   return schedule.reason ? `“${schedule.reason}”` : 'no reason given';
 }

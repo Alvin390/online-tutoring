@@ -22,7 +22,11 @@ function describe(action) {
   const text = BULK_TEXT[action.action] ?? BULK_TEXT.block;
   const done = action.counts?.done ?? 0;
   const what = `${text.past[0].toUpperCase()}${text.past.slice(1)} ${done} student${done === 1 ? '' : 's'}`;
+  // 006Fixes / 07.
+  if (action.action === 'approveReceipts' && action.payment === 'partial') return `${what} · partial payment`;
   if (action.action !== 'block') return what;
+  // 006Fixes / 09b: a fee block with no new charge.
+  if (action.kind === 'fees' && action.charge === false) return `${what} · for what they owe`;
   if (action.kind === 'fees' && action.amount) return `${what} · unpaid fees ${formatKes(action.amount)}`;
   return action.reason ? `${what} · “${action.reason}”` : what;
 }

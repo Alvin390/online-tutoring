@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStudentFees } from '../hooks/useStudentFees';
 import { formatKes } from '@utils/blockReason';
+import { partialLine } from '../partialSummary';
 import { SkeletonLine, SkeletonStyles } from '@components/ui/Skeleton';
 
 /**
@@ -107,7 +108,7 @@ function AddReceipt({ entryId, onAdd, saving }) {
   );
 }
 
-export default function FeesTab({ session, phone, active }) {
+export default function FeesTab({ session, phone, active, partialPayment = null }) {
   const {
     summary, entries, hasMore, loadOlder, feesEnabled, summaryFailed, loading, saving, announcement,
     pay, reverse, addReference, reload,
@@ -203,6 +204,10 @@ export default function FeesTab({ session, phone, active }) {
             <span className="d-block small text-muted">
               {balance > 0 ? 'outstanding' : balance < 0 ? 'in credit' : 'fully paid'}
             </span>
+            {/* 006Fixes / 08: approved on a partial payment. */}
+            {partialLine(partialPayment, balance) && (
+              <span className="d-block small text-warning-emphasis" data-testid="fees-partial-line">{partialLine(partialPayment, balance)}</span>
+            )}
           </div>
 
           <button className="btn btn-primary btn-sm" onClick={() => setShowForm(!showForm)}>

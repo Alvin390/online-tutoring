@@ -216,6 +216,8 @@ export default function StudentSearchPanel({
       kind: result.kind,
       amount: result.amount,
       reason: result.reason || null,
+      payment: result.payment ?? null,
+      ...(result.kind === 'fees' && result.charge === false ? { charge: false } : {}),
       status: 'done',
       createdAtMs: Date.now(),
       undoUntilMs: result.undoUntilMs,

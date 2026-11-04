@@ -250,6 +250,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
                         session={session}
                         phone={student.id ?? student.parentPhone}
                         active={tab === 'fees'}
+                        partialPayment={student.partialPayment ?? null}
                       />
                     </Suspense>
                   </TierGate>

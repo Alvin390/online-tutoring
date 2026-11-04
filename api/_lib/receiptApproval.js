@@ -21,6 +21,36 @@ export function mpesaCodeFrom(text) {
   return match ? match[0] : null;
 }
 
+const kes = (n) => `KES ${Number(n).toLocaleString('en-KE')}`;
+
+/**
+ * What an approval records — 006Fixes / 04 (owner). Shared by the single and
+ * bulk approvals so they can't disagree.
+ *   - 'full': everything owed (nothing when nothing is owed).
+ *   - 'partial': `amount`, which must be 1 .. owed - 1 (whole KES).
+ *   - neither (an old caller): `amount` if sent — partial when below what is
+ *     owed — else no money at all, as before.
+ * Throws { code, message } for a partial amount out of range.
+ * @returns {{ kind, amount, partial, note }}
+ */
+export function paymentChoice({ payment = null, amount = null, owed }) {
+  const due = Math.max(0, Number(owed) || 0);
+  if (payment === 'full') {
+    return { kind: 'full', amount: due, partial: false, note: 'Recorded on receipt approval (complete)' };
+  }
+  if (payment === 'partial') {
+    const err = (code, message) => Object.assign(new Error(message), { code });
+    if (due <= 0) throw err('nothing_owed', 'Nothing is owed, so there is no partial payment to record.');
+    if (!Number.isInteger(amount) || amount < 1) throw err('amount_required', 'Enter the amount paid, in whole shillings.');
+    if (amount >= due) throw err('amount_not_partial', `That is the full ${kes(due)}: choose Complete payment.`);
+    return { kind: 'partial', amount, partial: true, note: `Recorded on receipt approval (partial: ${kes(amount)} of ${kes(due).slice(4)})` };
+  }
+  if (Number.isInteger(amount) && amount > 0) {
+    return { kind: amount < due ? 'partial' : 'full', amount, partial: amount < due, note: 'Recorded on receipt approval' };
+  }
+  return { kind: 'none', amount: 0, partial: false, note: null };
+}
+
 /**
  * The student fields an approval writes. `clearBlock` lifts the block (always
  * when no payment was recorded; otherwise only once nothing is owed — the

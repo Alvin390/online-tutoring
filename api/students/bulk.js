@@ -21,6 +21,10 @@ import {
 
 const item = z.object({ session: sessionSchema, phone: phoneSchema }).strict();
 const items = z.array(item).min(1).max(MAX_ITEMS.block);
+// 006Fixes / 05: a partial approval carries each student's own amount.
+const approveItem = z.object({
+  session: sessionSchema, phone: phoneSchema, amount: z.number().int().min(1).max(10_000_000).optional(),
+}).strict();
 const batchId = z.string().trim().regex(/^[A-Za-z0-9]{1,40}$/);
 
 const schema = z.discriminatedUnion('action', [
@@ -29,11 +33,18 @@ const schema = z.discriminatedUnion('action', [
     items,
     kind: z.enum(['fees', 'other']),
     amount: z.number().int().min(1).max(10_000_000).optional(),
+    // 006Fixes / 09 (owner): false = "block for what they owe", no new charge.
+    charge: z.boolean().optional(),
     reason: z.string().trim().max(500).optional(),
     batchId: batchId.optional(),
   }).strict(),
   z.object({ action: z.literal('unblock'), items, batchId: batchId.optional() }).strict(),
-  z.object({ action: z.literal('approveReceipts'), items, batchId: batchId.optional() }).strict(),
+  z.object({
+    action: z.literal('approveReceipts'),
+    items: z.array(approveItem).min(1).max(MAX_ITEMS.approveReceipts),
+    payment: z.enum(['full', 'partial']).optional(),
+    batchId: batchId.optional(),
+  }).strict(),
   // 006Fixes / 01 (owner): the teacher types DELETE; the server checks it too.
   z.object({
     action: z.literal('delete'),
@@ -106,11 +117,13 @@ export default createHandler({
     }
 
     const isFees = body.action === 'block' && body.kind === 'fees';
+    // 006Fixes / 09: a fee block charges unless the teacher chose "for what they owe".
+    const charge = isFees && body.charge !== false;
     if (isFees) {
       // The same gates as /api/fees/post: Silver, and fees switched on.
       requireTier(user, 'silver');
       if (!(await isEnabled('fees.enabled'))) throw forbidden('Fees are not enabled.', 'feature_disabled');
-      if (!body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
+      if (charge && !body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
     }
     assertChunkSize(body.items, isFees ? MAX_ITEMS.blockFees : MAX_ITEMS[body.action]);
 
@@ -126,9 +139,11 @@ export default createHandler({
       batchId: body.batchId,
       action: body.action,
       kind: body.action === 'block' ? body.kind : null,
-      amount: isFees ? body.amount : null,
+      amount: charge ? body.amount : null,
       reason: body.action === 'block' && !isFees ? (body.reason ?? '') : null,
       nowMs,
+      payment: body.action === 'approveReceipts' ? (body.payment ?? 'full') : null,
+      charge: isFees ? charge : null,
     });
 
     const result = await applyStudents({
@@ -138,11 +153,13 @@ export default createHandler({
       action: body.action,
       items: body.items,
       kind: body.action === 'block' ? body.kind : null,
-      amount: isFees ? body.amount : null,
+      amount: charge ? body.amount : null,
+      charge,
       reason: body.action === 'block' ? (body.reason ?? '') : null,
       nowMs,
       recordedBy: user.uid,
       feesEnabled,
+      payment: body.payment ?? 'full',
     });
 
     log.info('Bulk action applied', {
@@ -154,7 +171,7 @@ export default createHandler({
         actor: user.uid,
         actorRole: user.role,
         target: `bulkActions/${batch.id}`,
-        after: { kind: body.kind ?? null, amount: isFees ? body.amount : null },
+        after: { kind: body.kind ?? null, amount: charge ? body.amount : null, ...(isFees ? { charge } : {}) },
         context: { requestId: log.requestId, device: user.device },
       }, log);
     }

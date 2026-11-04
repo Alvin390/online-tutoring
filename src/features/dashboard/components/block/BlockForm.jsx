@@ -18,8 +18,14 @@ export default function BlockForm({
   count = 1,
   // 003Fixes / 08: the "When?" choice (from useBlockWhen). Absent: no choice.
   timing = null,
+  // 006Fixes / 09 (owner): when someone selected already owes —
+  // owing = { count, total, nothing }, charge true = "Add a new charge".
+  owing = null,
+  charge = true,
+  onCharge = null,
 }) {
   const many = count > 1;
+  const chooseCharge = kind === 'fees' && feesUsable && owing?.count > 0 && onCharge;
   return (
     <>
       <div className="mb-3 text-start">
@@ -61,7 +67,32 @@ export default function BlockForm({
           </div>
         )}
 
-        {kind === 'fees' && feesUsable ? (
+        {chooseCharge && (
+          <div className="mb-2">
+            <div className="btn-group w-100 mb-2" role="radiogroup" aria-label="Charge">
+              <button type="button" role="radio" aria-checked={!charge}
+                className={`btn btn-sm ${!charge ? 'btn-warning' : 'btn-outline-warning'}`} onClick={() => onCharge(false)}>
+                Block for what they owe
+              </button>
+              <button type="button" role="radio" aria-checked={charge}
+                className={`btn btn-sm ${charge ? 'btn-warning' : 'btn-outline-warning'}`} onClick={() => onCharge(true)}>
+                Add a new charge
+              </button>
+            </div>
+            {!charge && (
+              <div className="small" data-testid="block-owe-summary">
+                {many
+                  ? `No new charge. ${owing.count === 1 ? '1 student owes' : `${owing.count} students owe`} KES ${owing.total.toLocaleString('en-KE')} in total.`
+                  : `No new charge. Owes KES ${owing.total.toLocaleString('en-KE')}.`}
+                {owing.nothing > 0 && (owing.nothing === 1
+                  ? ' 1 of them owes nothing and will be skipped.'
+                  : ` ${owing.nothing} of them owe nothing and will be skipped.`)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {kind === 'fees' && feesUsable && chooseCharge && !charge ? null : kind === 'fees' && feesUsable ? (
           <>
             <label className="form-label small fw-semibold" htmlFor={`${idPrefix}-amount`}>
               {many ? 'Amount each student owes (KES)' : 'Amount owed (KES)'}

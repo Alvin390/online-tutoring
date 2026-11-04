@@ -104,8 +104,12 @@ describe('approveReceipts', () => {
     await seed(phoneN(30), { blocked: true, pendingReceipt: 'QAB123XYZ9 Confirmed' });
     await owe(phoneN(30), 800);
     const res = await call('/api/fees/approveReceipt', { token: gold, body: { session: 'morning', phone: phoneN(30), amount: 500 } });
-    expect(res.body).toMatchObject({ posted: true, balance: 300, stillBlocked: true });
-    expect(await student(phoneN(30))).toMatchObject({ blocked: true, pendingReceipt: null, receiptStatus: 'approved' });
+    // 006Fixes / 04 (owner, 4 Nov 2026): an approval lets the student in even
+    // when the payment is partial — the 300 still owed stays on the ledger and
+    // is marked as a partial payment (it used to keep the block).
+    expect(res.body).toMatchObject({ posted: true, balance: 300, stillBlocked: false, partial: true });
+    expect(await student(phoneN(30))).toMatchObject({ blocked: false, pendingReceipt: null, receiptStatus: 'approved', feeBalance: 300 });
+    expect((await student(phoneN(30))).partialPayment).toMatchObject({ paid: 500, owedBefore: 800, owedAfter: 300 });
   });
 
   it('8 per call, within the Worker budget', async () => {
