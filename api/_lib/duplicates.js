@@ -90,8 +90,56 @@ export function isDuplicatePair(a, b) {
 }
 
 /**
+ * What matchReasons needs from one record, worked out once (006Fixes / 00).
+ * Inside a name + class bucket the name and class already match, so a pair
+ * only compares these prepared values — the same answer as matchReasons,
+ * without re-normalising both records for every pair.
+ */
+function prepare(student) {
+  const phone = phoneOf(student);
+  return {
+    student,
+    phone,
+    digits: digitsOf(phone),
+    text: receiptText(student.receiptMessage),
+    code: undefined, // the M-Pesa code, looked up only when the texts differ
+    keep: Array.isArray(student?.duplicateKeep) ? student.duplicateKeep : null,
+  };
+}
+
+const codeOf = (p) => (p.code === undefined ? (p.code = mpesaCode(p.student.receiptMessage)) : p.code);
+
+function similarDigits(x, y) {
+  if (!x || x.length !== y.length) return false;
+  let differing = 0;
+  for (let i = 0; i < x.length; i += 1) {
+    if (x[i] !== y[i]) {
+      differing += 1;
+      if (differing > 2) return false;
+    }
+  }
+  return differing > 0;
+}
+
+/** matchReasons for two prepared records of the same bucket. */
+function preparedReasons(a, b) {
+  if (!a.phone || a.phone === b.phone) return [];
+  if ((a.keep && a.keep.includes(b.phone)) || (b.keep && b.keep.includes(a.phone))) return [];
+  const reasons = [];
+  if (a.text && a.text === b.text) reasons.push('receipt');
+  else {
+    const code = codeOf(a);
+    if (code && code === codeOf(b)) reasons.push('code');
+  }
+  if (similarDigits(a.digits, b.digits)) reasons.push('number');
+  return reasons;
+}
+
+/**
  * Every group of records connected by a matching pair, in one pass keyed by
- * name + class (only records sharing both are ever compared).
+ * name + class (only records sharing both are ever compared). Each record is
+ * prepared once and grouping works by index (006Fixes / 00: this was
+ * quadratic twice over and took 10 s for 5,000 students).
  * @returns {Array<{ students: object[], pairs: Array<{ a: object, b: object, reasons: string[] }> }>}
  */
 export function findDuplicateGroups(students) {
@@ -108,26 +156,32 @@ export function findDuplicateGroups(students) {
   const groups = [];
   for (const bucket of buckets.values()) {
     if (bucket.length < 2) continue;
+    const prepared = bucket.map(prepare);
     const pairs = [];
+    const pairIndex = [];
+    const paired = new Array(bucket.length).fill(false);
     const parent = bucket.map((_, i) => i);
     const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
     for (let i = 0; i < bucket.length; i += 1) {
       for (let j = i + 1; j < bucket.length; j += 1) {
-        const reasons = matchReasons(bucket[i], bucket[j]);
+        const reasons = preparedReasons(prepared[i], prepared[j]);
         if (reasons.length === 0) continue;
         pairs.push({ a: bucket[i], b: bucket[j], reasons });
+        pairIndex.push(i);
+        paired[i] = true;
+        paired[j] = true;
         parent[root(j)] = root(i);
       }
     }
     if (pairs.length === 0) continue;
     const byRoot = new Map();
-    bucket.forEach((student, i) => {
-      if (!pairs.some((p) => p.a === student || p.b === student)) return;
+    for (let i = 0; i < bucket.length; i += 1) {
+      if (!paired[i]) continue;
       const r = root(i);
       if (!byRoot.has(r)) byRoot.set(r, { students: [], pairs: [] });
-      byRoot.get(r).students.push(student);
-    });
-    for (const pair of pairs) byRoot.get(root(bucket.indexOf(pair.a))).pairs.push(pair);
+      byRoot.get(r).students.push(bucket[i]);
+    }
+    pairs.forEach((pair, k) => byRoot.get(root(pairIndex[k])).pairs.push(pair));
     groups.push(...byRoot.values());
   }
   return groups;
