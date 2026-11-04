@@ -30,7 +30,9 @@ const subscribe = (fn) => {
   listeners.add(fn);
   return () => listeners.delete(fn);
 };
-const undoable = (now) => actions.filter((a) => a.status === 'done' && a.undoUntilMs > now).length;
+// 006Fixes / 02: a delete is listed but can never be undone.
+export const canBeUndone = (a, now) => a.status === 'done' && a.undoable !== false && a.action !== 'delete' && a.undoUntilMs > now;
+const undoable = (now) => actions.filter((a) => canBeUndone(a, now)).length;
 
 /** How many actions can still be undone (re-checked each minute). */
 export function useUndoableCount() {

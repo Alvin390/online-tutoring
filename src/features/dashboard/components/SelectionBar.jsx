@@ -34,7 +34,7 @@ export const BULK_LABELS = {
   cancelSchedule: 'Cancel schedule',
 };
 
-export default function SelectionBar({ count, action = 'block', onAction, onClear, busy = false }) {
+export default function SelectionBar({ count, action = 'block', onAction, onDelete = null, onClear, busy = false }) {
   const phone = usePhone();
   useEffect(() => {
     document.body.classList.add('has-selection-bar');
@@ -60,6 +60,12 @@ export default function SelectionBar({ count, action = 'block', onAction, onClea
         >
           {BULK_LABELS[action] ?? BULK_LABELS.block}
         </button>
+        {/* 006Fixes / 02 (owner): delete the selection, whatever the filter. */}
+        {onDelete && (
+          <button type="button" className="btn btn-sm btn-outline-danger" onClick={onDelete} disabled={busy}>
+            <i className="bi bi-trash me-1" aria-hidden="true" />Delete
+          </button>
+        )}
         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={onClear} disabled={busy}>
           Clear
         </button>

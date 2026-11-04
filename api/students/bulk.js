@@ -8,7 +8,7 @@ import { assertSessionExists } from '../_lib/sessions.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { withDevice } from '../_lib/device.js';
 import {
-  MAX_ITEMS, openBatch, applyStudents, undoBatch, listRecent, assertChunkSize, listBatchItems,
+  MAX_ITEMS, openBatch, applyStudents, undoBatch, listRecent, assertChunkSize, listBatchItems, deleteStudents,
 } from '../_lib/bulkStudents.js';
 
 /**
@@ -34,6 +34,13 @@ const schema = z.discriminatedUnion('action', [
   }).strict(),
   z.object({ action: z.literal('unblock'), items, batchId: batchId.optional() }).strict(),
   z.object({ action: z.literal('approveReceipts'), items, batchId: batchId.optional() }).strict(),
+  // 006Fixes / 01 (owner): the teacher types DELETE; the server checks it too.
+  z.object({
+    action: z.literal('delete'),
+    items: z.array(item).min(1).max(MAX_ITEMS.delete),
+    confirm: z.literal('DELETE'),
+    batchId: batchId.optional(),
+  }).strict(),
   z.object({ action: z.literal('undo'), batchId }).strict(),
   z.object({ action: z.literal('list') }).strict(),
   // 003Fixes / 09: who an action reached, for "Message these parents".
@@ -74,6 +81,28 @@ export default createHandler({
         }, log);
       }
       return { ok: true, ...result };
+    }
+
+    if (body.action === 'delete') {
+      assertChunkSize(body.items, MAX_ITEMS.delete);
+      for (const slug of new Set(body.items.map((i) => i.session))) await assertSessionExists(db, slug);
+      const batch = await openBatch({ db, user, batchId: body.batchId, action: 'delete', nowMs });
+      const result = await deleteStudents({
+        db, user, batch, items: body.items, nowMs, context: { requestId: log.requestId, device: user.device },
+      });
+      log.info('Bulk delete applied', {
+        done: result.done, skipped: result.skipped, failed: result.failed.length, balanceClosedCount: result.balanceClosedCount,
+      });
+      if (batch.isNew) {
+        await tryWriteAudit({
+          action: 'students.bulk_delete',
+          actor: user.uid,
+          actorRole: user.role,
+          target: `bulkActions/${batch.id}`,
+          context: { requestId: log.requestId, device: user.device },
+        }, log);
+      }
+      return { ok: true, ...result, limits: MAX_ITEMS };
     }
 
     const isFees = body.action === 'block' && body.kind === 'fees';

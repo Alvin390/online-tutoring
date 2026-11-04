@@ -110,7 +110,9 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
       <ul className="list-group" data-testid="recent-actions">
         {(actions ?? []).map((a) => {
           const left = minutesLeft(a.undoUntilMs, now);
-          const canUndo = a.status === 'done' && left > 0 && (a.counts?.done ?? 0) > 0;
+          // 006Fixes / 02: a delete is listed but can't be undone.
+          const permanent = a.undoable === false || a.action === 'delete';
+          const canUndo = !permanent && a.status === 'done' && left > 0 && (a.counts?.done ?? 0) > 0;
           return (
             <li key={a.id} className="list-group-item" data-testid="recent-action">
               <div className="d-flex justify-content-between align-items-start gap-2 flex-wrap">
@@ -122,7 +124,8 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
                     {a.status === 'undone' && (a.undoneBy
                       ? ` · Undone ${byWho(a.undoneBy, user?.email)}${a.undoneAtMs ? ` at ${formatTime(new Date(a.undoneAtMs))}` : ''}`
                       : ' · undone')}
-                    {a.status === 'done' && (left > 0 ? ` · ${left} min left to undo` : ' · too late to undo')}
+                    {permanent && " · Can't be undone"}
+                    {!permanent && a.status === 'done' && (left > 0 ? ` · ${left} min left to undo` : ' · too late to undo')}
                   </div>
                 </div>
                 {canMessage && a.action === 'block' && (a.counts?.done ?? 0) > 0 && (

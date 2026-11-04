@@ -98,7 +98,8 @@ const KNOWN_SUBCOLLECTIONS = Object.freeze({
   private: [],
 });
 
-async function collectTree(ref, out) {
+/** Every document under `ref`, children first, then `ref` (006Fixes / 01: exported for bulk delete). */
+export async function collectTree(ref, out) {
   const segments = ref.path.split('/');
   const parentCollection = segments[segments.length - 2];
   const known = KNOWN_SUBCOLLECTIONS[parentCollection];

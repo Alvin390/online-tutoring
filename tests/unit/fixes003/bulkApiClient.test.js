@@ -89,3 +89,37 @@ describe('undoBulk', () => {
     expect(progress).toEqual([20, 25]);
   });
 });
+
+describe('runBulk: delete (006Fixes / 02)', () => {
+  it('sends confirm: DELETE on every chunk, at the delete chunk size, under one batch', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ batchId: 'D1', done: 12, skipped: {}, failed: [], balanceClosedTotal: 2750, balanceClosedCount: 1 }))
+      .mockResolvedValueOnce(ok({ batchId: 'D1', done: 3, skipped: { missing: 1 }, failed: [], balanceClosedTotal: 0, balanceClosedCount: 0 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await runBulk({ action: 'delete', items: items(16), limits: { delete: 12 } });
+    const bodies = sent(fetchMock);
+    expect(bodies.map((b) => b.items.length)).toEqual([12, 4]);
+    expect(bodies.every((b) => b.action === 'delete' && b.confirm === 'DELETE')).toBe(true);
+    expect(bodies[0].batchId).toBeUndefined();
+    expect(bodies[1].batchId).toBe('D1');
+    expect(result).toMatchObject({ batchId: 'D1', done: 15, skipped: { missing: 1 }, balanceClosedTotal: 2750, balanceClosedCount: 1 });
+  });
+
+  it('other actions never send confirm', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ok({ batchId: 'B', done: 1, skipped: {}, failed: [], undoUntilMs: 1 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await runBulk({ action: 'unblock', items: items(1), limits: { unblock: 25 } });
+    expect(sent(fetchMock)[0].confirm).toBeUndefined();
+  });
+});
+
+describe('runBulk: delete sums balances not closed yet (006Fixes / 01b)', () => {
+  it('adds balanceNotClosed across chunks', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ batchId: 'D1', done: 12, skipped: {}, failed: [], balanceNotClosed: 2 }))
+      .mockResolvedValueOnce(ok({ batchId: 'D1', done: 1, skipped: {}, failed: [], balanceNotClosed: 1 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await runBulk({ action: 'delete', items: items(13), limits: { delete: 12 } });
+    expect(result.balanceNotClosed).toBe(3);
+  });
+});

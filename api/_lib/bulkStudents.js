@@ -1,5 +1,8 @@
 import { FieldValue, Timestamp } from './firebaseAdmin.js';
 import { postEntries, reverseEntries, accountRef } from './ledger.js';
+import { collectTree } from './sessions.js';
+import { leaveSchedulesOnDelete } from './studentRemoval.js';
+import { auditRecord, AuditAction } from './audit.js';
 import { effectiveApprovalStatus } from './studentState.js';
 import { shouldAutoUnblock } from './feeState.js';
 import { approvalFields, receiptIdFor, mpesaCodeFrom } from './receiptApproval.js';
@@ -39,6 +42,10 @@ export const MAX_ITEMS = Object.freeze({
   approveReceipts: 25,
   undo: 20,
   undoLedger: 25,
+  // 006Fixes / 01: a delete lists each student's notes and activity (2
+  // queries each) before one commit for the chunk; measured in
+  // tests/handlers/fixes006/bulkDelete.test.js.
+  delete: 12,
 });
 
 const BEFORE_FIELDS = ['blocked', 'blockReason', 'blockedAt', 'receiptStatus', 'pendingReceipt', 'unblockedAt', 'receiptMessage', 'receiptApprovedAt'];
@@ -102,6 +109,8 @@ export async function openBatch({
       undoUntilMs: nowMs + UNDO_WINDOW_MS,
       counts: {},
       createdBy: createdBy ?? who(user),
+      // 006Fixes / 01 (owner): a delete can't be undone.
+      ...(action === 'delete' ? { undoable: false } : {}),
     };
     return { id: ref.id, ref, data, isNew: true };
   }
@@ -293,6 +302,9 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
   if (batch.status === 'undone') {
     return { batchId, status: 'undone', remaining: false, undone: 0, changedSince: 0, missing: 0, failed: 0 };
   }
+  if (batch.action === 'delete' || batch.undoable === false) {
+    throw new ApiError(409, 'not_undoable', "Deleted students can't be put back.");
+  }
   if (nowMs > batch.undoUntilMs) {
     throw new ApiError(410, 'undo_expired', 'The 30 minutes to undo this have passed.');
   }
@@ -370,9 +382,186 @@ export async function listRecent({ db, nowMs }) {
       counts: b.counts ?? {},
       // Older actions (before 004Fixes) carry no email: shown as "another staff account".
       createdBy: b.createdBy?.email ?? null,
+      // 006Fixes / 01: a delete is listed but can't be undone.
+      undoable: b.undoable !== false && b.action !== 'delete',
       undoneBy: b.undoneBy?.email ?? null,
       undoneAtMs: b.undoneAtMs ?? null,
     }));
+}
+
+/**
+ * Deletes a chunk of students — 006Fixes / 01 (owner: bulk delete, type DELETE,
+ * no Undo). Each student is removed exactly as /api/student/remove removes one
+ * (api/_lib/studentRemoval.js): the record, notes and activity go; that
+ * registration's fee account is KEPT, marked deleted and closed, with the same
+ * "Balance closed: student deleted" entry; a waiting scheduled block loses
+ * them. Batched for the Worker budget: one read for the chunk, two listings a
+ * student, the deletes in commits of up to 450, ONE ledger transaction for all
+ * the closing entries, and one final commit (accounts, schedules, the batch
+ * record, an audit line per student).
+ *
+ * A balance whose closing entry could not be posted (the chunk's transaction
+ * refused) does not undo the delete: the student is counted done and in
+ * `balanceNotClosed`, the account is marked deleted but NOT closed (as the
+ * single delete leaves it when its close throws), and the nightly fees sweep's
+ * self-heal closes it (api/cron/feesSweep.js: studentDeletedAt + balance).
+ *
+ * @returns {{ batchId, done, skipped, failed, balanceClosedTotal, balanceClosedCount, balanceNotClosed }}
+ */
+export async function deleteStudents({ db, user, batch, items, nowMs, context = {} }) {
+  const list = uniqueItems(items);
+  const studentRefs = list.map((i) => studentRef(db, i.session, i.phone));
+  const itemRefs = list.map((i) => itemRef(db, batch.id, i.session, i.phone));
+  const snaps = await db.getAll(...studentRefs, ...(batch.isNew ? [] : itemRefs));
+  const studentSnaps = snaps.slice(0, list.length);
+  const itemSnaps = batch.isNew ? [] : snaps.slice(list.length);
+
+  const skipped = {};
+  const failed = [];
+  let alreadyDone = 0;
+  const toDelete = [];
+  list.forEach((item, i) => {
+    if (itemSnaps[i]?.exists && itemSnaps[i].data().outcome === 'done') { alreadyDone += 1; return; }
+    if (!studentSnaps[i].exists) { skipped.missing = (skipped.missing ?? 0) + 1; return; }
+    toDelete.push({ ...item, data: studentSnaps[i].data() });
+  });
+
+  // What to delete, per student (children first, the record last).
+  for (const item of toDelete) {
+    const refs = [];
+    // eslint-disable-next-line no-await-in-loop
+    await collectTree(studentRef(db, item.session, item.phone), refs);
+    item.refs = refs;
+    item.notes = refs.filter((r) => r.path.split('/').at(-2) === 'notes').length;
+  }
+  // Their fee accounts and any waiting schedules, in one read.
+  const scheduleIds = [...new Set(toDelete.map((i) => i.data.scheduledBlock?.batchId).filter(Boolean))];
+  const lookups = toDelete.length
+    ? await db.getAll(
+      ...toDelete.map((i) => accountRef(db, i.session, i.phone)),
+      ...scheduleIds.map((id) => db.doc(`scheduledBlocks/${id}`)),
+    )
+    : [];
+  const accountSnaps = lookups.slice(0, toDelete.length);
+  const schedules = new Map(scheduleIds.map((id, k) => {
+    const s = lookups[toDelete.length + k];
+    return [id, s.exists ? s.data() : null];
+  }));
+
+  // 1. The records go (as deleteRecursively: children first, 450 a commit).
+  const allRefs = toDelete.flatMap((i) => i.refs);
+  for (let k = 0; k < allRefs.length; k += 450) {
+    const writes = db.batch();
+    allRefs.slice(k, k + 450).forEach((r) => writes.delete(r));
+    // eslint-disable-next-line no-await-in-loop
+    await writes.commit();
+  }
+
+  // 2. Every balance closed in ONE transaction — the entry
+  //    closeDeletedStudentAccount posts (the record is gone first, so the
+  //    ledger never re-creates it; postEntries writes only existing students).
+  const closes = [];
+  toDelete.forEach((item, k) => {
+    const snap = accountSnaps[k];
+    item.hasAccount = snap.exists;
+    const balance = snap.exists ? (snap.data().balance ?? 0) : 0;
+    item.balanceClosed = balance;
+    if (balance !== 0) {
+      closes.push({
+        phone: item.phone,
+        session: item.session,
+        type: 'adjustment',
+        amount: Math.abs(balance),
+        deltaOverride: -balance,
+        note: balance > 0 ? 'Balance closed: student deleted' : 'Credit closed: student deleted',
+        recordedBy: user.uid,
+        idempotencyKey: `closed_bulk_${batch.id}_${itemId(item.session, item.phone)}`,
+      });
+    }
+  });
+  let closeFailed = null;
+  if (closes.length) {
+    try {
+      await postEntries(closes);
+    } catch (err) {
+      closeFailed = err?.code && typeof err.code === 'string' ? err.code : 'ledger_failed';
+    }
+  }
+
+  // 3. One commit: accounts marked, schedules left, the batch and audit trail.
+  const at = Timestamp.fromMillis(nowMs);
+  const writes = db.batch();
+  let balanceClosedTotal = 0;
+  let balanceClosedCount = 0;
+  let balanceNotClosed = 0;
+  for (const item of toDelete) {
+    const notClosed = Boolean(closeFailed) && item.balanceClosed !== 0;
+    if (notClosed) balanceNotClosed += 1;
+    if (item.hasAccount) {
+      writes.set(accountRef(db, item.session, item.phone), {
+        studentDeletedAt: at,
+        studentDeletedBy: user.uid,
+        // Closed only once nothing is owed — the single delete's order.
+        ...(notClosed ? {} : { status: 'closed', nextDueDate: null }),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+    if (!closeFailed && item.balanceClosed !== 0) {
+      balanceClosedTotal += item.balanceClosed;
+      balanceClosedCount += 1;
+    }
+    writes.set(itemRef(db, batch.id, item.session, item.phone), {
+      session: item.session,
+      phone: item.phone,
+      // What the audit needs; never the notes' text.
+      before: { class: item.data.class ?? null, approvalStatus: item.data.approvalStatus ?? null, feeBalance: item.data.feeBalance ?? 0 },
+      notesRemoved: item.notes,
+      balanceClosed: notClosed ? 0 : item.balanceClosed,
+      ...(notClosed ? { balanceNotClosed: item.balanceClosed, closeError: closeFailed } : {}),
+      outcome: 'done',
+      appliedAtMs: nowMs,
+    });
+    writes.set(db.collection('audit').doc(), auditRecord({
+      action: AuditAction.STUDENT_DELETED,
+      actor: user.uid,
+      actorRole: user.role ?? null,
+      target: `${item.session}/${item.phone}`,
+      before: {
+        class: item.data.class ?? null,
+        approvalStatus: item.data.approvalStatus ?? null,
+        notesRemoved: item.notes,
+        feeRecordRetained: item.hasAccount,
+        balanceClosed: notClosed ? 0 : item.balanceClosed,
+        ...(notClosed ? { balanceNotClosed: item.balanceClosed } : {}),
+      },
+      context: { ...context, batchId: batch.id },
+    }));
+  }
+  leaveSchedulesOnDelete({
+    db,
+    writes,
+    user,
+    members: toDelete.filter((i) => i.data.scheduledBlock?.batchId).map((i) => ({ batchId: i.data.scheduledBlock.batchId, session: i.session, phone: i.phone })),
+    schedules,
+  });
+  const counts = Object.fromEntries(Object.entries({ done: toDelete.length, ...skipped, balanceNotClosed }).filter(([, n]) => n));
+  if (batch.isNew) writes.set(batch.ref, { ...batch.data, counts });
+  else if (Object.keys(counts).length) {
+    const increments = {};
+    for (const [key, n] of Object.entries(counts)) increments[`counts.${key}`] = FieldValue.increment(n);
+    writes.update(batch.ref, increments);
+  }
+  await writes.commit();
+
+  return {
+    batchId: batch.id,
+    done: toDelete.length + alreadyDone,
+    skipped,
+    failed,
+    balanceClosedTotal,
+    balanceClosedCount,
+    balanceNotClosed,
+  };
 }
 
 export function assertChunkSize(items, max) {
