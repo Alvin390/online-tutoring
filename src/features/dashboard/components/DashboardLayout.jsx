@@ -23,6 +23,9 @@ const StudentDrawer = lazy(loadStudentDrawer);
 // Lazy (002Fixes / 08): only shown when approval is on, and its pre-class
 // banner must not grow the dashboard's first download (budgeted at 260 KB).
 const PendingApprovalsPanel = lazy(() => import('./PendingApprovalsPanel'));
+// 006Fixes / 06: Complete or Partial, when approving the receipt of someone who owes.
+const loadApprovePaymentModal = () => import('./ApprovePaymentModal');
+const ApprovePaymentModal = lazy(loadApprovePaymentModal);
 import StudentSearchPanel from './StudentSearchPanel';
 import { useDashboard } from '../hooks/useDashboard';
 import { useWaitingTitle } from '../hooks/useWaitingTitle';
@@ -59,12 +62,39 @@ export default function DashboardLayout() {
   const requireApproval = useFlag('registration.requireApproval');
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
+
+  /**
+   * 006Fixes / 06 (owner): approving the receipt of someone who owes asks
+   * Complete or Partial first. Nothing owed (or fees off): approved at once,
+   * as before. Resolves when the pop-up is done, so the row's popup closes
+   * only then.
+   */
+  const handleApprove = useCallback((session, id, name, student) => {
+    const owed = Number(student?.feeBalance) || 0;
+    if (!feesEnabled || owed <= 0) return approveReceipt(session, id, name);
+    return new Promise((resolve) => setApproving({ session, id, name, student, owed, resolve }));
+  }, [feesEnabled, approveReceipt]);
+  const closeApproving = useCallback((result = { success: false }) => {
+    setApproving((current) => {
+      current?.resolve(result);
+      return null;
+    });
+  }, []);
+  useEffect(() => {
+    if (!feesEnabled) return undefined;
+    const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 2500));
+    const cancel = window.cancelIdleCallback ?? clearTimeout;
+    const handle = idle(() => { loadApprovePaymentModal().catch(() => {}); });
+    return () => cancel(handle);
+  }, [feesEnabled]);
   const calendarEnabled = useFlag('calendar.enabled');
   const whatsappEnabled = useFlag('whatsapp.broadcast');
   const whatsappPreset = useWhatsappPreset();
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
+  // 006Fixes / 06: the receipt being approved ({ session, id, name, student, resolve }).
+  const [approving, setApproving] = useState(null);
   // Mounted from the first open onwards, so its closing animation still plays.
   const [drawerMounted, setDrawerMounted] = useState(false);
   useEffect(() => { if (drawerStudent) setDrawerMounted(true); }, [drawerStudent]);
@@ -339,7 +369,7 @@ export default function DashboardLayout() {
                   onExport={exportToPDF}
                   onBlock={blockStudent}
                   onUnblock={unblockStudent}
-                  onApprove={approveReceipt}
+                  onApprove={handleApprove}
                   onDecline={declineReceipt}
                   loading={loading}
                 />
@@ -350,6 +380,22 @@ export default function DashboardLayout() {
           </div>
         </div>
       </div>
+      {approving && (
+        <Suspense fallback={null}>
+          <ApprovePaymentModal
+            studentName={approving.name}
+            sessionName={sessions.find((x) => x.id === approving.session)?.name ?? approving.session}
+            receipt={approving.student?.pendingReceipt || approving.student?.receiptMessage || ''}
+            owed={approving.owed}
+            onClose={() => closeApproving()}
+            onConfirm={async (choice) => {
+              const result = await approveReceipt(approving.session, approving.id, approving.name, choice);
+              if (result?.success) closeApproving(result);
+              return result;
+            }}
+          />
+        </Suspense>
+      )}
     </m.div>
   );
 }

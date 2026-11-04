@@ -159,7 +159,8 @@ describe('row actions in the all-sessions view go to the row\'s own session', ()
     };
     let popup = await openPopup();
     await act(async () => { fireEvent.click(popup.getByRole('button', { name: /Approve/ })); });
-    expect(fns.onApprove).toHaveBeenCalledWith('evening', '+254722000001', 'Faith Otieno');
+    // 006Fixes / 06: the row also hands over its record (balance, receipt) for the approve pop-up.
+    expect(fns.onApprove).toHaveBeenCalledWith('evening', '+254722000001', 'Faith Otieno', expect.objectContaining({ id: '+254722000001' }));
     popup = await openPopup();
     await act(async () => { fireEvent.click(popup.getByRole('button', { name: /Decline/ })); });
     expect(fns.onDecline).toHaveBeenCalledWith('evening', '+254722000001', 'Faith Otieno');

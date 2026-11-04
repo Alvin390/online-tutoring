@@ -391,7 +391,8 @@ function StudentRow({
                           className="btn btn-success btn-sm"
                           onClick={async (e) => {
                             e.stopPropagation();
-                            await onApprove(session, student.id, student.studentName);
+                            // 006Fixes / 06: the record too (balance, receipt) for the pop-up.
+                            await onApprove(session, student.id, student.studentName, student);
                             setShowPopup(false);
                           }}
                         >
