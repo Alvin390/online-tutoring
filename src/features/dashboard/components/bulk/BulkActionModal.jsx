@@ -73,14 +73,18 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
 
   const [step, setStep] = useState(action === 'block' ? 'form' : 'confirm');
   const [kind, setKind] = useState(feesUsable ? 'fees' : 'other');
-  // 006Fixes / 09 (owner): when anyone selected already owes, the default is
-  // "Block for what they owe" (no new charge).
+  // 006Fixes / 09 (owner): when someone selected already owes, offer "Block
+  // for what they owe" (no new charge) or "Add a new charge". 09b: it is the
+  // DEFAULT only when everyone who would be blocked owes (e.g. selected from
+  // the Partial payment filter); a mixed selection — the monthly fee block
+  // over the whole roster — keeps today's default, a new charge.
   const owing = useMemo(() => {
     if (action !== 'block') return null;
-    const owes = rows.filter((r) => owedOf(r) > 0);
-    return { count: owes.length, total: owes.reduce((s, r) => s + owedOf(r), 0), nothing: rows.length - owes.length };
+    const blockable = rows.filter((r) => r.blocked !== true && effectiveApprovalStatus(r) !== 'pending');
+    const owes = blockable.filter((r) => owedOf(r) > 0);
+    return { count: owes.length, total: owes.reduce((s, r) => s + owedOf(r), 0), nothing: blockable.length - owes.length };
   }, [action, rows]);
-  const [charge, setCharge] = useState(() => !(owing?.count > 0));
+  const [charge, setCharge] = useState(() => !(owing?.count > 0 && owing.nothing === 0));
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState(null);
@@ -182,6 +186,7 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
       onDone({
         ...result, action, kind: action === 'block' ? (feeKind ? 'fees' : 'other') : null, amount: isFees ? Number(amount) : null, reason,
         payment: approving ? (isPartial ? 'partial' : 'full') : null,
+        charge: feeKind ? !noCharge : null,
       });
     } catch (err) {
       if (err instanceof BulkInterrupted) {
@@ -287,7 +292,8 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
         )}
         {scheduling && (
           <p className="mb-2 small" data-testid="bulk-scheduled-note">
-            Starts {formatWhen(timing.atMs)} (Nairobi time).{isFees ? ' The amount is recorded then.' : ''} Anyone waiting for approval
+            Starts {formatWhen(timing.atMs)} (Nairobi time).{isFees ? ' The amount is recorded then.' : ''}
+            {noCharge ? ' No new charge. Only students who still owe at that time are blocked.' : ''} Anyone waiting for approval
             or already blocked at that time is skipped, and anyone who pays before then is taken out. You can change or
             cancel it under <strong>Scheduled</strong>.
           </p>

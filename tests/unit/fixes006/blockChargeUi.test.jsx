@@ -63,21 +63,33 @@ async function openBulkBlock(names) {
 }
 
 describe('bulk block when some selected already owe', () => {
-  it('offers "Block for what they owe" (default) with the totals, and who will be skipped', async () => {
+  // 006Fixes / 09b: a MIXED selection (e.g. the monthly fee block over the
+  // whole roster with a few partial payers in it) keeps today's default — a
+  // new charge — so nobody is silently left out; the choice is still offered.
+  it('a mixed selection defaults to "Add a new charge" (as before), with the choice offered', async () => {
     renderPanel();
     const dialog = await openBulkBlock(['Claire Job', 'Sheila Wanjiru', 'Esther Clear']);
-    const owe = within(dialog).getByRole('radio', { name: /Block for what they owe/ });
-    expect(owe.getAttribute('aria-checked')).toBe('true');
-    expect(within(dialog).getByRole('radio', { name: /Add a new charge/ }).getAttribute('aria-checked')).toBe('false');
+    expect(within(dialog).getByRole('radio', { name: /Add a new charge/ }).getAttribute('aria-checked')).toBe('true');
+    expect(within(dialog).getByRole('radio', { name: /Block for what they owe/ }).getAttribute('aria-checked')).toBe('false');
+    expect(within(dialog).getByLabelText(/Amount each student owes/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Block for what they owe/ }));
     expect(within(dialog).getByTestId('block-owe-summary').textContent)
       .toBe('No new charge. 2 students owe KES 2,800 in total. 1 of them owes nothing and will be skipped.');
     expect(within(dialog).queryByLabelText(/Amount each student owes/)).toBeNull();
+  });
+
+  it('when everyone selected owes (e.g. from the Partial filter) it defaults to "Block for what they owe"', async () => {
+    renderPanel();
+    const dialog = await openBulkBlock(['Claire Job', 'Sheila Wanjiru']);
+    expect(within(dialog).getByRole('radio', { name: /Block for what they owe/ }).getAttribute('aria-checked')).toBe('true');
+    expect(within(dialog).getByTestId('block-owe-summary').textContent).toBe('No new charge. 2 students owe KES 2,800 in total.');
   });
 
   it('"for what they owe" sends charge: false with no amount; the confirmation says no new charge', async () => {
     api.runBulk.mockResolvedValue({ batchId: 'B1', done: 2, skipped: { nothingOwed: 1 }, failed: [], undoUntilMs: Date.now() + 1_800_000, total: 3 });
     renderPanel();
     const dialog = await openBulkBlock(['Claire Job', 'Sheila Wanjiru', 'Esther Clear']);
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Block for what they owe/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
     const confirm = await screen.findByTestId('bulk-confirm');
     expect(within(confirm).getByTestId('bulk-now-warning').textContent)
@@ -95,7 +107,7 @@ describe('bulk block when some selected already owe', () => {
     api.runBulk.mockResolvedValue({ batchId: 'B2', done: 3, skipped: {}, failed: [], undoUntilMs: Date.now() + 1_800_000, total: 3 });
     renderPanel();
     const dialog = await openBulkBlock(['Claire Job', 'Sheila Wanjiru', 'Esther Clear']);
-    fireEvent.click(within(dialog).getByRole('radio', { name: /Add a new charge/ }));
+    expect(within(dialog).getByRole('radio', { name: /Add a new charge/ }).getAttribute('aria-checked')).toBe('true');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
     expect(within(dialog).getByText('Enter the amount owed, in whole shillings.')).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText(/Amount each student owes/), { target: { value: '2750' } });
@@ -113,7 +125,9 @@ describe('bulk block when some selected already owe', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Schedule' }));
     fireEvent.click(within(dialog).getAllByRole('button').find((b) => /^Tomorrow/.test(b.textContent)) ?? within(dialog).getAllByRole('button', { name: /\d/ })[0]);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
-    await screen.findByTestId('bulk-confirm');
+    const confirm = await screen.findByTestId('bulk-confirm');
+    // 006Fixes / 09b: a scheduled no-charge block says who it will reach.
+    expect(within(confirm).getByTestId('bulk-scheduled-note').textContent).toMatch(/Only students who still owe at that time are blocked\./);
     await act(async () => { fireEvent.click(screen.getAllByRole('button').find((b) => /^Schedule 2 blocks/.test(b.textContent))); });
     const call = api.runSchedule.mock.calls[0][0];
     expect(call).toMatchObject({ kind: 'fees', charge: false });
@@ -156,5 +170,17 @@ describe('the Scheduled panel', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Scheduled blocks/ }));
     await waitFor(() => expect(screen.getByRole('dialog').textContent).toMatch(/for what they owe/));
     expect(screen.getByRole('dialog').textContent).toMatch(/unpaid fees KES 2,750/);
+  });
+});
+
+describe('Recent actions (006Fixes / 09b)', () => {
+  it('a no-charge fee block reads "for what they owe"', async () => {
+    api.listBulkActions.mockResolvedValue({
+      actions: [{ id: 'B9', action: 'block', kind: 'fees', charge: false, amount: null, status: 'done', createdAtMs: Date.now() - 60_000, undoUntilMs: Date.now() + 29 * 60_000, counts: { done: 3 }, createdBy: 't@school.example' }],
+    });
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /^Recent actions/ }));
+    const item = await screen.findByTestId('recent-action');
+    expect(item.textContent).toContain('Blocked 3 students · for what they owe');
   });
 });
