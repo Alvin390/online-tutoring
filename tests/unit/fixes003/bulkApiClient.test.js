@@ -112,3 +112,14 @@ describe('runBulk: delete (006Fixes / 02)', () => {
     expect(sent(fetchMock)[0].confirm).toBeUndefined();
   });
 });
+
+describe('runBulk: delete sums balances not closed yet (006Fixes / 01b)', () => {
+  it('adds balanceNotClosed across chunks', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ batchId: 'D1', done: 12, skipped: {}, failed: [], balanceNotClosed: 2 }))
+      .mockResolvedValueOnce(ok({ batchId: 'D1', done: 1, skipped: {}, failed: [], balanceNotClosed: 1 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await runBulk({ action: 'delete', items: items(13), limits: { delete: 12 } });
+    expect(result.balanceNotClosed).toBe(3);
+  });
+});

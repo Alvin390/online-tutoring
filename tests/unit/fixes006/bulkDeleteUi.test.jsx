@@ -165,3 +165,15 @@ describe('Recent actions', () => {
     expect(screen.queryByRole('button', { name: /can be undone/ })).toBeNull();
   });
 });
+
+describe('a balance that could not be closed yet (006Fixes / 01b)', () => {
+  it('the toast says so truthfully, and nobody is reported as failed', async () => {
+    api.runBulk.mockResolvedValue({ batchId: 'D2', done: 2, skipped: {}, failed: [], total: 2, balanceClosedTotal: 0, balanceClosedCount: 0, balanceNotClosed: 1 });
+    renderList();
+    const dialog = await openDelete(['Amina Wanjiru', 'Chebet Kiprop']);
+    fireEvent.change(within(dialog).getByLabelText(/Type DELETE to confirm/), { target: { value: 'DELETE' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete 2 students' }));
+    const toast = await screen.findByText(/2 students deleted\. 1 balance could not be closed yet; this happens automatically overnight\./);
+    expect(toast.textContent).not.toMatch(/could not be deleted|try them again/);
+  });
+});

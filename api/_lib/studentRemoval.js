@@ -42,9 +42,10 @@ export function leaveSchedulesOnDelete({ db, writes, user, members, schedules })
  */
 export async function removeStudentRecord({ db, session, phone, user, closeKey, data }) {
   const ref = db.doc(`sessions/${session}/students/${phone}`);
-  // 006Fixes / 01: out of a waiting scheduled block first (callers that have
-  // the record pass it; the others cost one read).
+  // 006Fixes / 01: which waiting schedule they are in (callers that have the
+  // record pass it; the others cost one read). Left AFTER the record goes.
   const record = data ?? (await ref.get()).data();
+  const { byCollection } = await deleteRecursively(db, ref);
   const batchId = record?.scheduledBlock?.batchId;
   if (batchId) {
     const scheduleSnap = await db.doc(`scheduledBlocks/${batchId}`).get();
@@ -55,7 +56,6 @@ export async function removeStudentRecord({ db, session, phone, user, closeKey, 
     });
     if (touched) await writes.commit();
   }
-  const { byCollection } = await deleteRecursively(db, ref);
   const noteCount = byCollection?.notes ?? 0;
 
   // 004Fixes / 06: only this registration's account. The same number in the

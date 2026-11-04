@@ -55,6 +55,7 @@ export async function runBulk({ action, items, kind, amount, reason, limits = DE
   if (action === 'delete') {
     result.balanceClosedTotal ??= 0;
     result.balanceClosedCount ??= 0;
+    result.balanceNotClosed ??= 0;
   }
   let next = resume?.next ?? 0;
 
@@ -86,6 +87,7 @@ export async function runBulk({ action, items, kind, amount, reason, limits = DE
     if (action === 'delete') {
       result.balanceClosedTotal += res.balanceClosedTotal ?? 0;
       result.balanceClosedCount += res.balanceClosedCount ?? 0;
+      result.balanceNotClosed += res.balanceNotClosed ?? 0;
     }
     next += chunk.length;
     onProgress?.(next, items.length);

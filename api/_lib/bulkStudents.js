@@ -400,7 +400,13 @@ export async function listRecent({ db, nowMs }) {
  * the closing entries, and one final commit (accounts, schedules, the batch
  * record, an audit line per student).
  *
- * @returns {{ batchId, done, skipped, failed, balanceClosedTotal, balanceClosedCount }}
+ * A balance whose closing entry could not be posted (the chunk's transaction
+ * refused) does not undo the delete: the student is counted done and in
+ * `balanceNotClosed`, the account is marked deleted but NOT closed (as the
+ * single delete leaves it when its close throws), and the nightly fees sweep's
+ * self-heal closes it (api/cron/feesSweep.js: studentDeletedAt + balance).
+ *
+ * @returns {{ batchId, done, skipped, failed, balanceClosedTotal, balanceClosedCount, balanceNotClosed }}
  */
 export async function deleteStudents({ db, user, batch, items, nowMs, context = {} }) {
   const list = uniqueItems(items);
@@ -487,16 +493,16 @@ export async function deleteStudents({ db, user, batch, items, nowMs, context = 
   const writes = db.batch();
   let balanceClosedTotal = 0;
   let balanceClosedCount = 0;
+  let balanceNotClosed = 0;
   for (const item of toDelete) {
-    // The record is already gone; a failed close is retried by the nightly
-    // sweep's self-heal for deleted students, and reported here.
-    if (closeFailed && item.balanceClosed !== 0) failed.push({ index: item.index, code: closeFailed });
+    const notClosed = Boolean(closeFailed) && item.balanceClosed !== 0;
+    if (notClosed) balanceNotClosed += 1;
     if (item.hasAccount) {
       writes.set(accountRef(db, item.session, item.phone), {
         studentDeletedAt: at,
         studentDeletedBy: user.uid,
-        status: 'closed',
-        nextDueDate: null,
+        // Closed only once nothing is owed — the single delete's order.
+        ...(notClosed ? {} : { status: 'closed', nextDueDate: null }),
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
     }
@@ -510,7 +516,8 @@ export async function deleteStudents({ db, user, batch, items, nowMs, context = 
       // What the audit needs; never the notes' text.
       before: { class: item.data.class ?? null, approvalStatus: item.data.approvalStatus ?? null, feeBalance: item.data.feeBalance ?? 0 },
       notesRemoved: item.notes,
-      balanceClosed: item.balanceClosed,
+      balanceClosed: notClosed ? 0 : item.balanceClosed,
+      ...(notClosed ? { balanceNotClosed: item.balanceClosed, closeError: closeFailed } : {}),
       outcome: 'done',
       appliedAtMs: nowMs,
     });
@@ -524,7 +531,8 @@ export async function deleteStudents({ db, user, batch, items, nowMs, context = 
         approvalStatus: item.data.approvalStatus ?? null,
         notesRemoved: item.notes,
         feeRecordRetained: item.hasAccount,
-        balanceClosed: item.balanceClosed,
+        balanceClosed: notClosed ? 0 : item.balanceClosed,
+        ...(notClosed ? { balanceNotClosed: item.balanceClosed } : {}),
       },
       context: { ...context, batchId: batch.id },
     }));
@@ -536,7 +544,7 @@ export async function deleteStudents({ db, user, batch, items, nowMs, context = 
     members: toDelete.filter((i) => i.data.scheduledBlock?.batchId).map((i) => ({ batchId: i.data.scheduledBlock.batchId, session: i.session, phone: i.phone })),
     schedules,
   });
-  const counts = Object.fromEntries(Object.entries({ done: toDelete.length, ...skipped }).filter(([, n]) => n));
+  const counts = Object.fromEntries(Object.entries({ done: toDelete.length, ...skipped, balanceNotClosed }).filter(([, n]) => n));
   if (batch.isNew) writes.set(batch.ref, { ...batch.data, counts });
   else if (Object.keys(counts).length) {
     const increments = {};
@@ -552,6 +560,7 @@ export async function deleteStudents({ db, user, batch, items, nowMs, context = 
     failed,
     balanceClosedTotal,
     balanceClosedCount,
+    balanceNotClosed,
   };
 }
 

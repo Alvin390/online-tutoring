@@ -127,6 +127,24 @@ describe('bulk delete removes each student exactly as the single delete does', (
     expect(closes).toHaveLength(1);
   });
 
+  it('a balance that cannot be closed now: still deleted, reported as balanceNotClosed (not failed), account left for the 05:00 sweep', async () => {
+    const [bad, fine] = [phoneN(35), phoneN(36)];
+    await seed('morning', bad);
+    await seed('morning', fine);
+    // A corrupt (non-whole) balance makes the closing transaction refuse the chunk.
+    await db.doc(`fees/accounts/items/morning__${bad}`).set({ key: `morning__${bad}`, session: 'morning', phone: bad, balance: 2750.5, status: 'current' });
+    const res = await del([{ session: 'morning', phone: bad }, { session: 'morning', phone: fine }]);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({ done: 2, failed: [], balanceNotClosed: 1 });
+    expect(await student('morning', bad)).toBeNull();
+    const acc = await account('morning', bad);
+    // Marked deleted (the sweep's self-heal looks for this) but NOT closed: as
+    // the single delete, the account is closed only once its balance is.
+    expect(acc.studentDeletedBy).toBe('fx006-del-a');
+    expect(acc.studentDeletedAt).toBeTruthy();
+    expect(acc.status).toBe('current');
+  });
+
   it('cannot be undone; Recent actions lists it as not undoable', async () => {
     const p = phoneN(40);
     await seed('morning', p);

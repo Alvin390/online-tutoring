@@ -204,7 +204,10 @@ export default function StudentSearchPanel({
         undoUntilMs: 0,
         counts: { done: result.done },
       });
-      toast?.showSuccess(describeResult('delete', result), 'Deleted', { duration: 10_000 });
+      const notClosed = result.balanceNotClosed
+        ? ` ${result.balanceNotClosed === 1 ? '1 balance' : `${result.balanceNotClosed} balances`} could not be closed yet; this happens automatically overnight.`
+        : '';
+      toast?.showSuccess(`${describeResult('delete', result)}${notClosed}`, 'Deleted', { duration: 10_000 });
       return;
     }
     rememberBulk({
