@@ -50,7 +50,7 @@ export default createHandler({
 
     // Batched since Phase 13 / 03; the fee record is RETAINED and any balance
     // closed (Phase 13 / 03 D2). Shared with the duplicate actions (003Fixes / 12).
-    const { noteCount, feeRecordRetained, balanceClosed } = await removeStudentRecord({ db, session, phone, user });
+    const { noteCount, feeRecordRetained, balanceClosed } = await removeStudentRecord({ db, session, phone, user, data });
 
     log.info('Student deleted', { session, notesRemoved: noteCount, feeRecordRetained, balanceClosed });
 

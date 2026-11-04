@@ -55,7 +55,16 @@ export const AuditAction = {
  */
 export async function writeAudit(entry) {
   const db = getDb();
-  await db.collection('audit').add({
+  await db.collection('audit').add(auditRecord(entry));
+}
+
+/**
+ * The audit document for `entry` — 006Fixes / 01. For a caller that writes
+ * many lines inside its own commit (bulk delete: one line per student without
+ * one subrequest each). Same shape as writeAudit.
+ */
+export function auditRecord(entry) {
+  return {
     action: entry.action,
     actor: entry.actor ?? 'system',
     actorRole: entry.actorRole ?? null,
@@ -64,7 +73,7 @@ export async function writeAudit(entry) {
     after: entry.after ?? null,
     context: entry.context ?? null,
     at: FieldValue.serverTimestamp(),
-  });
+  };
 }
 
 /**
