@@ -19,6 +19,8 @@ const SKIP_TEXT = {
   noReceipt: (n) => `${n} with no receipt to review`,
   missing: (n) => `${n} no longer registered`,
   notScheduled: (n) => `${n} no longer scheduled`,
+  // 006Fixes / 05: a partial amount of 0, the whole balance or more.
+  amountInvalid: (n) => `${n} with no valid amount`,
 };
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -44,8 +46,10 @@ export function describeResult(action, result) {
   const skipped = describeSkipped(result.skipped);
   const failed = result.failed?.length ?? 0;
   const skippedTotal = Object.values(result.skipped ?? {}).reduce((s, n) => s + n, 0);
+  // 006Fixes / 07: say when receipts were approved as partial payments.
+  const how = action === 'approveReceipts' && result.payment === 'partial' ? ' (partial payment)' : '';
   return [
-    `${plural(result.done, 'student')} ${text.past}.`,
+    `${plural(result.done, 'student')} ${text.past}${how}.`,
     skippedTotal ? `${skippedTotal} skipped: ${skipped.join(', ')}.` : '',
     failed ? `${failed} could not be ${text.past} — try them again.` : '',
   ].filter(Boolean).join(' ');

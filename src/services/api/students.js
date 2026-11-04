@@ -47,7 +47,7 @@ const mergeSkipped = (into, from = {}) => {
  * @param {(done: number, total: number) => void} [opts.onProgress]
  * @param {{ batchId: string, next: number, result: object }} [opts.resume]  from a BulkInterrupted
  */
-export async function runBulk({ action, items, kind, amount, reason, limits = DEFAULT_LIMITS, onProgress, resume = null }) {
+export async function runBulk({ action, items, kind, amount, reason, payment, limits = DEFAULT_LIMITS, onProgress, resume = null }) {
   const size = action === 'block' && kind === 'fees' ? limits.blockFees : limits[action];
   let batchId = resume?.batchId ?? null;
   const result = resume?.result ?? { done: 0, skipped: {}, failed: [], undoUntilMs: null };
@@ -72,6 +72,8 @@ export async function runBulk({ action, items, kind, amount, reason, limits = DE
         ...(action === 'block' && kind !== 'fees' && reason ? { reason } : {}),
         // 006Fixes / 01: the server checks the teacher typed DELETE.
         ...(action === 'delete' ? { confirm: 'DELETE' } : {}),
+        // 006Fixes / 07: complete or partial (partial items carry their amount).
+        ...(action === 'approveReceipts' && payment ? { payment } : {}),
         ...(batchId ? { batchId } : {}),
       });
     } catch (error) {
