@@ -2,9 +2,8 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { postEntry } from '../_lib/ledger.js';
-import { shouldAutoUnblock } from '../_lib/feeState.js';
-import { notFound } from '../_lib/errors.js';
-import { approvalFields, receiptIdFor } from '../_lib/receiptApproval.js';
+import { notFound, badRequest } from '../_lib/errors.js';
+import { approvalFields, receiptIdFor, mpesaCodeFrom, paymentChoice } from '../_lib/receiptApproval.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 
 /**
@@ -28,7 +27,10 @@ const schema = z
   .object({
     session: sessionSchema,
     phone: phoneSchema,
-    // Omit to approve access without posting money.
+    // 006Fixes / 04 (owner): approving asks Complete or Partial. Complete
+    // records everything owed; partial records `amount` (1 .. owed - 1).
+    payment: z.enum(['full', 'partial']).optional(),
+    // Omit (with no `payment`) to approve access without posting money.
     amount: z.number().int().min(1).max(10_000_000).optional(),
     method: z.enum(['cash', 'mpesa', 'bank']).optional(),
     reference: z.string().trim().max(120).optional(),
@@ -44,7 +46,7 @@ export default createHandler({
   schema,
   rateLimit: { bucket: 'fees_approve_receipt', limit: 300, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {
-    const { session, phone, amount, method, reference } = body;
+    const { session, phone, method, reference } = body;
     const db = getDb();
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
 
@@ -56,35 +58,52 @@ export default createHandler({
     // at exactly the text the teacher approved.
     const receiptId = receiptIdFor(phone, data);
 
+    // What is owed: the student's feeBalance, which the ledger keeps equal to
+    // the account in the same transaction (no extra read).
+    const owed = Number(data.feeBalance) || 0;
+    let choice;
+    try {
+      choice = paymentChoice({ payment: body.payment, amount: body.amount, owed });
+    } catch (err) {
+      throw badRequest(err.message, err.code);
+    }
+
     let posted = null;
-    if (amount) {
+    if (choice.amount > 0) {
       posted = await postEntry({
         phone,
         session,
         type: 'payment',
-        amount,
+        amount: choice.amount,
         method: method ?? 'mpesa',
-        reference: reference ?? null,
-        note: 'Recorded on receipt approval',
+        reference: reference ?? mpesaCodeFrom(data.pendingReceipt || data.receiptMessage),
+        note: choice.note,
         recordedBy: user.uid,
         sourceReceiptId: receiptId,
         // Approving the same receipt twice must not post the payment twice.
         idempotencyKey: receiptId,
+        ...(choice.partial ? {
+          partialPayment: {
+            paid: choice.amount, owedBefore: owed, owedAfter: owed - choice.amount, at: new Date(), by: user.uid, receiptId,
+          },
+        } : {}),
       });
     }
 
-    // Clearing the block on approval is the existing behaviour and is kept.
-    // But when fees are being tracked AND a balance survives the payment, the
-    // partial-payment rule wins: the student stays blocked and the derived
-    // reason updates to the new, smaller balance.
-    const balanceAfter = posted ? posted.balance : (data.feeBalance ?? 0);
-    const clearBlock = !posted || shouldAutoUnblock(balanceAfter);
+    // 006Fixes / 04 (owner): approving lets the student in, whether the
+    // payment was complete or partial — what is still owed stays on the ledger,
+    // in Total outstanding, and under the "Partial payment" filter. (Before,
+    // a partial payment kept the block; a recorded payment or an M-Pesa
+    // receipt still unblocks only once nothing is owed.)
+    const balanceAfter = posted ? posted.balance : owed;
+    const clearBlock = true;
 
     // The same fields as a bulk approval (api/_lib/receiptApproval.js).
     await studentRef.set(approvalFields(data, { clearBlock, approvedAt: FieldValue.serverTimestamp() }), { merge: true });
 
     log.info('Receipt approved', {
       session,
+      payment: choice.kind,
       posted: Boolean(posted),
       balance: balanceAfter,
       clearedBlock: clearBlock,
@@ -98,7 +117,7 @@ export default createHandler({
         target: `${session}/${phone}`,
         before: { balance: posted?.previousBalance ?? null, blocked: data.blocked === true },
         after: { balance: balanceAfter, blocked: !clearBlock, entryId: posted?.entryId ?? null },
-        context: { requestId: log.requestId, amountPosted: amount ?? null },
+        context: { requestId: log.requestId, payment: choice.kind, amountPosted: posted ? choice.amount : null },
       },
       log
     );
@@ -107,6 +126,8 @@ export default createHandler({
       ok: true,
       posted: Boolean(posted),
       entryId: posted?.entryId ?? null,
+      paid: posted ? choice.amount : 0,
+      partial: Boolean(posted) && choice.partial && balanceAfter > 0,
       balance: balanceAfter,
       stillBlocked: !clearBlock,
       stillOwes: balanceAfter > 0,

@@ -119,6 +119,8 @@ export function sessionTotals(current, session, delta, collected = 0) {
  * @param {number} [opts.deltaOverride] signed delta, for reversals and account closing
  * @param {boolean} [opts.receiptPending] Phase 13 / 04 D3: posted without the
  *        receipt that will follow (reconciled M-Pesa payments)
+ * @param {object} [opts.partialPayment] 006Fixes / 04: the marker a partial
+ *        receipt approval leaves on the student (set only while something is owed)
  */
 export async function postEntry(opts) {
   const db = getDb();
@@ -138,6 +140,7 @@ export async function postEntry(opts) {
     idempotencyKey = null,
     deltaOverride = null,
     receiptPending = false,
+    partialPayment = null,
   } = opts;
 
   if (!ENTRY_TYPES.includes(type)) throw badRequest(`Unknown entry type: ${type}`);
@@ -233,6 +236,7 @@ export async function postEntry(opts) {
           // 003Fixes / 07: paying before a scheduled block takes the student
           // out of it (owner decision) — whichever way the payment arrives.
           ...(type === 'payment' && studentSnap.data()?.scheduledBlock ? { scheduledBlock: FieldValue.delete() } : {}),
+          ...partialMarkerFields(studentSnap.data(), balanceAfter, partialPayment),
         },
         { merge: true }
       );
@@ -284,6 +288,19 @@ export async function postEntry(opts) {
  * @param {Array<object>} list  postEntry's options, one object per entry
  * @returns {Promise<Array<{duplicate, entryId, balance, previousBalance}>>} in input order
  */
+/**
+ * The `partialPayment` marker on a student — 006Fixes / 04 (owner: a partial
+ * receipt approval lets them in, owing the rest, and the "Partial payment"
+ * filter finds them). Set by a partial approval while something is still
+ * owed; removed by ANY posting that leaves nothing owed (a payment, an M-Pesa
+ * receipt, a write-off), so it never outlives the debt.
+ */
+export function partialMarkerFields(current, balanceAfter, marker) {
+  if (marker && balanceAfter > 0) return { partialPayment: marker };
+  if (balanceAfter <= 0 && current?.partialPayment) return { partialPayment: FieldValue.delete() };
+  return {};
+}
+
 export async function postEntries(list) {
   if (!list.length) return [];
   const db = getDb();
@@ -385,6 +402,9 @@ export async function postEntries(list) {
         if (opts.type === 'payment' && (await snap(p.student)).data()?.scheduledBlock) {
           student.fields.scheduledBlock = FieldValue.delete();
         }
+        // 006Fixes / 04: the latest entry for this student decides the marker.
+        delete student.fields.partialPayment;
+        Object.assign(student.fields, partialMarkerFields((await snap(p.student)).data(), balanceAfter, opts.partialPayment ?? null));
         students.set(p.student.path, student);
       }
 
