@@ -40,7 +40,20 @@ const CARDS = [
   },
 ];
 
-export default function FeeKpiCards() {
+/** "Morning: KES 1,500 outstanding · KES 1,500 this month" — 004Fixes / 09. */
+function sessionLine(totals, thisMonth) {
+  const outstanding = Math.max(0, Number(totals?.totalOutstanding ?? 0));
+  const stale = totals?.collectedMonth && totals.collectedMonth !== thisMonth;
+  const collected = stale ? 0 : Number(totals?.collectedThisMonth ?? 0);
+  return `${formatKes(outstanding)} outstanding · ${formatKes(collected)} this month`;
+}
+
+/**
+ * @param {{ sessions?: Array<{slug: string, name?: string}> }} props
+ *   004Fixes / 09: the active sessions, for one line each under the cards
+ *   (owner: money per session). A session with no fee activity reads 0.
+ */
+export default function FeeKpiCards({ sessions = [] }) {
   const [aggregates, setAggregates] = useState(null);
 
   useEffect(() => {
@@ -53,9 +66,11 @@ export default function FeeKpiCards() {
   }, []);
 
   if (!aggregates) return null;
+  const thisMonth = dayKey(new Date()).slice(0, 7);
 
   return (
-    <div className="row g-3 mb-4">
+    <>
+    <div className={`row g-3 ${sessions.length ? 'mb-2' : 'mb-4'}`}>
       {CARDS.map((card) => {
         // A total stamped with an earlier month is last month's: this month
         // has collected nothing yet. (No stamp: written before the stamp
@@ -91,5 +106,16 @@ export default function FeeKpiCards() {
         );
       })}
     </div>
+    {sessions.length > 0 && (
+      <ul className="list-unstyled small text-muted mb-4 d-flex flex-wrap column-gap-4 row-gap-1" data-testid="fee-kpi-sessions" aria-label="Money per session">
+        {sessions.map((s) => (
+          <li key={s.slug} data-testid="fee-kpi-session">
+            <span className="fw-semibold text-body">{s.name ?? s.slug}:</span>{' '}
+            {sessionLine(aggregates.bySession?.[s.slug], thisMonth)}
+          </li>
+        ))}
+      </ul>
+    )}
+    </>
   );
 }

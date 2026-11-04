@@ -53,9 +53,10 @@ async function seedNotes(session, phone, n) {
 }
 
 async function seedFees(phone, session, entries) {
-  await db.doc(`fees/accounts/items/${phone}`).set({ phone, session, balance: 1200 });
+  // 004Fixes / 06: accounts are per registration, `{session}__{phone}`.
+  await db.doc(`fees/accounts/items/${session}__${phone}`).set({ phone, session, balance: 1200 });
   for (let i = 0; i < entries; i += 1) {
-    await db.doc(`fees/accounts/items/${phone}/ledger/e${i}`).set({
+    await db.doc(`fees/accounts/items/${session}__${phone}/ledger/e${i}`).set({
       type: 'invoice', amount: 600, magnitude: 600, method: null, reference: null,
       occurredAt: new Date(), recordedBy: 'seed', balanceAfter: 600 * (i + 1), session, phone,
     });
@@ -127,14 +128,14 @@ describe('D1 /api/student/update — phone change (B6b)', () => {
     expect(moved.moveInProgress).toBeUndefined();
 
     expect((await db.collection(`sessions/morning/students/${newPhone}/notes`).get()).size).toBe(5);
-    expect((await db.doc(`fees/accounts/items/${newPhone}`).get()).data()).toMatchObject({ phone: newPhone, balance: 1200, phoneChangedFrom: oldPhone });
-    expect((await db.collection(`fees/accounts/items/${newPhone}/ledger`).get()).size).toBe(3);
+    expect((await db.doc(`fees/accounts/items/morning__${newPhone}`).get()).data()).toMatchObject({ phone: newPhone, balance: 1200, phoneChangedFrom: oldPhone });
+    expect((await db.collection(`fees/accounts/items/morning__${newPhone}/ledger`).get()).size).toBe(3);
 
     // Nothing left under the old phone except the marker.
     expect((await db.doc(`sessions/morning/students/${oldPhone}`).get()).exists).toBe(false);
     expect((await db.collection(`sessions/morning/students/${oldPhone}/notes`).get()).size).toBe(0);
-    expect((await db.collection(`fees/accounts/items/${oldPhone}/ledger`).get()).size).toBe(0);
-    expect((await db.doc(`fees/accounts/items/${oldPhone}`).get()).data()).toMatchObject({ phoneChanged: newPhone });
+    expect((await db.collection(`fees/accounts/items/morning__${oldPhone}/ledger`).get()).size).toBe(0);
+    expect((await db.doc(`fees/accounts/items/morning__${oldPhone}`).get()).data()).toMatchObject({ phoneChanged: newPhone });
 
     const audit = await db.collection('audit').where('action', '==', 'student.phone_changed').get();
     expect(audit.size).toBe(1);
@@ -236,11 +237,11 @@ describe('D2 delete through the API (B3)', () => {
 
     expect((await db.doc(`sessions/morning/students/${phone}`).get()).exists).toBe(false);
     expect((await db.collection(`sessions/morning/students/${phone}/notes`).get()).size).toBe(0);
-    const account = (await db.doc(`fees/accounts/items/${phone}`).get()).data();
+    const account = (await db.doc(`fees/accounts/items/morning__${phone}`).get()).data();
     expect(account.studentDeletedAt).toBeTruthy();
     // The history is kept, plus one entry closing the 1,200 balance (it no
     // longer counts towards "Total outstanding"; see cleanup.test.js).
-    const ledger = (await db.collection(`fees/accounts/items/${phone}/ledger`).get()).docs.map((d) => d.data());
+    const ledger = (await db.collection(`fees/accounts/items/morning__${phone}/ledger`).get()).docs.map((d) => d.data());
     expect(ledger).toHaveLength(3);
     expect(ledger.filter((e) => e.type === 'invoice')).toHaveLength(2);
     expect(account.balance).toBe(0);

@@ -17,12 +17,35 @@ const VARIANT = {
   info: { bg: 'text-bg-primary', icon: 'bi-info-circle-fill', light: true },
 };
 
+// 004Fixes / 05: an action marked `doubleClick` (the bulk Undo) runs only on a
+// double-click — or, from the keyboard, two presses within this window.
+const KEY_REPEAT_MS = 1000;
+
 const Toast = ({ type = 'info', title, message, duration = 5000, action, onClose }) => {
   const variant = VARIANT[type] ?? VARIANT.info;
   const reduceMotion = useReducedMotion();
   const [paused, setPaused] = useState(false);
+  const [nudged, setNudged] = useState(false);
   const remaining = useRef(duration);
   const startedAt = useRef(0);
+  const lastKeyPress = useRef(0);
+
+  const runAction = () => {
+    action.onClick();
+    onClose();
+  };
+  const onActionClick = (event) => {
+    if (!action.doubleClick) { runAction(); return; }
+    // event.detail: 2+ on the second click of a double-click (and a double-tap),
+    // 1 on a single click, 0 when Enter/Space pressed the button.
+    if (event.detail >= 2) { runAction(); return; }
+    if (event.detail === 0) {
+      const now = Date.now();
+      if (now - lastKeyPress.current <= KEY_REPEAT_MS) { lastKeyPress.current = 0; runAction(); return; }
+      lastKeyPress.current = now;
+    }
+    setNudged(true);
+  };
 
   useEffect(() => {
     if (paused || !(duration > 0)) return undefined;
@@ -69,13 +92,19 @@ const Toast = ({ type = 'info', title, message, duration = 5000, action, onClose
               <button
                 type="button"
                 className={`btn btn-sm mt-2 ${variant.light ? 'btn-light' : 'btn-dark'}`}
-                onClick={() => {
-                  action.onClick();
-                  onClose();
-                }}
+                onClick={onActionClick}
               >
                 {action.label}
               </button>
+            )}
+            {action?.hint && (
+              <div
+                className={`small mt-1 toast-action-hint${nudged ? ' is-nudged' : ''}`}
+                data-testid="toast-action-hint"
+                aria-live="polite"
+              >
+                {action.hint}
+              </div>
             )}
           </div>
         </div>

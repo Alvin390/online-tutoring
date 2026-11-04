@@ -90,7 +90,8 @@ describe('Block selected', () => {
     expect(confirm.textContent).toMatch(/Form 3: 1 · Grade 10: 1|Grade 10: 1 · Form 3: 1/);
     expect(screen.getByTestId('bulk-skipped').textContent).toMatch(/2 will be skipped: 1 waiting for approval, 1 already blocked/);
     expect(confirm.textContent).toMatch(/Each will owe KES 1,500/);
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Block 2 students' })); });
+    // 004Fixes / 05: the button says "now" ("Now" stays the default).
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Block 2 students now' })); });
 
     expect(api.runBulk).toHaveBeenCalledTimes(1);
     const args = api.runBulk.mock.calls[0][0];
@@ -112,7 +113,12 @@ describe('Block selected', () => {
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('radio', { name: /Another reason/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await act(async () => { fireEvent.click(await screen.findByRole('button', { name: /^Block \d+ student/ })); });
-    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Undo' })); });
+    // 004Fixes / 05: the toast's Undo runs only on a double-click.
+    await act(async () => {
+      const undo = await screen.findByRole('button', { name: 'Undo' });
+      fireEvent.click(undo, { detail: 1 });
+      fireEvent.click(undo, { detail: 2 });
+    });
     await waitFor(() => expect(api.undoBulk.mock.calls[0]?.[0]).toBe('B1'));
     expect(await screen.findByText(/2 students put back as they were/)).toBeTruthy();
   });
@@ -128,7 +134,7 @@ describe('Block selected', () => {
     fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Fees for next week' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
     expect(screen.getByTestId('bulk-confirm').textContent).toMatch(/They will see: “Fees for next week”/);
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Block 1 student' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Block 1 student now' })); });
     expect(api.runBulk.mock.calls[0][0]).toMatchObject({ action: 'block', kind: 'other', reason: 'Fees for next week' });
   });
 

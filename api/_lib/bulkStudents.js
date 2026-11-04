@@ -1,5 +1,5 @@
 import { FieldValue, Timestamp } from './firebaseAdmin.js';
-import { postEntries, reverseEntries } from './ledger.js';
+import { postEntries, reverseEntries, accountRef } from './ledger.js';
 import { effectiveApprovalStatus } from './studentState.js';
 import { shouldAutoUnblock } from './feeState.js';
 import { approvalFields, receiptIdFor, mpesaCodeFrom } from './receiptApproval.js';
@@ -74,7 +74,8 @@ function uniqueItems(items) {
   return out;
 }
 
-const who = (user) => ({ uid: user.uid, email: user.email ?? null });
+// `device` (004Fixes / 05) is set by the handler from the request (api/_lib/device.js).
+const who = (user) => ({ uid: user.uid, email: user.email ?? null, device: user.device ?? null });
 
 /**
  * Opens a new batch (returns the document to create in the same commit) or
@@ -132,8 +133,9 @@ export async function applyStudents({
   const list = uniqueItems(items);
   const studentRefs = list.map((i) => studentRef(db, i.session, i.phone));
   const itemRefs = list.map((i) => itemRef(db, batch.id, i.session, i.phone));
-  // Approving receipts needs each fee account's balance as well.
-  const accountRefs = action === 'approveReceipts' ? list.map((i) => db.doc(`fees/accounts/items/${i.phone}`)) : [];
+  // Approving receipts needs each fee account's balance as well — that
+  // registration's account (004Fixes / 06: session + phone).
+  const accountRefs = action === 'approveReceipts' ? list.map((i) => accountRef(db, i.session, i.phone)) : [];
   // One round trip for the students, their items (a retry's done marks) and accounts.
   const snaps = await db.getAll(...studentRefs, ...(batch.isNew ? [] : itemRefs), ...accountRefs);
   const studentSnaps = snaps.slice(0, list.length);
@@ -338,6 +340,8 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
   if (!remaining) {
     increments.status = 'undone';
     increments.undoneAtMs = nowMs;
+    // 004Fixes / 05: who undid it (and from which device), shown in Recent actions.
+    increments.undoneBy = who(user);
   }
   if (Object.keys(increments).length) writes.update(ref, increments);
   await writes.commit();
@@ -366,6 +370,8 @@ export async function listRecent({ db, nowMs }) {
       counts: b.counts ?? {},
       // Older actions (before 004Fixes) carry no email: shown as "another staff account".
       createdBy: b.createdBy?.email ?? null,
+      undoneBy: b.undoneBy?.email ?? null,
+      undoneAtMs: b.undoneAtMs ?? null,
     }));
 }
 

@@ -37,7 +37,8 @@ const memberId = (session, phone) => `${session}__${String(phone).replace(/\D/g,
 const scheduleRef = (db, id) => db.doc(`scheduledBlocks/${id}`);
 const memberRef = (db, id, session, phone) => db.doc(`scheduledBlocks/${id}/members/${memberId(session, phone)}`);
 const studentRef = (db, session, phone) => db.doc(`sessions/${session}/students/${phone}`);
-const who = (user) => ({ uid: user.uid, email: user.email ?? null });
+// `device` (004Fixes / 05) is set by the handler from the request (api/_lib/device.js).
+const who = (user) => ({ uid: user.uid, email: user.email ?? null, device: user.device ?? null });
 
 export function assertWhen(atMs, nowMs) {
   if (!Number.isFinite(atMs)) throw badRequest('Choose when the block should start.', 'bad_time');

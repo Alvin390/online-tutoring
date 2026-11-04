@@ -224,7 +224,8 @@ export default function DashboardLayout() {
             feature="Fee ledger and invoicing"
             description="Record payments, issue invoices and see who is behind"
           >
-            <FeeKpiCards />
+            {/* 004Fixes / 09: one line of money per active session. */}
+            <FeeKpiCards sessions={activeSessions} />
           </TierGate>
         )}
 

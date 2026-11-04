@@ -145,14 +145,14 @@ describe('ledger under contention (D3)', () => {
       studentName: 'Busy', parentPhone: phone, class: 'G8', subjects: 'Maths', receiptMessage: 'QAB123XYZ9 x',
       registeredAt: new Date(), session: 'morning', blocked: false, approvalStatus: 'approved', receiptStatus: 'approved', feeBalance: 0,
     });
-    await db.doc(`fees/accounts/items/${phone}`).set({ phone, session: 'morning', balance: 0 });
+    await db.doc(`fees/accounts/items/morning__${phone}`).set({ phone, session: 'morning', balance: 0 });
     const amounts = Array.from({ length: n }, (_, i) => 100 + i);
     const results = await Promise.all(amounts.map((amount, i) => call('/api/fees/post', {
       token: teacher, ip: `10.88.${n}.${i}`,
       body: { session: 'morning', phone, type: 'invoice', amount },
     })));
-    const ledger = await db.collection(`fees/accounts/items/${phone}/ledger`).get();
-    const balance = (await db.doc(`fees/accounts/items/${phone}`).get()).data().balance;
+    const ledger = await db.collection(`fees/accounts/items/morning__${phone}/ledger`).get();
+    const balance = (await db.doc(`fees/accounts/items/morning__${phone}`).get()).data().balance;
     return { results, ledger, balance };
   }
 

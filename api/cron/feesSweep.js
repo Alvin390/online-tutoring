@@ -3,7 +3,7 @@ import { createLogger } from '../_lib/log.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { safeCompare } from '../_lib/crypto.js';
 import { isEnabled } from '../_lib/flags.js';
-import { accountRef, closeDeletedStudentAccount } from '../_lib/ledger.js';
+import { accountRef, closeDeletedStudentAccount, isSessionAccountId } from '../_lib/ledger.js';
 import { DEFAULT_FEE_CONFIG } from '../fees/config.js';
 import { runInvoiceGeneration } from '../fees/generateInvoices.js';
 import { tryWriteAudit } from '../_lib/audit.js';
@@ -104,9 +104,19 @@ export default async function handler(req, res) {
     const accounts = await db.collection('fees/accounts/items').get();
     const overdue = [];
     result.deletedClosed = 0;
+    result.legacySkipped = 0;
 
     for (const accountDoc of accounts.docs) {
       const account = accountDoc.data();
+      // 004Fixes / 06: accounts are per registration, `{session}__{phone}`, and
+      // carry both. A legacy per-phone account (before 004Fixes) is left alone
+      // until scripts/migrateFeesPerSession.mjs splits it; never read the phone
+      // from the document id.
+      if (!isSessionAccountId(accountDoc.id) || !account.session || !account.phone) {
+        result.legacySkipped += 1;
+        continue;
+      }
+      const { session, phone } = account;
 
       // A deleted student is never overdue: flagging them wrote `overdue` back
       // to the deleted student's path. Self-heal for accounts deleted before
@@ -115,9 +125,7 @@ export default async function handler(req, res) {
       if (account.studentDeletedAt) {
         if ((account.balance ?? 0) !== 0) {
           // eslint-disable-next-line no-await-in-loop
-          const live = account.session
-            ? await db.doc(`sessions/${account.session}/students/${accountDoc.id}`).get()
-            : null;
+          const live = await db.doc(`sessions/${session}/students/${phone}`).get();
           if (live?.exists && live.data().studentName) {
             // eslint-disable-next-line no-await-in-loop
             await accountDoc.ref.set({
@@ -127,7 +135,8 @@ export default async function handler(req, res) {
           } else {
             // eslint-disable-next-line no-await-in-loop
             await closeDeletedStudentAccount({
-              phone: accountDoc.id,
+              session,
+              phone,
               recordedBy: 'system:fees-sweep',
               closeKey: String(account.studentDeletedAt.toMillis?.() ?? account.studentDeletedAt),
             });
@@ -145,7 +154,7 @@ export default async function handler(req, res) {
       if ((account.balance ?? 0) <= 0) continue;
       if (dueAt > now.getTime()) continue;
 
-      overdue.push({ phone: accountDoc.id, session: account.session, balance: account.balance });
+      overdue.push({ phone, session, balance: account.balance });
     }
 
     if (overdue.length > 0) {
@@ -153,7 +162,7 @@ export default async function handler(req, res) {
 
       for (const item of overdue) {
         batch.set(
-          accountRef(db, item.phone),
+          accountRef(db, item.session, item.phone),
           { status: 'overdue', updatedAt: FieldValue.serverTimestamp() },
           { merge: true }
         );

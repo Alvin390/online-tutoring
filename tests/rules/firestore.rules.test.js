@@ -763,6 +763,20 @@ describe('fee ledger is append-only and server-written', () => {
     await assertFails(getDoc(doc(anon(env), ledgerPath)));
   });
 
+  // 004Fixes / 09: accounts are per registration, `{session}__{phone}`. The
+  // rule's `{phone}` is only a wildcard name, so the same protection applies.
+  it('per-session account ids: a teacher reads; a student, the anonymous and a teacher writing are refused', async () => {
+    const key = `evening__${PHONE_A}`;
+    await seed(env, `fees/accounts/items/${key}`, { key, session: 'evening', phone: PHONE_A, balance: 2750 });
+    await seed(env, `fees/accounts/items/${key}/ledger/e1`, { type: 'invoice', amount: 2750, balanceAfter: 2750, recordedBy: 'system' });
+    await assertSucceeds(getDoc(doc(teacher(env), `fees/accounts/items/${key}`)));
+    await assertSucceeds(getDocs(collection(teacher(env), `fees/accounts/items/${key}/ledger`)));
+    await assertFails(getDoc(doc(student(env, PHONE_A), `fees/accounts/items/${key}`)));
+    await assertFails(getDoc(doc(anon(env), `fees/accounts/items/${key}/ledger/e1`)));
+    await assertFails(updateDoc(doc(teacher(env), `fees/accounts/items/${key}`), { balance: 0 }));
+    await assertFails(setDoc(doc(teacher(env), `fees/accounts/items/${key}/ledger/forged`), { type: 'payment', amount: -2750 }));
+  });
+
   it('denies a teacher writing fee config directly', async () => {
     await assertFails(setDoc(doc(teacher(env), 'fees/config'), { autoBlockOnOverdue: true }));
   });

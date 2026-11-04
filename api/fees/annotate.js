@@ -2,7 +2,7 @@ import { createHandler } from '../_lib/handler.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { ApiError, forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
-import { fillMissingReference } from '../_lib/ledger.js';
+import { fillMissingReference, accountKey } from '../_lib/ledger.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
 /**
@@ -61,6 +61,7 @@ export default createHandler({
 
     const reference = body.notMpesa ? body.reference : body.reference.toUpperCase();
     const result = await fillMissingReference({
+      session: body.session,
       phone: body.phone,
       entryId: body.entryId,
       reference,
@@ -80,7 +81,7 @@ export default createHandler({
         action: 'fees.reference_added',
         actor: user.uid,
         actorRole: user.role,
-        target: `fees/accounts/items/${body.phone}/ledger/${body.entryId}`,
+        target: `fees/accounts/items/${accountKey(body.session, body.phone)}/ledger/${body.entryId}`,
         after: { reference, notMpesa: body.notMpesa === true },
         context: { requestId: log.requestId },
       },

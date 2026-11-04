@@ -45,7 +45,8 @@ async function seedPayer(phone, balance) {
     registeredAt: new Date(), session: 'morning', blocked: true, approvalStatus: 'approved',
     receiptStatus: 'approved', feeBalance: balance,
   });
-  await db.doc(`fees/accounts/items/${phone}`).set({ phone, session: 'morning', balance });
+  // 004Fixes / 06: accounts are per registration, `{session}__{phone}`.
+  await db.doc(`fees/accounts/items/morning__${phone}`).set({ phone, session: 'morning', balance });
 }
 
 const lastStk = () => externalCalls.filter((c) => /stkpush\/v1\/processrequest/.test(c.url)).at(-1);
@@ -96,7 +97,7 @@ describe('D1 a callback secret always exists (B8a/b)', () => {
     expect(cb.status).toBe(200);
     const tx = (await db.doc(`mpesa/transactions/items/${init.body.checkoutRequestId}`).get()).data();
     expect(tx).toMatchObject({ status: 'success', mpesaReceipt: 'TJK9XYZ8QP' });
-    const entry = (await db.doc(`fees/accounts/items/${phoneN(3)}/ledger/mpesa_${init.body.checkoutRequestId}`).get()).data();
+    const entry = (await db.doc(`fees/accounts/items/morning__${phoneN(3)}/ledger/mpesa_${init.body.checkoutRequestId}`).get()).data();
     expect(entry.reference).toBe('TJK9XYZ8QP');
     expect(entry.receiptPending).toBeFalsy();
   });
@@ -125,7 +126,7 @@ describe('D3 reconciled payments and late callbacks (I2)', () => {
 
   it('a payment recovered by reconciliation is flagged receiptPending', async () => {
     const id = await reconciled(phoneN(20), 1500);
-    const entry = (await db.doc(`fees/accounts/items/${phoneN(20)}/ledger/mpesa_${id}`).get()).data();
+    const entry = (await db.doc(`fees/accounts/items/morning__${phoneN(20)}/ledger/mpesa_${id}`).get()).data();
     expect(entry).toMatchObject({ reference: null, receiptPending: true, method: 'mpesa' });
   });
 
@@ -137,9 +138,9 @@ describe('D3 reconciled payments and late callbacks (I2)', () => {
     const again = await call(path, { ip: SAFARICOM_IP, body: callbackBody(id, 800, 'OTHER1RCPT') });
     expect(again.status).toBe(200);
 
-    const entry = (await db.doc(`fees/accounts/items/${phoneN(21)}/ledger/mpesa_${id}`).get()).data();
+    const entry = (await db.doc(`fees/accounts/items/morning__${phoneN(21)}/ledger/mpesa_${id}`).get()).data();
     expect(entry).toMatchObject({ reference: 'LATE1RCPT2', receiptPending: false, amount: -800 });
-    const ledger = await db.collection(`fees/accounts/items/${phoneN(21)}/ledger`).get();
+    const ledger = await db.collection(`fees/accounts/items/morning__${phoneN(21)}/ledger`).get();
     expect(ledger.docs.filter((d) => d.data().type === 'payment')).toHaveLength(1);
     expect((await db.doc(`mpesa/transactions/items/${id}`).get()).data().mpesaReceipt).toBe('LATE1RCPT2');
   });
@@ -150,7 +151,7 @@ describe('D3 reconciled payments and late callbacks (I2)', () => {
 
     const ok = await call('/api/fees/annotate', { token: silver, body });
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
-    const entry = (await db.doc(`fees/accounts/items/${phoneN(22)}/ledger/mpesa_${id}`).get()).data();
+    const entry = (await db.doc(`fees/accounts/items/morning__${phoneN(22)}/ledger/mpesa_${id}`).get()).data();
     expect(entry).toMatchObject({ reference: 'TEACH1ER23', receiptPending: false, amount: -600, referenceAddedBy: 'p13-pay-silver' });
 
     const twice = await call('/api/fees/annotate', { token: silver, body: { ...body, reference: 'TEACH9ER99' } });
@@ -342,7 +343,7 @@ describe('M-Pesa availability follows the plan', () => {
       ip: SAFARICOM_IP, body: callbackBody(init.body.checkoutRequestId, 700, 'QAB1DOWNGR'),
     });
     expect(cb.status).toBe(200);
-    const entry = (await db.doc(`fees/accounts/items/${phoneN(52)}/ledger/mpesa_${init.body.checkoutRequestId}`).get()).data();
+    const entry = (await db.doc(`fees/accounts/items/morning__${phoneN(52)}/ledger/mpesa_${init.body.checkoutRequestId}`).get()).data();
     expect(entry.reference).toBe('QAB1DOWNGR');
   });
 });

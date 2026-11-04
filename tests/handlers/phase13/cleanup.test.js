@@ -46,8 +46,9 @@ async function post(phone, type, amount, extra = {}) {
 }
 
 const outstanding = async () => (await db.doc('aggregates/dashboard').get()).data()?.totalOutstanding ?? 0;
-const account = async (phone) => (await db.doc(`fees/accounts/items/${phone}`).get()).data();
-const ledger = async (phone) => (await db.collection(`fees/accounts/items/${phone}/ledger`).get()).docs.map((d) => d.data());
+// 004Fixes / 06: accounts are per registration, `{session}__{phone}`.
+const account = async (phone) => (await db.doc(`fees/accounts/items/morning__${phone}`).get()).data();
+const ledger = async (phone) => (await db.collection(`fees/accounts/items/morning__${phone}/ledger`).get()).docs.map((d) => d.data());
 const remove = (phone) => call('/api/student/remove', { token: gold, body: { session: 'morning', phone } });
 
 describe('deleting a student closes their balance', () => {
@@ -83,7 +84,7 @@ describe('deleting a student closes their balance', () => {
   it('a student with no fee account deletes as before', async () => {
     await seedStudent(phoneN(4));
     expect((await remove(phoneN(4))).status).toBe(200);
-    expect((await db.doc(`fees/accounts/items/${phoneN(4)}`).get()).exists).toBe(false);
+    expect((await db.doc(`fees/accounts/items/morning__${phoneN(4)}`).get()).exists).toBe(false);
   });
 
   it('the same number registering again gets a live account at zero', async () => {
@@ -109,7 +110,7 @@ describe('the nightly fees sweep and deleted students', () => {
   const past = new Date(Date.now() - 3 * 86_400_000);
 
   it('heals an account deleted before balances were closed: closed, never flagged overdue', async () => {
-    await db.doc(`fees/accounts/items/${phoneN(10)}`).set({
+    await db.doc(`fees/accounts/items/morning__${phoneN(10)}`).set({
       phone: phoneN(10), session: 'morning', balance: 6001, nextDueDate: past, studentDeletedAt: past,
     });
     await db.doc('aggregates/dashboard').set({ totalOutstanding: 6001 });
@@ -130,7 +131,7 @@ describe('the nightly fees sweep and deleted students', () => {
 
   it('a deleted number that has registered again is live: marker cleared, balance kept, overdue as normal', async () => {
     await seedStudent(phoneN(11));
-    await db.doc(`fees/accounts/items/${phoneN(11)}`).set({
+    await db.doc(`fees/accounts/items/morning__${phoneN(11)}`).set({
       phone: phoneN(11), session: 'morning', balance: 800, nextDueDate: past, studentDeletedAt: past,
     });
     await sweep();
@@ -145,7 +146,7 @@ describe('M-Pesa: the student is unblocked before the payment reads "success"', 
   it('the unblock is written before the transaction is marked success', async () => {
     const phone = phoneN(20);
     await seedStudent(phone, { blocked: true, feeBalance: 700 });
-    await db.doc(`fees/accounts/items/${phone}`).set({ phone, session: 'morning', balance: 700 });
+    await db.doc(`fees/accounts/items/morning__${phone}`).set({ phone, session: 'morning', balance: 700 });
     const init = await call('/api/payments/initiate', { body: { session: 'morning', phone } });
     expect(init.status, JSON.stringify(init.body)).toBe(200);
     const stk = externalCalls.filter((c) => /stkpush\/v1\/processrequest/.test(c.url)).at(-1);

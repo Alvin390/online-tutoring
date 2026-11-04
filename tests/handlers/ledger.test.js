@@ -35,12 +35,12 @@ const SESSION = 'morning';
 async function wipe() {
   const firestore = db();
   const paths = [
-    `fees/accounts/items/${PHONE}`,
+    `fees/accounts/items/${SESSION}__${PHONE}`, // 004Fixes / 06: per registration
     `sessions/${SESSION}/students/${PHONE}`,
     'aggregates/dashboard',
   ];
 
-  const entries = await ledger.ledgerRef(firestore, PHONE).get();
+  const entries = await ledger.ledgerRef(firestore, SESSION, PHONE).get();
   await Promise.all(entries.docs.map((d) => d.ref.delete()));
   await Promise.all(paths.map((p) => firestore.doc(p).delete()));
 
@@ -78,7 +78,7 @@ describe('sequential postings', () => {
     await post({ type: 'payment', amount: 1000, method: 'mpesa' });
     await post({ type: 'payment', amount: 500, method: 'cash' });
 
-    const snap = await ledger.ledgerRef(db(), PHONE).orderBy('recordedAt').get();
+    const snap = await ledger.ledgerRef(db(), SESSION, PHONE).orderBy('recordedAt').get();
     expect(snap.docs.map((d) => d.data().balanceAfter)).toEqual([3000, 2000, 1500]);
   });
 
@@ -208,7 +208,7 @@ describe('CONCURRENCY — the Phase 06 deferral', () => {
 
     const { succeeded } = partition(results);
 
-    const account = await ledger.accountRef(db(), PHONE).get();
+    const account = await ledger.accountRef(db(), SESSION, PHONE).get();
     expect(account.data().balance).toBe(10_000 - succeeded.length * 100);
   });
 
@@ -223,7 +223,7 @@ describe('CONCURRENCY — the Phase 06 deferral', () => {
 
     const { succeeded } = partition(results);
 
-    const snap = await ledger.ledgerRef(db(), PHONE).get();
+    const snap = await ledger.ledgerRef(db(), SESSION, PHONE).get();
     const payments = snap.docs.map((d) => d.data()).filter((e) => e.type === 'payment');
 
     // One entry per successful posting — an aborted transaction must leave
@@ -254,10 +254,10 @@ describe('CONCURRENCY — the Phase 06 deferral', () => {
     // Recompute the expectation from what actually landed in the ledger, then
     // check the denormalised balance agrees. Mixing entry types is the case
     // where a sign error would show up.
-    const snap = await ledger.ledgerRef(db(), PHONE).get();
+    const snap = await ledger.ledgerRef(db(), SESSION, PHONE).get();
     const expected = snap.docs.reduce((sum, d) => sum + d.data().amount, 0);
 
-    const account = await ledger.accountRef(db(), PHONE).get();
+    const account = await ledger.accountRef(db(), SESSION, PHONE).get();
     expect(account.data().balance).toBe(expected);
   });
 });
@@ -273,7 +273,7 @@ describe('idempotency', () => {
     expect(first.duplicate).toBe(false);
     expect(second.duplicate).toBe(true);
 
-    const account = await ledger.accountRef(db(), PHONE).get();
+    const account = await ledger.accountRef(db(), SESSION, PHONE).get();
     expect(account.data().balance).toBe(-1500);
   });
 
@@ -301,7 +301,7 @@ describe('idempotency', () => {
     // M-Pesa callback double-crediting.
     expect(settled.filter((r) => !r.duplicate)).toHaveLength(1);
 
-    const account = await ledger.accountRef(db(), PHONE).get();
+    const account = await ledger.accountRef(db(), SESSION, PHONE).get();
     expect(account.data().balance).toBe(-1000);
   });
 });
@@ -320,7 +320,7 @@ describe('reversals', () => {
       recordedBy: 'test',
     });
 
-    const account = await ledger.accountRef(db(), PHONE).get();
+    const account = await ledger.accountRef(db(), SESSION, PHONE).get();
     expect(account.data().balance).toBe(3000);
   });
 
@@ -339,7 +339,7 @@ describe('reversals', () => {
       recordedBy: 'test',
     });
 
-    const account = await ledger.accountRef(db(), PHONE).get();
+    const account = await ledger.accountRef(db(), SESSION, PHONE).get();
     expect(account.data().balance).toBe(0);
   });
 
@@ -357,7 +357,7 @@ describe('reversals', () => {
       recordedBy: 'test',
     });
 
-    const account = await ledger.accountRef(db(), PHONE).get();
+    const account = await ledger.accountRef(db(), SESSION, PHONE).get();
     expect(account.data().balance).toBe(before);
   });
 

@@ -195,9 +195,15 @@ export default function StudentSearchPanel({
       counts: { done: result.done },
     });
     const canUndo = result.done > 0 && result.batchId;
+    // 004Fixes / 05 (owner): the toast's Undo runs only on a double-click, and says so.
+    const who = result.done === 1 ? 'this student' : `these ${result.done} students`;
     toast?.showSuccess(describeResult(result.action, result), 'Done', {
       duration: 10_000,
-      ...(canUndo ? { action: { label: 'Undo', onClick: () => undoFromToast(result.batchId) } } : {}),
+      ...(canUndo ? {
+        action: {
+          label: 'Undo', onClick: () => undoFromToast(result.batchId), doubleClick: true, hint: `Double-click Undo to put ${who} back.`,
+        },
+      } : {}),
     });
   }, [bulk, toast, undoFromToast]);
 

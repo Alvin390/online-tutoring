@@ -117,7 +117,8 @@ describe('a selection: Schedule', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText(/Block 2 students from .* 18:00\?/)).toBeTruthy();
     expect(screen.getByTestId('bulk-scheduled-note').textContent).toMatch(/anyone who pays before then is taken out/);
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Schedule 2 blocks' })); });
+    // 004Fixes / 05: the button names the time.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Schedule 2 blocks for / })); });
     expect(api.runSchedule.mock.calls[0][0]).toMatchObject({ atMs: tomorrow18(), kind: 'other' });
     expect(api.runSchedule.mock.calls[0][0].items).toHaveLength(2);
     expect(await screen.findByText(/2 students will be blocked from .*Change or cancel it under Scheduled/)).toBeTruthy();

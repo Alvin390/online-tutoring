@@ -156,6 +156,18 @@ body {
   margin: 0;
 }
 
+/* 004Fixes / 05: the prompt under a double-click-only action ("Double-click
+   Undo to …"). A single click highlights it instead of acting. */
+.toast-action-hint {
+  opacity: 0.9;
+}
+
+.toast-action-hint.is-nudged {
+  opacity: 1;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 @media (max-width: 575.98px) {
   .toast-container {
     top: auto;

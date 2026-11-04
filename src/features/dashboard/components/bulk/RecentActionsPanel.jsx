@@ -118,7 +118,10 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
                   <div className="fw-semibold small">{describe(a)}</div>
                   <div className="text-muted small">
                     {formatTime(new Date(a.createdAtMs))} · {byWho(a.createdBy, user?.email)}
-                    {a.status === 'undone' && ' · undone'}
+                    {/* 004Fixes / 05: who undid it and when (older records only know that it was). */}
+                    {a.status === 'undone' && (a.undoneBy
+                      ? ` · Undone ${byWho(a.undoneBy, user?.email)}${a.undoneAtMs ? ` at ${formatTime(new Date(a.undoneAtMs))}` : ''}`
+                      : ' · undone')}
                     {a.status === 'done' && (left > 0 ? ` · ${left} min left to undo` : ' · too late to undo')}
                   </div>
                 </div>

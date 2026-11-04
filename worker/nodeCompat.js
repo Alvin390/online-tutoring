@@ -137,6 +137,9 @@ export async function toNodeRequest(request, pathParams = {}) {
     // sends readRawBody down its Buffer branch instead of trying to iterate.
     readable: false,
     socket: null,
+    // 004Fixes / 05: Cloudflare's name for the caller's network (e.g. the ISP),
+    // kept as a coarse device note on staff changes. Not an IP address.
+    network: request.cf?.asOrganization ?? null,
   };
 }
 

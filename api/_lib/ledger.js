@@ -1,6 +1,7 @@
 import { getDb, FieldValue } from './firebaseAdmin.js';
 import { assertIntegerKes, signedAmount } from './money.js';
 import { badRequest, notFound } from './errors.js';
+import { SLUG_PATTERN } from './sessions.js';
 
 /**
  * The fee ledger — Phase 06 D2.
@@ -18,8 +19,14 @@ import { badRequest, notFound } from './errors.js';
  * convention rather than two):
  *
  *   fees/config                                     teacher's fee settings
- *   fees/accounts/items/{phone}                     denormalised account summary
- *   fees/accounts/items/{phone}/ledger/{entryId}    the append-only entries
+ *   fees/accounts/items/{session}__{phone}                   denormalised account summary
+ *   fees/accounts/items/{session}__{phone}/ledger/{entryId}  the append-only entries
+ *
+ * 004Fixes / 06: one account per REGISTRATION (session + phone), not per
+ * number. The owner's rule: each session's registration is its own student for
+ * money — its own balance, block, payments and statement — even when the same
+ * number is in both sessions. Accounts keyed by the phone alone (before
+ * 004Fixes) are migrated by scripts/migrateFeesPerSession.mjs.
  *   fees/invoices/items/{invoiceId}                 issued invoices
  *   fees/counters/items/{name}                      transactional sequences
  */
@@ -27,8 +34,27 @@ import { badRequest, notFound } from './errors.js';
 export const ENTRY_TYPES = ['invoice', 'payment', 'adjustment', 'reversal'];
 export const PAYMENT_METHODS = ['cash', 'mpesa', 'bank', 'platform'];
 
-export const accountRef = (db, phone) => db.doc(`fees/accounts/items/${phone}`);
-export const ledgerRef = (db, phone) => accountRef(db, phone).collection('ledger');
+/**
+ * The account id for one registration. Throws on a missing or malformed
+ * session or phone, so a caller still passing only the phone fails loudly
+ * instead of writing to `+2547…__undefined`. Session slugs never contain `_`
+ * (SLUG_PATTERN), so the `__` separator is unambiguous.
+ */
+export function accountKey(session, phone) {
+  if (typeof session !== 'string' || !SLUG_PATTERN.test(session)) {
+    throw new Error(`accountKey: invalid session ${JSON.stringify(session)}`);
+  }
+  if (typeof phone !== 'string' || !/^\+\d{6,15}$/.test(phone)) {
+    throw new Error(`accountKey: invalid phone ${JSON.stringify(phone)}`);
+  }
+  return `${session}__${phone}`;
+}
+
+/** True for a per-registration account id; false for a legacy per-phone one. */
+export const isSessionAccountId = (id) => typeof id === 'string' && id.includes('__');
+
+export const accountRef = (db, session, phone) => db.doc(`fees/accounts/items/${accountKey(session, phone)}`);
+export const ledgerRef = (db, session, phone) => accountRef(db, session, phone).collection('ledger');
 export const invoiceRef = (db, id) => db.doc(`fees/invoices/items/${id}`);
 export const counterRef = (db, name) => db.doc(`fees/counters/items/${name}`);
 
@@ -39,6 +65,26 @@ export const counterRef = (db, name) => db.doc(`fees/counters/items/${name}`);
  */
 export const collectedMonthKey = (date = new Date()) =>
   new Date(date.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 7);
+
+/**
+ * The aggregate writes for ONE session — 004Fixes / 09 ("per session is also
+ * good", owner). `aggregates/dashboard.bySession.{slug}` mirrors the school
+ * totals: `totalOutstanding` moves by every delta, `collectedThisMonth` by
+ * payments, restarting when its own `collectedMonth` stamp is an earlier
+ * month. Same document, same transaction: no extra read.
+ *
+ * @param {object|undefined} current  aggregates/dashboard data, as read in the transaction
+ */
+export function sessionTotals(current, session, delta, collected = 0) {
+  const fields = { totalOutstanding: FieldValue.increment(delta) };
+  if (collected > 0) {
+    const month = collectedMonthKey();
+    const sameMonth = current?.bySession?.[session]?.collectedMonth === month;
+    fields.collectedThisMonth = sameMonth ? FieldValue.increment(collected) : collected;
+    fields.collectedMonth = month;
+  }
+  return fields;
+}
 
 /**
  * Posts one entry.
@@ -59,7 +105,7 @@ export const collectedMonthKey = (date = new Date()) =>
  *
  * @param {object} opts
  * @param {string} opts.phone
- * @param {string} opts.session       needed to update the student document
+ * @param {string} opts.session       the registration's session: its account, and its student document
  * @param {string} opts.type          invoice | payment | adjustment | reversal
  * @param {number} opts.amount        POSITIVE magnitude in whole KES
  * @param {string} [opts.method]      cash | mpesa | bank | platform
@@ -101,8 +147,8 @@ export async function postEntry(opts) {
   assertIntegerKes(amount, 'amount');
   if (amount <= 0) throw badRequest('Amount must be greater than zero.');
 
-  const account = accountRef(db, phone);
-  const entries = ledgerRef(db, phone);
+  const account = accountRef(db, session, phone);
+  const entries = ledgerRef(db, session, phone);
   const entry = idempotencyKey ? entries.doc(idempotencyKey) : entries.doc();
   const studentDoc = db.doc(`sessions/${session}/students/${phone}`);
   const aggregates = db.doc('aggregates/dashboard');
@@ -160,6 +206,7 @@ export async function postEntry(opts) {
     tx.set(
       account,
       {
+        key: account.id,
         phone,
         session,
         balance: balanceAfter,
@@ -209,6 +256,7 @@ export async function postEntry(opts) {
       {
         totalOutstanding: FieldValue.increment(delta),
         ...collected,
+        bySession: { [session]: sessionTotals(aggregatesSnap.data(), session, delta, type === 'payment' ? amount : 0) },
         updatedAt: now,
       },
       { merge: true }
@@ -251,8 +299,8 @@ export async function postEntries(list) {
 
   const plans = list.map((opts) => ({
     opts,
-    account: accountRef(db, opts.phone),
-    entry: opts.idempotencyKey ? ledgerRef(db, opts.phone).doc(opts.idempotencyKey) : ledgerRef(db, opts.phone).doc(),
+    account: accountRef(db, opts.session, opts.phone),
+    entry: opts.idempotencyKey ? ledgerRef(db, opts.session, opts.phone).doc(opts.idempotencyKey) : ledgerRef(db, opts.session, opts.phone).doc(),
     student: db.doc(`sessions/${opts.session}/students/${opts.phone}`),
   }));
   const aggregates = db.doc('aggregates/dashboard');
@@ -276,6 +324,8 @@ export async function postEntries(list) {
     const results = [];
     let totalDelta = 0;
     let collectedToday = 0;
+    // 004Fixes / 09: the same sums per session.
+    const perSession = new Map();
     const now = FieldValue.serverTimestamp();
 
     for (const p of plans) {
@@ -295,6 +345,10 @@ export async function postEntries(list) {
       const balanceAfter = previousBalance + delta;
       balances.set(p.account.path, balanceAfter);
       totalDelta += delta;
+      const sums = perSession.get(opts.session) ?? { delta: 0, collected: 0 };
+      sums.delta += delta;
+      if (opts.type === 'payment') sums.collected += opts.amount;
+      perSession.set(opts.session, sums);
       const when = opts.occurredAt ?? new Date();
 
       tx.set(p.entry, {
@@ -314,7 +368,7 @@ export async function postEntries(list) {
         phone: opts.phone,
       });
 
-      const account = accounts.get(p.account.path) ?? { ref: p.account, fields: { phone: opts.phone, session: opts.session } };
+      const account = accounts.get(p.account.path) ?? { ref: p.account, fields: { key: p.account.id, phone: opts.phone, session: opts.session } };
       account.fields.balance = balanceAfter;
       if (opts.type === 'payment') {
         account.fields.lastPaymentAt = when;
@@ -352,7 +406,9 @@ export async function postEntries(list) {
           collectedMonth: month,
         };
       }
-      tx.set(aggregates, { totalOutstanding: FieldValue.increment(totalDelta), ...collected, updatedAt: now }, { merge: true });
+      const bySession = {};
+      for (const [slug, sums] of perSession) bySession[slug] = sessionTotals(aggregatesSnap.data(), slug, sums.delta, sums.collected);
+      tx.set(aggregates, { totalOutstanding: FieldValue.increment(totalDelta), ...collected, bySession, updatedAt: now }, { merge: true });
     }
     return results;
   });
@@ -368,7 +424,7 @@ export async function postEntries(list) {
 export async function reverseEntries(list, { reason, recordedBy }) {
   if (!list.length) return [];
   const db = getDb();
-  const originals = await db.getAll(...list.map((i) => ledgerRef(db, i.phone).doc(i.entryId)));
+  const originals = await db.getAll(...list.map((i) => ledgerRef(db, i.session, i.phone).doc(i.entryId)));
 
   const toPost = [];
   const out = list.map((item, i) => {
@@ -399,7 +455,7 @@ export async function reverseEntries(list, { reason, recordedBy }) {
   toPost.forEach((t, k) => {
     out[t.index] = posted[k];
     if (!posted[k].duplicate) {
-      mark.update(ledgerRef(db, t.opts.phone).doc(t.opts.reversesEntryId), { reversedByEntryId: posted[k].entryId });
+      mark.update(ledgerRef(db, t.opts.session, t.opts.phone).doc(t.opts.reversesEntryId), { reversedByEntryId: posted[k].entryId });
       marks += 1;
     }
   });
@@ -421,9 +477,9 @@ export async function reverseEntries(list, { reason, recordedBy }) {
  *
  * @returns {Promise<{filled: boolean, reason?: 'missing'|'already_set'}>}
  */
-export async function fillMissingReference({ phone, entryId, reference, addedBy, notMpesa = false }) {
+export async function fillMissingReference({ session, phone, entryId, reference, addedBy, notMpesa = false }) {
   const db = getDb();
-  const ref = ledgerRef(db, phone).doc(entryId);
+  const ref = ledgerRef(db, session, phone).doc(entryId);
 
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -454,7 +510,7 @@ export async function fillMissingReference({ phone, entryId, reference, addedBy,
  */
 export async function reverseEntry({ phone, session, entryId, reason, recordedBy }) {
   const db = getDb();
-  const original = await ledgerRef(db, phone).doc(entryId).get();
+  const original = await ledgerRef(db, session, phone).doc(entryId).get();
 
   if (!original.exists) throw notFound('That ledger entry does not exist.');
 
@@ -486,7 +542,7 @@ export async function reverseEntry({ phone, session, entryId, reason, recordedBy
   // ever written to an existing entry, and it is a pointer rather than a
   // restatement of any money value — the amounts stay immutable.
   if (!result.duplicate) {
-    await ledgerRef(db, phone).doc(entryId).update({ reversedByEntryId: result.entryId });
+    await ledgerRef(db, session, phone).doc(entryId).update({ reversedByEntryId: result.entryId });
   }
 
   return result;
@@ -507,9 +563,9 @@ export async function reverseEntry({ phone, session, entryId, reason, recordedBy
  *
  * @returns {Promise<{closed: number}>} the balance that was closed (0: nothing to do)
  */
-export async function closeDeletedStudentAccount({ phone, recordedBy, closeKey }) {
+export async function closeDeletedStudentAccount({ session, phone, recordedBy, closeKey }) {
   const db = getDb();
-  const account = accountRef(db, phone);
+  const account = accountRef(db, session, phone);
   const snap = await account.get();
   if (!snap.exists) return { closed: 0 };
 
@@ -518,7 +574,7 @@ export async function closeDeletedStudentAccount({ phone, recordedBy, closeKey }
   if (balance !== 0) {
     await postEntry({
       phone,
-      session: data.session ?? null,
+      session,
       type: 'adjustment',
       amount: Math.abs(balance),
       deltaOverride: -balance,

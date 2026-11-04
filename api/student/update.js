@@ -4,6 +4,7 @@ import { SubrequestBudgetExceeded } from '../_lib/firestoreRest.js';
 import { z, phoneSchema, sessionSchema, studentNameSchema } from '../_lib/validate.js';
 import { ApiError, notFound } from '../_lib/errors.js';
 import { tryWriteAudit } from '../_lib/audit.js';
+import { accountRef } from '../_lib/ledger.js';
 
 /**
  * Edit a student — Phase 13 / 03 D1.
@@ -71,8 +72,10 @@ async function commitInBatches(db, ops) {
 async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log }) {
   const oldRef = db.doc(`sessions/${session}/students/${oldPhone}`);
   const newRef = db.doc(`sessions/${session}/students/${newPhone}`);
-  const oldAccount = db.doc(`fees/accounts/items/${oldPhone}`);
-  const newAccount = db.doc(`fees/accounts/items/${newPhone}`);
+  // 004Fixes / 06: this session's account only — the same number in the other
+  // session is a different registration, with its own money, and stays put.
+  const oldAccount = accountRef(db, session, oldPhone);
+  const newAccount = accountRef(db, session, newPhone);
 
   const [oldSnap, targetSnap] = await Promise.all([oldRef.get(), newRef.get()]);
 
@@ -124,7 +127,7 @@ async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log
   if (hasMoneyToMove || ledger.size > 0) {
     await commitInBatches(db, [
       ...(hasMoneyToMove
-        ? [(batch) => batch.set(newAccount, { ...accountSnap.data(), phone: newPhone, phoneChangedFrom: oldPhone }, { merge: true })]
+        ? [(batch) => batch.set(newAccount, { ...accountSnap.data(), key: newAccount.id, phone: newPhone, phoneChangedFrom: oldPhone }, { merge: true })]
         : []),
       ...ledger.docs.map((e) => (batch) => batch.set(newAccount.collection('ledger').doc(e.id), e.data())),
     ]);
@@ -135,7 +138,9 @@ async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log
   await commitInBatches(db, [
     ...ledger.docs.map((e) => (batch) => batch.delete(e.ref)),
     ...(accountSnap.exists
-      ? [(batch) => batch.set(oldAccount, { phoneChanged: newPhone, movedAt: new Date(), session })]
+      // 004Fixes / 07: the marker keeps `key` and `phone`, so the sweep reads it
+      // as a per-session account (with no balance to chase), not a legacy one.
+      ? [(batch) => batch.set(oldAccount, { key: oldAccount.id, phone: oldPhone, phoneChanged: newPhone, movedAt: new Date(), session })]
       : []),
     ...notes.docs.map((n) => (batch) => batch.delete(n.ref)),
     // The old number's "last seen" marker (Phase 13 / 08 B3); the new number
