@@ -29,11 +29,13 @@ export const MAX_QUERY_LENGTH = 100;
 export const MAX_TOKENS = 12;
 
 /** Status chips, in display order. */
-export const STATUS_KEYS = ['review', 'owes', 'blocked', 'scheduled', 'awaiting', 'duplicate', 'rejected'];
+export const STATUS_KEYS = ['review', 'owes', 'partial', 'blocked', 'scheduled', 'awaiting', 'duplicate', 'rejected'];
 
 export const STATUS_LABELS = Object.freeze({
   review: 'Receipt to review',
   owes: 'Owes fees',
+  // 006Fixes / 08: approved on part of what they owed, and still owing.
+  partial: 'Partial payment',
   blocked: 'Blocked',
   // 003Fixes / 08: a block waiting to start (scheduledBlock on the student).
   scheduled: 'Block scheduled',
@@ -151,7 +153,7 @@ export function parseQuery(q) {
 
 // ------------------------------------------------------------------ the index
 
-const EMPTY_FLAGS = Object.freeze({ review: false, owes: false, blocked: false, scheduled: false, awaiting: false, duplicate: false, rejected: false });
+const EMPTY_FLAGS = Object.freeze({ review: false, owes: false, partial: false, blocked: false, scheduled: false, awaiting: false, duplicate: false, rejected: false });
 
 function makeRecord(student, session, duplicates = null) {
   if (!student || typeof student !== 'object') return null;
@@ -185,6 +187,9 @@ function makeRecord(student, session, duplicates = null) {
     flags: {
       review: student.receiptStatus === 'pending' && Boolean(student.pendingReceipt),
       owes: Number.isFinite(balance) && balance > 0,
+      // 006Fixes / 08: the server's marker AND the live balance (a payment
+      // that clears the debt removes the marker; until then, still owing).
+      partial: Boolean(student.partialPayment) && Number.isFinite(balance) && balance > 0,
       blocked: student.blocked === true,
       scheduled: Boolean(student.scheduledBlock?.batchId),
       awaiting: approval === 'pending',

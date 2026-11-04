@@ -170,6 +170,12 @@ function StudentRow({
               )}
               {isBlocked && <span className="badge bg-danger">Blocked</span>}
               {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
+              {/* 006Fixes / 08: on a partial payment — the LIVE balance, never the figure at approval. */}
+              {student.partialPayment && (Number(student.feeBalance) || 0) > 0 && (
+                <span className="badge rounded-pill text-bg-warning partial-badge" data-testid="partial-badge">
+                  Partial: owes KES {Number(student.feeBalance).toLocaleString('en-KE')}
+                </span>
+              )}
               {student.scheduledBlock?.atMs && (
                 <span className="badge rounded-pill text-bg-warning schedule-tag" data-testid="schedule-tag">
                   <i className="bi bi-clock me-1" aria-hidden="true" />
@@ -501,6 +507,8 @@ function areEqual(prev, next) {
   if (prev.sessionName !== next.sessionName) return false;
   if (prev.selected !== next.selected || prev.onSelect !== next.onSelect) return false;
   if ((prev.student?.scheduledBlock?.atMs ?? null) !== (next.student?.scheduledBlock?.atMs ?? null)) return false;
+  // 006Fixes / 08: the partial badge — compared by value (each snapshot is a new object).
+  if ((prev.student?.partialPayment?.paid ?? null) !== (next.student?.partialPayment?.paid ?? null)) return false;
   if (prev.onCancelSchedule !== next.onCancelSchedule) return false;
 
   // Callback identity: the parent passes inline arrows for onDelete/onEdit/

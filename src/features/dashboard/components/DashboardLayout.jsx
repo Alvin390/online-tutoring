@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useWhatsappPreset } from '@features/whatsapp/whatsappPreset';
 import { useNavigate } from 'react-router-dom';
 import { m } from 'framer-motion';
@@ -9,6 +9,7 @@ import StatsCards from './StatsCards';
 import ClassLinkManager from './ClassLinkManager';
 import SessionManager from './SessionManager';
 import FeeKpiCards from '@features/fees/components/FeeKpiCards';
+import { partialSummary } from '@features/fees/partialSummary';
 import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
 
 // Lazy: the calendar carries a month grid, an agenda and a recurrence form the
@@ -140,6 +141,9 @@ export default function DashboardLayout() {
   useWaitingTitle(requireApproval ? (pendingApprovals?.length ?? 0) : 0);
   const linksConfigured = activeSessions.filter((s) => classLinks[s.id]?.url).length;
   const currentStudents = activeTab ? (studentsBySession[activeTab] ?? []) : [];
+  // 006Fixes / 08: who is on a partial payment, from the rosters already loaded
+  // (once per roster update; no extra read).
+  const partial = useMemo(() => (feesEnabled ? partialSummary(studentsBySession) : null), [feesEnabled, studentsBySession]);
 
   return (
     <m.div
@@ -255,7 +259,7 @@ export default function DashboardLayout() {
             description="Record payments, issue invoices and see who is behind"
           >
             {/* 004Fixes / 09: one line of money per active session. */}
-            <FeeKpiCards sessions={activeSessions} />
+            <FeeKpiCards sessions={activeSessions} partial={partial} />
           </TierGate>
         )}
 

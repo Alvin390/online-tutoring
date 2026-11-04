@@ -178,8 +178,9 @@ describe('filters', () => {
     expect(names(run(roster(), { statuses: ['awaiting'] }))).toEqual(['Mercy Wambui']);
     expect(names(run(roster(), { statuses: ['rejected'] }))).toEqual(['Kevin Mutua']);
     expect(names(run(roster(), { statuses: ['owes', 'blocked'] })).sort()).toEqual(["Sean O'Brien", 'Zoë Achieng']);
-    // 003Fixes / 08 added 'scheduled' (a block waiting to start); 13 added 'duplicate'.
-    expect(STATUS_KEYS).toEqual(['review', 'owes', 'blocked', 'scheduled', 'awaiting', 'duplicate', 'rejected']);
+    // 003Fixes / 08 added 'scheduled' (a block waiting to start); 13 added 'duplicate';
+    // 006Fixes / 08 added 'partial' (approved on a partial payment, still owing).
+    expect(STATUS_KEYS).toEqual(['review', 'owes', 'partial', 'blocked', 'scheduled', 'awaiting', 'duplicate', 'rejected']);
   });
 
   it('a legacy student with no approvalStatus is approved, never "awaiting"', () => {
@@ -238,7 +239,7 @@ describe('facet counts', () => {
     // Class counts ignore the class selection but respect the status filter.
     expect(out.facets.class).toEqual({ 'form 3': 1 });
     // Status counts ignore the status selection but respect the class filter.
-    expect(out.facets.status).toEqual({ review: 1, owes: 0, blocked: 0, scheduled: 0, awaiting: 0, duplicate: 0, rejected: 0 });
+    expect(out.facets.status).toEqual({ review: 1, owes: 0, partial: 0, blocked: 0, scheduled: 0, awaiting: 0, duplicate: 0, rejected: 0 });
     // Subject counts respect both.
     expect(out.facets.subject.chemistry).toBe(1);
     expect(out.facets.subject.biology).toBeUndefined();
