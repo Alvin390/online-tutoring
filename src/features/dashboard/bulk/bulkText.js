@@ -8,6 +8,8 @@ export const BULK_TEXT = {
   unblock: { verb: 'Unblock', ing: 'Unblocking', past: 'unblocked' },
   approveReceipts: { verb: 'Approve', ing: 'Approving', past: 'approved' },
   cancelSchedule: { verb: 'Cancel the scheduled block for', ing: 'Cancelling', past: 'taken out of their scheduled block' },
+  // 006Fixes / 02.
+  delete: { verb: 'Delete', ing: 'Deleting', past: 'deleted' },
 };
 
 const SKIP_TEXT = {

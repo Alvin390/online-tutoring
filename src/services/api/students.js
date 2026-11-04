@@ -11,7 +11,7 @@ import { apiPost } from './client';
  */
 
 /** The server's chunk sizes (it reports its own in `limits`; these match). */
-export const DEFAULT_LIMITS = Object.freeze({ block: 25, blockFees: 8, unblock: 25, approveReceipts: 8 });
+export const DEFAULT_LIMITS = Object.freeze({ block: 25, blockFees: 8, unblock: 25, approveReceipts: 8, delete: 12 });
 
 const call = (body) => apiPost('/api/students/bulk', body, { retry: 1 });
 
@@ -38,7 +38,7 @@ const mergeSkipped = (into, from = {}) => {
  * Runs one bulk action over `items` ([{ session, phone }]), chunk by chunk.
  *
  * @param {object} opts
- * @param {'block'|'unblock'|'approveReceipts'} opts.action
+ * @param {'block'|'unblock'|'approveReceipts'|'delete'} opts.action
  * @param {Array<{session: string, phone: string}>} opts.items
  * @param {'fees'|'other'} [opts.kind]    block only
  * @param {number} [opts.amount]          block, kind fees
@@ -51,6 +51,11 @@ export async function runBulk({ action, items, kind, amount, reason, limits = DE
   const size = action === 'block' && kind === 'fees' ? limits.blockFees : limits[action];
   let batchId = resume?.batchId ?? null;
   const result = resume?.result ?? { done: 0, skipped: {}, failed: [], undoUntilMs: null };
+  // 006Fixes / 02: a delete reports the balances it closed.
+  if (action === 'delete') {
+    result.balanceClosedTotal ??= 0;
+    result.balanceClosedCount ??= 0;
+  }
   let next = resume?.next ?? 0;
 
   onProgress?.(next, items.length);
@@ -64,6 +69,8 @@ export async function runBulk({ action, items, kind, amount, reason, limits = DE
         ...(action === 'block' ? { kind } : {}),
         ...(action === 'block' && kind === 'fees' ? { amount } : {}),
         ...(action === 'block' && kind !== 'fees' && reason ? { reason } : {}),
+        // 006Fixes / 01: the server checks the teacher typed DELETE.
+        ...(action === 'delete' ? { confirm: 'DELETE' } : {}),
         ...(batchId ? { batchId } : {}),
       });
     } catch (error) {
@@ -76,6 +83,10 @@ export async function runBulk({ action, items, kind, amount, reason, limits = DE
     mergeSkipped(result.skipped, res.skipped);
     result.failed.push(...(res.failed ?? []).map((f) => ({ ...f, index: f.index + next })));
     result.undoUntilMs = res.undoUntilMs;
+    if (action === 'delete') {
+      result.balanceClosedTotal += res.balanceClosedTotal ?? 0;
+      result.balanceClosedCount += res.balanceClosedCount ?? 0;
+    }
     next += chunk.length;
     onProgress?.(next, items.length);
   }

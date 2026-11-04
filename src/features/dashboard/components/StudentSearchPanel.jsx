@@ -17,6 +17,9 @@ import { rememberBulk, markUndone, useUndoableCount } from '../bulk/recentBulk';
 // 003Fixes / 05: both load on first use.
 import { pairsAcross } from '../duplicates/duplicatePairs';
 const BulkActionModal = lazy(() => import('./bulk/BulkActionModal'));
+// 006Fixes / 02: loaded on the first Delete, prefetched when the browser is idle.
+const loadBulkDeleteModal = () => import('./bulk/BulkDeleteModal');
+const BulkDeleteModal = lazy(loadBulkDeleteModal);
 const RecentActionsPanel = lazy(() => import('./bulk/RecentActionsPanel'));
 const ScheduledPanel = lazy(() => import('./bulk/ScheduledPanel'));
 // 003Fixes / 13: loaded on open, prefetched when the browser is idle.
@@ -127,6 +130,13 @@ export default function StudentSearchPanel({
     return () => cancel(id);
   }, [duplicateCount]);
 
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 2000));
+    const cancel = window.cancelIdleCallback ?? clearTimeout;
+    const id = idle(() => { loadBulkDeleteModal().catch(() => {}); });
+    return () => cancel(id);
+  }, []);
+
   const scheduledCount = useMemo(() => {
     const ids = new Set();
     for (const list of Object.values(rosters)) for (const s of list ?? []) if (s?.scheduledBlock?.batchId) ids.add(s.scheduledBlock.batchId);
@@ -181,6 +191,20 @@ export default function StudentSearchPanel({
     }
     if (result.action === 'cancelSchedule') {
       toast?.showSuccess(describeResult(result.action, result), 'Done');
+      return;
+    }
+    if (result.action === 'delete') {
+      // 006Fixes / 02 (owner): listed in Recent actions, never undoable.
+      rememberBulk({
+        id: result.batchId,
+        action: 'delete',
+        status: 'done',
+        undoable: false,
+        createdAtMs: Date.now(),
+        undoUntilMs: 0,
+        counts: { done: result.done },
+      });
+      toast?.showSuccess(describeResult('delete', result), 'Deleted', { duration: 10_000 });
       return;
     }
     rememberBulk({
@@ -436,7 +460,18 @@ export default function StudentSearchPanel({
         />
       )}
 
-      {bulk && (
+      {bulk?.action === 'delete' && (
+        <Suspense fallback={null}>
+          <BulkDeleteModal
+            rows={bulk.rows}
+            sessionOf={sessionOf}
+            sessionNames={sessionNames}
+            onClose={() => setBulk(null)}
+            onDone={handleBulkDone}
+          />
+        </Suspense>
+      )}
+      {bulk && bulk.action !== 'delete' && (
         <Suspense fallback={null}>
           <BulkActionModal
             action={bulk.action}

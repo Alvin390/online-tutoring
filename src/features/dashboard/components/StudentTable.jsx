@@ -409,6 +409,7 @@ export default function StudentTable({
             count={selectedRows.length}
             action={bulkAction}
             onAction={onBulkAction ? () => onBulkAction(bulkAction, selectedRows, clearSelection) : null}
+            onDelete={onBulkAction ? () => onBulkAction('delete', selectedRows, clearSelection) : null}
             onClear={clearSelection}
             busy={bulkBusy}
           />
