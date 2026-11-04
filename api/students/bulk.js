@@ -21,6 +21,10 @@ import {
 
 const item = z.object({ session: sessionSchema, phone: phoneSchema }).strict();
 const items = z.array(item).min(1).max(MAX_ITEMS.block);
+// 006Fixes / 05: a partial approval carries each student's own amount.
+const approveItem = z.object({
+  session: sessionSchema, phone: phoneSchema, amount: z.number().int().min(1).max(10_000_000).optional(),
+}).strict();
 const batchId = z.string().trim().regex(/^[A-Za-z0-9]{1,40}$/);
 
 const schema = z.discriminatedUnion('action', [
@@ -33,7 +37,12 @@ const schema = z.discriminatedUnion('action', [
     batchId: batchId.optional(),
   }).strict(),
   z.object({ action: z.literal('unblock'), items, batchId: batchId.optional() }).strict(),
-  z.object({ action: z.literal('approveReceipts'), items, batchId: batchId.optional() }).strict(),
+  z.object({
+    action: z.literal('approveReceipts'),
+    items: z.array(approveItem).min(1).max(MAX_ITEMS.approveReceipts),
+    payment: z.enum(['full', 'partial']).optional(),
+    batchId: batchId.optional(),
+  }).strict(),
   // 006Fixes / 01 (owner): the teacher types DELETE; the server checks it too.
   z.object({
     action: z.literal('delete'),
@@ -129,6 +138,7 @@ export default createHandler({
       amount: isFees ? body.amount : null,
       reason: body.action === 'block' && !isFees ? (body.reason ?? '') : null,
       nowMs,
+      payment: body.action === 'approveReceipts' ? (body.payment ?? 'full') : null,
     });
 
     const result = await applyStudents({
@@ -143,6 +153,7 @@ export default createHandler({
       nowMs,
       recordedBy: user.uid,
       feesEnabled,
+      payment: body.payment ?? 'full',
     });
 
     log.info('Bulk action applied', {
