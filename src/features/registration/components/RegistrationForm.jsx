@@ -160,11 +160,12 @@ export default function RegistrationForm({
           <textarea
             className={`form-control ${errors.receiptMessage ? 'is-invalid' : ''}`}
             rows="3"
-            placeholder="Please Paste Entire M-PESA receipt message here. You may remove your account balance"
+            placeholder="Paste the whole M-Pesa message you received"
             {...register('receiptMessage')}
           />
+          {/* 007Fixes / 02: a student spent ~6 minutes here (Sentry 1-D replay). */}
           <div className="form-text">
-            Provide payment method, reference number, amount, and date
+            Paste the whole M-Pesa message you received, not only the code. You may remove your balance.
           </div>
           {errors.receiptMessage && (
             <div className="invalid-feedback">{errors.receiptMessage.message}</div>
