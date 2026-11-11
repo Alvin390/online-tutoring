@@ -19,8 +19,16 @@ import { apiPost } from './client';
  */
 const passHeaders = (pass) => (pass ? { 'X-Checkin-Pass': pass } : undefined);
 
+/**
+ * 007Fixes / 01 (Sentry ONLINE-TUTORING-1-A, 1-9): at class start, phones on
+ * weak mobile data gave up at the shared 15 s limit while the server had
+ * answered in about 1.5 s. The two class-time reads wait longer; the page says
+ * "Still connecting…" meanwhile. Worst case before an error: 20 + 0.8 + 20 s.
+ */
+export const CLASS_TIME_TIMEOUT_MS = 20_000;
+
 export const checkinStudent = (session, phone, pass) =>
-  apiPost('/api/student/checkin', { session, phone }, { retry: 1, headers: passHeaders(pass) });
+  apiPost('/api/student/checkin', { session, phone }, { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS, headers: passHeaders(pass) });
 
 export const submitReceipt = (session, phone, receiptMessage) =>
   apiPost('/api/student/receipt', { session, phone, receiptMessage });
@@ -32,7 +40,7 @@ export const submitReceipt = (session, phone, receiptMessage) =>
  * UI renders whatever it is told.
  */
 export const getClassLink = (session, phone, pass) =>
-  apiPost('/api/class/link', { session, phone }, { retry: 1, headers: passHeaders(pass) });
+  apiPost('/api/class/link', { session, phone }, { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS, headers: passHeaders(pass) });
 
 /**
  * Resubmits corrected details after a rejection — Phase 04.

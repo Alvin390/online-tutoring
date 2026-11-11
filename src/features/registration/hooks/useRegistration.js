@@ -43,6 +43,16 @@ export const STALE = Object.freeze({ stale: true, exists: false, data: null, suc
 /** What a call returns when there is no usable number: the flow starts over. */
 export const RESTART = Object.freeze({ restart: true, exists: false, data: null, success: false });
 
+/**
+ * 007Fixes / 01 (owner, 2026-11-11): on a weak connection the student is told
+ * what is happening instead of staring at a spinner, and a real failure is put
+ * in plain words. Student page only; the shared ApiError messages stay, since
+ * the dashboard uses them.
+ */
+export const SLOW_AFTER_MS = 6_000;
+export const SLOW_NETWORK_MESSAGE = 'Your internet is slow. Tap Try again.';
+const isTransient = (error) => error?.code === 'timeout' || error?.code === 'network_error';
+
 export const useRegistration = (session) => {
   const [loading, setLoading] = useState(false);
   const [studentData, setStudentData] = useState(null);
@@ -53,8 +63,28 @@ export const useRegistration = (session) => {
   const [classLink, setClassLink] = useState('');
   const [provider, setProvider] = useState(null);
   const [countdown, setCountdown] = useState(null);
+  // 007Fixes / 01: a class-time request is taking long (shown after 6 s), and
+  // the last one failed on the network (the card then offers "Try again").
+  const [slow, setSlow] = useState(false);
+  const [failedSlow, setFailedSlow] = useState(false);
+  const slowTimerRef = useRef(null);
+  // Whether the notice was shown during the current request, for the error report.
+  const slowShownRef = useRef(false);
 
   const { showError, showSuccess } = useToast();
+
+  const stopSlowTimer = useCallback(() => {
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    slowTimerRef.current = null;
+    setSlow(false);
+  }, []);
+  const startSlowTimer = useCallback(() => {
+    stopSlowTimer();
+    setFailedSlow(false);
+    slowShownRef.current = false;
+    slowTimerRef.current = setTimeout(() => { slowShownRef.current = true; setSlow(true); }, SLOW_AFTER_MS);
+  }, [stopSlowTimer]);
+  useEffect(() => () => { if (slowTimerRef.current) clearTimeout(slowTimerRef.current); }, []);
 
   /**
    * The redirect timer.
@@ -109,11 +139,13 @@ export const useRegistration = (session) => {
     flowRef.current += 1;
     passRef.current = null;
     clearRedirect();
+    stopSlowTimer();
+    setFailedSlow(false);
     setPhoneNumber('');
     setStudentData(null);
     setIsReturningStudent(false);
     setLoading(false);
-  }, [clearRedirect]);
+  }, [clearRedirect, stopSlowTimer]);
 
   /** No usable number: tell the student, report it, send nothing. */
   const refuseUnusable = useCallback((action, path) => {
@@ -129,6 +161,7 @@ export const useRegistration = (session) => {
     const flow = flowRef.current;
     setLoading(true);
     setPhoneNumber(phone);
+    startSlowTimer();
     try {
       const { exists, student, pass, retired, keptSuffix } = await checkinStudent(session, phone, passFor(phone));
       if (flow !== flowRef.current) return STALE;
@@ -149,12 +182,22 @@ export const useRegistration = (session) => {
       logger.error('Check student failed', error);
       // A refusal for checking too often gets its own notice with the real
       // wait (SessionPage, 002Fixes / 05), not "please wait a moment".
-      if (error?.status !== 429) showError(error?.message || 'Unable to check registration. Please try again.');
+      if (isTransient(error)) {
+        // 007Fixes / 01: both tries failed on the network, not on the server.
+        if (slowShownRef.current && error && typeof error === 'object') error.slowNotice = true;
+        setFailedSlow(true);
+        showError(SLOW_NETWORK_MESSAGE);
+      } else if (error?.status !== 429) {
+        showError(error?.message || 'Unable to check registration. Please try again.');
+      }
       throw error;
     } finally {
-      if (flow === flowRef.current) setLoading(false);
+      if (flow === flowRef.current) {
+        setLoading(false);
+        stopSlowTimer();
+      }
     }
-  }, [session, showError, refuseUnusable]);
+  }, [session, showError, refuseUnusable, startSlowTimer, stopSlowTimer]);
 
   const register = useCallback(async (phone, formData) => {
     if (!isUsablePhone(phone)) return refuseUnusable('register', '/api/student/register');
@@ -208,10 +251,12 @@ export const useRegistration = (session) => {
   const redirectToZoom = useCallback(async () => {
     if (!isUsablePhone(phoneNumber)) return refuseUnusable('join', '/api/class/link');
     const flow = flowRef.current;
+    startSlowTimer();
     try {
       const { url, provider: linkProvider } = await getClassLink(session, phoneNumber, passFor(phoneNumber));
       // Never start the countdown into class for a flow the student has left.
       if (flow !== flowRef.current) return STALE;
+      stopSlowTimer();
 
       trackZoomRedirect(session);
 
@@ -237,11 +282,18 @@ export const useRegistration = (session) => {
       return { success: true, zoomLink: url, provider: linkProvider };
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
+      stopSlowTimer();
       logger.error('Class link request failed', error);
-      if (error?.status !== 429) showError(error?.message || 'Unable to join class. Please contact your teacher.');
+      if (isTransient(error)) {
+        if (slowShownRef.current && error && typeof error === 'object') error.slowNotice = true;
+        setFailedSlow(true);
+        showError(SLOW_NETWORK_MESSAGE);
+      } else if (error?.status !== 429) {
+        showError(error?.message || 'Unable to join class. Please contact your teacher.');
+      }
       return { success: false, code: error?.code, status: error?.status, retryAfter: error?.retryAfter, error };
     }
-  }, [session, phoneNumber, showError, clearRedirect, refuseUnusable]);
+  }, [session, phoneNumber, showError, clearRedirect, refuseUnusable, startSlowTimer, stopSlowTimer]);
 
   const submitReceipt = useCallback(async (receiptMessage) => {
     if (!isUsablePhone(phoneNumber)) return refuseUnusable('receipt', '/api/student/receipt');
@@ -302,6 +354,8 @@ export const useRegistration = (session) => {
     classLink,
     provider,
     countdown,
+    slow,
+    failedSlow,
     checkStudent,
     register,
     redirectToZoom,

@@ -48,7 +48,7 @@ export function deferred() {
  * @param {string[]} [opts.real]          screens to render for real, e.g. ['PendingApprovalScreen']
  * @returns the render utils, plus `api`, `toast` and `nextPhone` (what "Check in" submits)
  */
-export async function renderSessionPage({ api: overrides = {}, requireApproval = true, real = [], schedule = null } = {}) {
+export async function renderSessionPage({ api: overrides = {}, requireApproval = true, real = [], schedule = null, checkinCard = null } = {}) {
   const stub = (name, factory) => {
     const id = `@/features/registration/components/${name}`;
     if (real.includes(name)) vi.doUnmock(id);
@@ -75,8 +75,11 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
   vi.doMock('@/context/ToastContext', () => ({ useToast: () => toast, useOptionalToast: () => null }));
   vi.doMock('@utils/analytics', () => ({ trackRegistration: vi.fn(), trackZoomRedirect: vi.fn() }));
   vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (key) => (key === 'registration.requireApproval' ? requireApproval : false) }));
+  // 007Fixes / 01: a test may supply its own card to see the props it is given.
   vi.doMock('@/features/registration/components/CheckinCard', () => ({
-    default: ({ onSubmit }) => <button type="button" onClick={() => onSubmit(typed.phone)}>Check in</button>,
+    default: checkinCard
+      ? (props) => checkinCard({ ...props, submit: () => props.onSubmit(typed.phone) })
+      : ({ onSubmit }) => <button type="button" onClick={() => onSubmit(typed.phone)}>Check in</button>,
   }));
   vi.doMock('@/features/registration/components/RegistrationForm', () => ({
     default: ({ onSubmit, onBack }) => (

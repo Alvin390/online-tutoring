@@ -210,7 +210,8 @@ export function reportApiFailure(error, { action = 'unknown', screen = 'unknown'
   if (!sentryRef || !error) return;
   sentryRef.captureException(error, {
     level: error.name === 'ApiError' ? 'warning' : 'error',
-    tags: { flow_action: action, flow_screen: screen },
+    // 007Fixes / 01: did the student see "Still connecting…" before it failed?
+    tags: { flow_action: action, flow_screen: screen, ...(error.slowNotice ? { slow_notice: 'shown' } : {}) },
   });
 }
 

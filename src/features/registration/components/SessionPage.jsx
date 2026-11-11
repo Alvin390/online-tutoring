@@ -70,6 +70,8 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     classLink,
     provider,
     countdown,
+    slow,
+    failedSlow,
     checkStudent,
     register,
     redirectToZoom,
@@ -323,6 +325,8 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   onSubmit={handled('checkin', handleCheckin)}
                   loading={loading}
                   waitSeconds={waitSeconds}
+                  slow={slow}
+                  failedSlow={failedSlow}
                 />
               )}
 
@@ -444,6 +448,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                   countdown={countdown ?? undefined}
                   onJoinNow={classLink ? joinNow : undefined}
                   showSpinner={!classLink}
+                  slow={slow}
                 />
               )}
             </AnimatePresence>
