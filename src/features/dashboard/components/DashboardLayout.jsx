@@ -39,12 +39,14 @@ const TAB_LOADERS = {
   approvals: () => import('../tabs/ApprovalsTab'),
   fees: () => import('../tabs/FeesOverviewTab'),
   whatsapp: () => import('../tabs/WhatsAppTab'),
+  staff: () => import('../tabs/StaffTab'),
   calendar: () => import('../tabs/CalendarTab'),
   setup: () => import('../tabs/SetupTab'),
 };
 const ApprovalsTab = lazy(TAB_LOADERS.approvals);
 const FeesOverviewTab = lazy(TAB_LOADERS.fees);
 const WhatsAppTab = lazy(TAB_LOADERS.whatsapp);
+const StaffTab = lazy(TAB_LOADERS.staff);
 const CalendarTab = lazy(TAB_LOADERS.calendar);
 const SetupTab = lazy(TAB_LOADERS.setup);
 const prefetchTab = (id) => { TAB_LOADERS[id]?.().catch(() => {}); };
@@ -89,6 +91,8 @@ export default function DashboardLayout() {
     approveStudents,
     rejectStudents,
     totalStudents,
+    // 007Fixes / 09-10: staff, split from the same rosters.
+    staffBySession,
   } = useDashboard();
 
   const requireApproval = useFlag('registration.requireApproval');
@@ -329,6 +333,12 @@ export default function DashboardLayout() {
             />
             <Route path="fees" element={only('fees', <FeesOverviewTab sessions={activeSessions} partial={partial} />)} />
             <Route path="whatsapp" element={only('whatsapp', <WhatsAppTab preset={whatsappPreset} />)} />
+            <Route
+              path="staff"
+              element={only('staff', (
+                <StaffTab staffBySession={staffBySession} sessions={sessions} onEdit={updateStudent} onDelete={deleteStudent} />
+              ))}
+            />
             <Route path="calendar" element={only('calendar', <CalendarTab />)} />
             <Route
               path="setup"

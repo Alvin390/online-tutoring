@@ -152,7 +152,7 @@ describe('which tabs show', () => {
     expect(await screen.findByTestId('panel-students')).toBeTruthy();
     expect(probe.location.pathname).toBe('/dashboard/students');
     const names = within(nav()).getAllByRole('link').map((a) => a.textContent.trim());
-    expect(names).toEqual(['Students', 'Fees', 'WhatsApp', 'Setup']);
+    expect(names).toEqual(['Students', 'Fees', 'WhatsApp', 'Staff', 'Setup']); // 007Fixes / 10: Staff is always shown
   });
 
   // Release A browser pass: a refresh on Approvals sometimes landed on

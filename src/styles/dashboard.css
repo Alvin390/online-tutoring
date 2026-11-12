@@ -1063,11 +1063,15 @@
   }
 }
 
-/* A tablet (768–1199 px) fits all six tabs: tighter pills, brand text hidden. */
+/* A tablet (768–1199 px) fits all seven tabs: tighter pills, brand text
+   hidden, and (007Fixes / 10, Staff) the names without their icons. */
 @media (max-width: 1199.98px) {
   .dashboard-nav-link {
     padding: 0.55rem 0.5rem;
     font-size: 0.95rem;
+  }
+  .dashboard-nav-link > i.bi {
+    display: none;
   }
 }
 
@@ -1081,6 +1085,17 @@
   color: var(--primary-color, #667eea);
   background: #fff;
   font-weight: 600;
+}
+
+/* 007Fixes / 10: the email beside the account icon, from 1440 px only. */
+.dashboard-account-email {
+  display: none;
+}
+
+@media (min-width: 1440px) {
+  .dashboard-account-email {
+    display: inline;
+  }
 }
 
 .dashboard-account-menu {

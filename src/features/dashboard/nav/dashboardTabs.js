@@ -16,6 +16,8 @@ export const DASHBOARD_TABS = Object.freeze([
   { id: 'approvals', label: 'Approvals', icon: 'bi-person-check-fill', flag: 'registration.requireApproval' },
   { id: 'fees', label: 'Fees', icon: 'bi-cash-coin', flag: 'fees.enabled' },
   { id: 'whatsapp', label: 'WhatsApp', icon: 'bi-whatsapp', flag: 'whatsapp.broadcast' },
+  // 007Fixes / 10 (owner): teachers registered like students, on the side.
+  { id: 'staff', label: 'Staff', icon: 'bi-person-badge' },
   { id: 'calendar', label: 'Calendar', icon: 'bi-calendar3', flag: 'calendar.enabled' },
   { id: 'setup', label: 'Setup', icon: 'bi-gear-fill' },
 ]);
