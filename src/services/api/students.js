@@ -177,3 +177,52 @@ export async function mergeDuplicates(session, keep, remove) {
 export const keepBothDuplicates = (session, a, b) => duplicates({ action: 'keepBoth', session, a, b });
 export const allowRetiredNumber = (session, phone) => duplicates({ action: 'allowNumber', session, phone });
 export const listRetiredNumbers = (sessions) => duplicates({ action: 'listRetired', sessions });
+
+// ---------------------------------------------------------------------------
+// 007Fixes / 07 — staff. POST /api/students/staff marks registrations as staff
+// (approved, unblocked, balance closed "Staff, no fee") or sets them back.
+// ---------------------------------------------------------------------------
+
+/** The server's chunk size (MAX_STAFF_ITEMS). */
+export const STAFF_CHUNK = 25;
+
+const staffCall = (body) => apiPost('/api/students/staff', body, { retry: 1 });
+
+/** One id per marking, shared by its chunks: the server keys each balance closure by it. */
+function newOpId() {
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  return `s${Date.now().toString(36)}${[...bytes].map((b) => (b % 36).toString(36)).join('')}`.slice(0, 40);
+}
+
+/**
+ * Marks `items` ([{ session, phone }]) as staff, 25 at a time.
+ * @returns {{ marked, closedBalances: Array<{session, amount}>, closedTotal, skipped: Array<{index, reason}> }}
+ */
+export async function markStaff(items, { alsoOtherSession = false, onProgress } = {}) {
+  const opId = newOpId();
+  const total = { marked: 0, closedBalances: [], closedTotal: 0, skipped: [] };
+  for (let next = 0; next < items.length; next += STAFF_CHUNK) {
+    const chunk = items.slice(next, next + STAFF_CHUNK);
+    const res = await staffCall({ action: 'mark', items: chunk, alsoOtherSession, opId });
+    total.marked += res.marked ?? 0;
+    total.closedBalances.push(...(res.closedBalances ?? []));
+    total.closedTotal += res.closedTotal ?? 0;
+    total.skipped.push(...(res.skipped ?? []).map((s) => ({ ...s, index: s.index + next })));
+    onProgress?.(Math.min(next + chunk.length, items.length), items.length);
+  }
+  return total;
+}
+
+/** Sets `items` back to students (the marker only). @returns {{ unmarked, skipped }} */
+export async function unmarkStaff(items, { onProgress } = {}) {
+  const total = { unmarked: 0, skipped: [] };
+  for (let next = 0; next < items.length; next += STAFF_CHUNK) {
+    const chunk = items.slice(next, next + STAFF_CHUNK);
+    const res = await staffCall({ action: 'unmark', items: chunk });
+    total.unmarked += res.unmarked ?? 0;
+    total.skipped.push(...(res.skipped ?? []).map((s) => ({ ...s, index: s.index + next })));
+    onProgress?.(Math.min(next + chunk.length, items.length), items.length);
+  }
+  return total;
+}
