@@ -14,6 +14,7 @@ import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-rou
 
 const hook = { mounts: 0, unmounts: 0 };
 let flags;
+let flagsLoaded;
 let auth;
 let pending;
 
@@ -41,7 +42,7 @@ function stubs() {
     useAuthState: () => auth,
     useAuthActions: () => ({ signOut: auth.signOut }),
   }));
-  vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (key) => flags[key] === true, useFlags: () => flags }));
+  vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (key) => flags[key] === true, useFlags: () => flags, useFlagsLoaded: () => flagsLoaded }));
   vi.doMock('@hooks/useIdleTimeout', () => ({ default: () => ({ warning: false, msRemaining: 0, reset: vi.fn() }) }));
   const panel = (name) => () => ({ default: () => <div data-testid={`panel-${name}`}>{name}</div> });
   vi.doMock('@features/dashboard/components/StudentSearchPanel', panel('students'));
@@ -83,6 +84,7 @@ beforeEach(() => {
   hook.mounts = 0;
   hook.unmounts = 0;
   pending = [];
+  flagsLoaded = true;
   flags = {
     'registration.requireApproval': true, 'fees.enabled': true, 'whatsapp.broadcast': true, 'calendar.enabled': true,
   };
@@ -151,6 +153,18 @@ describe('which tabs show', () => {
     expect(probe.location.pathname).toBe('/dashboard/students');
     const names = within(nav()).getAllByRole('link').map((a) => a.textContent.trim());
     expect(names).toEqual(['Students', 'Fees', 'WhatsApp', 'Setup']);
+  });
+
+  // Release A browser pass: a refresh on Approvals sometimes landed on
+  // Students. The flags render as their defaults (off) until the server's
+  // answer, and the frame redirected in that moment, with `replace`.
+  it('a refresh on a flag-gated tab waits for the flags instead of leaving it', async () => {
+    flagsLoaded = false;
+    flags['registration.requireApproval'] = false; // the default, before the answer
+    await open('/dashboard/approvals');
+    await act(async () => {});
+    expect(probe.location.pathname).toBe('/dashboard/approvals');
+    expect(screen.queryByTestId('panel-students')).toBeNull();
   });
 
   it('a tier too low shows the upgrade prompt inside the tab', async () => {

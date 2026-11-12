@@ -19,17 +19,31 @@ import logger from '@utils/logger';
  */
 
 let flags = DEFAULT_FLAGS;
+// 007Fixes / 06: true once the first real answer (or a failure to get one) is
+// in. Until then a flag that reads "off" may only be the default, so a page
+// must not act on it in a way it cannot undo (the dashboard redirected away
+// from a flag-gated tab on a refresh).
+let loaded = false;
 const listeners = new Set();
+const notify = () => listeners.forEach((listener) => listener());
 
 export const flagsStore = {
   get: () => flags,
+  isLoaded: () => loaded,
   /** @param {object|null} raw a config/flags document (or the bootstrap's flags) */
   setFromRemote(raw) {
+    const first = !loaded;
+    loaded = true;
     const next = resolveFlags(raw ?? null);
     const changed = Object.keys(next).some((k) => next[k] !== flags[k]);
-    if (!changed) return;
-    flags = next;
-    listeners.forEach((listener) => listener());
+    if (changed) flags = next;
+    if (changed || first) notify();
+  },
+  /** No answer is coming (the request failed): the defaults are final. */
+  markLoaded() {
+    if (loaded) return;
+    loaded = true;
+    notify();
   },
   subscribe(listener) {
     listeners.add(listener);
@@ -38,6 +52,7 @@ export const flagsStore = {
   /** For tests. */
   __reset() {
     flags = DEFAULT_FLAGS;
+    loaded = false;
   },
 };
 
@@ -48,6 +63,7 @@ export function FlagsProvider({ children }) {
       .catch((error) => {
         // Non-fatal: the app runs on defaults.
         logger.warn('Flags unavailable; using defaults', { code: error?.code });
+        flagsStore.markLoaded();
       });
   }, []);
   return children;
@@ -62,4 +78,9 @@ export function useFlags() {
 export function useFlag(key) {
   const read = () => flagsStore.get()[key] === true;
   return useSyncExternalStore(flagsStore.subscribe, read, read);
+}
+
+/** Whether the flags have arrived (or are known to be unavailable). */
+export function useFlagsLoaded() {
+  return useSyncExternalStore(flagsStore.subscribe, flagsStore.isLoaded, flagsStore.isLoaded);
 }

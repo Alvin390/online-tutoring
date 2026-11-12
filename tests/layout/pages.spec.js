@@ -26,7 +26,9 @@ for (const width of WIDTHS) {
       for (const [name, path] of [['home', '/'], ['morning', '/morning'], ['login', '/login']]) {
         await page.goto(path);
         await settle(page);
-        await expect(page).toHaveScreenshot(`${name}-${width}.png`, { fullPage: true });
+        // The session badge's icon glyph anti-aliases a few pixels differently
+        // run to run (19 px seen); a real layout change is far larger.
+        await expect(page).toHaveScreenshot(`${name}-${width}.png`, { fullPage: true, maxDiffPixels: 50 });
       }
     });
 
@@ -40,7 +42,9 @@ for (const width of WIDTHS) {
       // in some runs that opens a row's hover card. Park it in a corner.
       await page.mouse.move(0, 0);
       await page.waitForTimeout(2500);
-      await expect(page).toHaveScreenshot(`dashboard-${width}.png`, { timeout: 20_000 });
+      // Registration times come from the seed run ("now" when seeded): masked.
+      const registered = page.locator('tr.student-row-wrapper td').filter({ hasText: /\d{1,2} \w{3} \d{4}, \d{2}:\d{2}/ });
+      await expect(page).toHaveScreenshot(`dashboard-${width}.png`, { timeout: 20_000, mask: [registered] });
       await page.goto('/billing');
       await settle(page);
       await expect(page).toHaveScreenshot(`billing-${width}.png`, { fullPage: true });

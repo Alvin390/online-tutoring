@@ -8,7 +8,7 @@ import useIdleTimeout from '@hooks/useIdleTimeout';
 import { partialSummary } from '@features/fees/partialSummary';
 import { useDashboard } from '../hooks/useDashboard';
 import { useWaitingTitle } from '../hooks/useWaitingTitle';
-import { useFlag } from '@shared/config/FlagsContext';
+import { useFlag, useFlagsLoaded } from '@shared/config/FlagsContext';
 import StudentsTab from '../tabs/StudentsTab';
 import DashboardNav from '../nav/DashboardNav';
 import BottomNav from '../nav/BottomNav';
@@ -91,6 +91,7 @@ export default function DashboardLayout() {
   const feesEnabled = useFlag('fees.enabled');
   const whatsappEnabled = useFlag('whatsapp.broadcast');
   const calendarEnabled = useFlag('calendar.enabled');
+  const flagsLoaded = useFlagsLoaded();
   const whatsappPreset = useWhatsappPreset();
 
   const flagOn = useMemo(() => ({
@@ -201,7 +202,13 @@ export default function DashboardLayout() {
   // A tab that is hidden (flag off) or unknown opens Students, keeping the
   // address's filters for the student list.
   const toStudents = <Navigate to={{ pathname: tabPath(DEFAULT_TAB), search: location.search }} replace />;
-  const only = (id, element) => (shown.has(id) ? element : toStudents);
+  // Until the flags arrive, a tab that reads as hidden may only be on the
+  // defaults: wait rather than leave it (a refresh on Approvals landed on
+  // Students — 007Fixes / 06).
+  const only = (id, element) => {
+    if (shown.has(id)) return element;
+    return flagsLoaded ? toStudents : <TabFallback />;
+  };
 
   return (
     <m.div
