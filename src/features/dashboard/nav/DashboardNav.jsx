@@ -1,6 +1,6 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import AccountMenu from './AccountMenu';
-import { tabPath } from './dashboardTabs';
+import { tabPath, tabFromPath } from './dashboardTabs';
 
 /**
  * The dashboard's top bar — 007Fixes / 03. Brand, the tabs, the account menu.
@@ -8,8 +8,13 @@ import { tabPath } from './dashboardTabs';
  * Phase 13 / 07 rule kept: never wider than a phone. The tab strip scrolls
  * sideways inside the bar rather than widening the page (a page wider than
  * the screen puts every fixed overlay off-centre).
+ *
+ * Below 768 px (007Fixes / 04) the tabs move to the bottom bar (BottomNav);
+ * this bar shows the current tab's name and the account menu.
  */
 export default function DashboardNav({ tabs, waitingCount = 0, email, onRefresh, refreshing, onLogout, onPrefetch }) {
+  const { pathname } = useLocation();
+  const current = tabs.find((tab) => tab.id === tabFromPath(pathname));
   return (
     <header className="dashboard-header dashboard-nav text-white sticky-top">
       <div className="container-fluid d-flex align-items-center gap-2 gap-md-3 py-2">
@@ -19,7 +24,11 @@ export default function DashboardNav({ tabs, waitingCount = 0, email, onRefresh,
           <span className="fw-bold d-none d-xl-inline">Teacher Dashboard</span>
         </div>
 
-        <nav className="dashboard-nav-tabs flex-grow-1" aria-label="Dashboard">
+        <h1 className="dashboard-nav-title d-md-none flex-grow-1 text-truncate h5 fw-bold mb-0">
+          {current?.label ?? 'Dashboard'}
+        </h1>
+
+        <nav className="dashboard-nav-tabs flex-grow-1 d-none d-md-block" aria-label="Dashboard">
           <ul className="nav flex-nowrap">
             {tabs.map((tab) => (
               <li className="nav-item" key={tab.id}>

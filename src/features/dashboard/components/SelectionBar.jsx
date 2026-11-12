@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
@@ -36,13 +36,25 @@ export const BULK_LABELS = {
 
 export default function SelectionBar({ count, action = 'block', onAction, onDelete = null, onClear, busy = false }) {
   const phone = usePhone();
+  const barRef = useRef(null);
   useEffect(() => {
     document.body.classList.add('has-selection-bar');
     return () => document.body.classList.remove('has-selection-bar');
   }, []);
+  // 007Fixes / 04: on a phone, toasts sit above this bar (the stacking rule in
+  // index.css), and its height changes when the buttons wrap: publish it.
+  useEffect(() => {
+    const el = barRef.current;
+    if (!phone || !el || typeof ResizeObserver === 'undefined') return undefined;
+    const style = document.body.style;
+    const observer = new ResizeObserver(() => style.setProperty('--selection-bar-h', `${el.offsetHeight}px`));
+    observer.observe(el);
+    return () => { observer.disconnect(); style.removeProperty('--selection-bar-h'); };
+  }, [phone]);
 
   const bar = (
     <div
+      ref={barRef}
       className="selection-bar"
       role="region"
       aria-label="Selected students"

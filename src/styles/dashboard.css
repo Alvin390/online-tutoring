@@ -898,6 +898,15 @@
     width: 1.25rem;
     height: 1.25rem;
   }
+  /* 007Fixes / 04: directly above the bottom bar (the stacking rule in
+     index.css), which already keeps clear of the home indicator. */
+  body.has-bottom-nav .selection-bar {
+    bottom: calc(var(--bottom-nav-h));
+    padding-bottom: 0.6rem;
+  }
+  body.has-bottom-nav.has-selection-bar {
+    padding-bottom: calc(var(--bottom-nav-h) + var(--selection-bar-h, 5.5rem));
+  }
 }
 
 /* 003Fixes / 05 — the search box with Recent actions beside it. */
@@ -1042,4 +1051,101 @@
 
 .dashboard-waiting-banner {
   border: 0;
+}
+
+/* 007Fixes / 04 — the phone bottom bar and its More sheet (below 768 px; the
+   component carries d-md-none). Where it sits relative to the selection bar
+   and toasts: the stacking rule in index.css. */
+.dashboard-bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1030;
+  display: flex;
+  background: #fff;
+  border-top: 1px solid rgba(31, 41, 55, 0.08);
+  box-shadow: 0 -4px 14px rgba(31, 41, 55, 0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+body.is-typing .dashboard-bottom-nav {
+  display: none;
+}
+
+.dashboard-bottom-nav-item {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 3.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.25rem 0.125rem;
+  border: 0;
+  background: none;
+  color: #6b7280;
+  font-size: 0.72rem;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dashboard-bottom-nav-item.active {
+  color: var(--primary-color, #667eea);
+  font-weight: 600;
+}
+
+.dashboard-bottom-nav-item:focus-visible {
+  outline: 2px solid var(--primary-color, #667eea);
+  outline-offset: -4px;
+}
+
+.dashboard-bottom-nav-icon {
+  position: relative;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.dashboard-bottom-nav-icon .badge {
+  position: absolute;
+  top: -0.35rem;
+  left: 100%;
+  translate: -45% 0;
+  font-size: 0.6rem;
+  padding: 0.2em 0.45em;
+}
+
+.dashboard-bottom-nav-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+  background: rgba(17, 24, 39, 0.4);
+}
+
+.dashboard-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1045;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -8px 24px rgba(31, 41, 55, 0.18);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.dashboard-sheet-item {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
 }

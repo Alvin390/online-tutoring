@@ -179,3 +179,29 @@ body {
     flex-direction: column-reverse;
   }
 }
+
+/* 007Fixes / 04 — ONE stacking rule for the bottom of a phone screen, from the
+   bottom up: the dashboard's bottom bar (BottomNav marks <body> with
+   has-bottom-nav), then the bulk selection bar directly above it, then toasts
+   above whichever is highest. The student drawer and modals cover all three.
+   While a text field has focus (is-typing) the bar is hidden and its height
+   counts as 0, so nothing rides up over the field on the keyboard.
+   --selection-bar-h is measured by SelectionBar while it shows. */
+@media (max-width: 767.98px) {
+  body.has-bottom-nav {
+    --bottom-nav-h: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: var(--bottom-nav-h);
+  }
+  body.has-bottom-nav.is-typing {
+    --bottom-nav-h: 0px;
+  }
+}
+
+@media (max-width: 575.98px) {
+  body.has-bottom-nav .toast-container {
+    bottom: calc(var(--bottom-nav-h) + 0.75rem);
+  }
+  body.has-bottom-nav.has-selection-bar .toast-container {
+    bottom: calc(var(--bottom-nav-h) + var(--selection-bar-h, 4.5rem) + 0.75rem);
+  }
+}

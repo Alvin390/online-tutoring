@@ -11,6 +11,7 @@ import { useWaitingTitle } from '../hooks/useWaitingTitle';
 import { useFlag } from '@shared/config/FlagsContext';
 import StudentsTab from '../tabs/StudentsTab';
 import DashboardNav from '../nav/DashboardNav';
+import BottomNav from '../nav/BottomNav';
 import WaitingBanner from '../nav/WaitingBanner';
 import { visibleTabs, tabPath, tabFromPath, DEFAULT_TAB } from '../nav/dashboardTabs';
 
@@ -289,6 +290,9 @@ export default function DashboardLayout() {
           </Routes>
         </Suspense>
       </main>
+
+      {/* 007Fixes / 04: below 768 px the tabs live in a bottom bar (CSS-hidden above). */}
+      <BottomNav tabs={navTabs} waitingCount={waiting.length} onLogout={handleLogout} />
 
       {approving && (
         <Suspense fallback={null}>
