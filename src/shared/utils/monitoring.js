@@ -27,7 +27,21 @@ const STATIC_ROUTES = {
 };
 export function routeTag(pathname = '/') {
   const path = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
+  // 007Fixes / 03: every dashboard tab is still the dashboard page.
+  if (path.startsWith('/dashboard/')) return 'dashboard';
   return STATIC_ROUTES[path] ?? (/^\/[a-z0-9-]+$/.test(path) ? 'session-page' : 'other');
+}
+
+/**
+ * Which dashboard tab — 007Fixes / 03. One of the known tab names, `other`
+ * for anything else under /dashboard, and undefined off the dashboard. Fixed
+ * words only: low cardinality, nothing identifying.
+ */
+const DASHBOARD_TAB_NAMES = new Set(['students', 'approvals', 'fees', 'whatsapp', 'staff', 'calendar', 'setup']);
+export function dashboardTabTag(pathname = '/') {
+  const match = /^\/dashboard(?:\/([^/]*))?\/?$/.exec(String(pathname).toLowerCase());
+  if (!match) return undefined;
+  return DASHBOARD_TAB_NAMES.has(match[1]) ? match[1] : 'other';
 }
 
 /**
@@ -62,7 +76,11 @@ export function groupApiError(event, hint) {
 
 /** Everything an error event goes through on its way out. */
 export function prepareEvent(event, hint) {
-  const tagged = { ...event, tags: { ...(event?.tags ?? {}), route: routeTag(window.location.pathname) } };
+  const tab = dashboardTabTag(window.location.pathname);
+  const tagged = {
+    ...event,
+    tags: { ...(event?.tags ?? {}), route: routeTag(window.location.pathname), ...(tab ? { dashboard_tab: tab } : {}) },
+  };
   return redactSentryEvent(groupApiError(tagged, hint), hint);
 }
 

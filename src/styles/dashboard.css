@@ -984,3 +984,62 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── 007Fixes / 03: the dashboard's tab bar ───────────────────────────────
+   The current colours (the header's purple gradient, white text), cleaner:
+   tabs as light text, the open one as a white pill. The strip scrolls
+   sideways inside the bar rather than widening the page (Phase 13 / 07). */
+.dashboard-nav {
+  z-index: 1020;
+}
+
+.dashboard-nav-tabs {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-nav-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.dashboard-nav-link {
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-weight: 500;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* A tablet (768–1199 px) fits all six tabs: tighter pills, brand text hidden. */
+@media (max-width: 1199.98px) {
+  .dashboard-nav-link {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.95rem;
+  }
+}
+
+.dashboard-nav-link:hover,
+.dashboard-nav-link:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dashboard-nav-link.active {
+  color: var(--primary-color, #667eea);
+  background: #fff;
+  font-weight: 600;
+}
+
+.dashboard-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  min-width: 15rem;
+  max-width: calc(100vw - 2rem);
+}
+
+.dashboard-waiting-banner {
+  border: 0;
+}

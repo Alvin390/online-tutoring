@@ -149,6 +149,11 @@ describe('server tier requirements have a client gate', () => {
     // restated here — restating it would make this test agree with itself.
     const sources = [
       'src/features/dashboard/components/DashboardLayout.jsx',
+      // 007Fixes / 03: the panels' gates moved into their tabs.
+      'src/features/dashboard/tabs/FeesOverviewTab.jsx',
+      'src/features/dashboard/tabs/WhatsAppTab.jsx',
+      'src/features/dashboard/tabs/CalendarTab.jsx',
+      'src/features/dashboard/tabs/SetupTab.jsx',
       'src/features/dashboard/components/StudentDrawer.jsx',
       'src/features/whatsapp/components/WhatsAppPanel.jsx',
       'src/pages/BillingPage.jsx',
