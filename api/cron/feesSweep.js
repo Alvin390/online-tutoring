@@ -157,6 +157,16 @@ export default async function handler(req, res) {
       overdue.push({ phone, session, balance: account.balance });
     }
 
+    // 007Fixes / 08: staff are never flagged or auto-blocked. Their balance is
+    // closed when marked and charges are refused after, so this is a safety
+    // net: one read of the overdue students only, and only when there are any.
+    if (overdue.length > 0) {
+      const snaps = await db.getAll(...overdue.map((o) => db.doc(`sessions/${o.session}/students/${o.phone}`)));
+      for (let i = overdue.length - 1; i >= 0; i -= 1) {
+        if (snaps[i].exists && snaps[i].data().staff === true) overdue.splice(i, 1);
+      }
+    }
+
     if (overdue.length > 0) {
       const batch = db.batch();
 

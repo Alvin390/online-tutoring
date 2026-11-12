@@ -9,6 +9,9 @@ const phones = ['+254711000001', '+254711000002', '+254711000010', '+25471100043
 const receipts = ['QX12345678 Confirmed.', 'paid QX12345678', 'RZ98765432 Confirmed.', 'QX12345678 Confirmed.  '];
 const corpus = [];
 for (const n of names) for (const p of phones) for (const r of receipts) corpus.push({ studentName: n, parentPhone: p, class: 'Grade 7', receiptMessage: r });
+// 007Fixes / 08: staff records are never paired, by either copy.
+const plain = corpus.length;
+for (let i = 0; i < plain; i += 9) corpus.push({ ...corpus[i], parentPhone: corpus[i].parentPhone.replace(/\d$/, '9'), staff: true });
 
 describe('client and server copies', () => {
   it('export the same functions', () => {

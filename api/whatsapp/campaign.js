@@ -24,7 +24,8 @@ import { effectiveApprovalStatus } from '../_lib/studentState.js';
 
 const filterSchema = z
   .object({
-    type: z.enum(['all', 'session', 'class', 'individual']),
+    // 007Fixes / 08: 'staff' sends to staff only (values = sessions, optional).
+    type: z.enum(['all', 'session', 'class', 'individual', 'staff']),
     // 003Fixes / 09: up to 500 (a bulk block can cover every student), and an
     // individual value may be "<session>:<phone>" so a number registered in
     // two sessions is messaged only for the session that was blocked.
@@ -352,8 +353,10 @@ async function resolveRecipients(db, filter, onlySkippedFrom) {
 
   const recipients = [];
 
+  const staffOnly = filter.type === 'staff';
   for (const sessionId of sessionIds) {
     if (filter.type === 'session' && !(filter.values ?? []).includes(sessionId)) continue;
+    if (staffOnly && (filter.values ?? []).length && !filter.values.includes(sessionId)) continue;
 
     // eslint-disable-next-line no-await-in-loop
     const studentsSnap = await db.collection(`sessions/${sessionId}/students`).get();
@@ -363,6 +366,8 @@ async function resolveRecipients(db, filter, onlySkippedFrom) {
       const phone = studentDoc.id;
 
       if (student.whatsappOptOut === true) continue;
+      // 007Fixes / 08: every student audience leaves staff out; 'staff' is staff only.
+      if ((student.staff === true) !== staffOnly) continue;
       if (effectiveApprovalStatus(student) !== 'approved') continue;
       if (allowedPhones && !allowedPhones.has(phone)) continue;
 

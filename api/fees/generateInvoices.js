@@ -122,6 +122,11 @@ export async function runInvoiceGeneration({ period, sessions, dryRun = false, a
       results.skipped.push({ phone, reason: 'not_approved' });
       return;
     }
+    // 007Fixes / 08: staff are never charged.
+    if (student.staff === true) {
+      results.skipped.push({ phone, reason: 'staff' });
+      return;
+    }
 
     const account = accountsByRow.get(`${session}/${phone}`) ?? null;
 

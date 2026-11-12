@@ -66,6 +66,8 @@ const kept = (a, b) => (Array.isArray(a?.duplicateKeep) && a.duplicateKeep.inclu
  */
 export function matchReasons(a, b) {
   if (!a || !b) return [];
+  // 007Fixes / 08 (owner): staff are never part of a duplicate pair.
+  if (a.staff === true || b.staff === true) return [];
   const phoneA = phoneOf(a);
   const phoneB = phoneOf(b);
   if (!phoneA || phoneA === phoneB) return [];
@@ -145,6 +147,7 @@ function preparedReasons(a, b) {
 export function findDuplicateGroups(students) {
   const buckets = new Map();
   for (const student of students ?? []) {
+    if (student?.staff === true) continue; // 007Fixes / 08: never paired
     const name = normaliseName(student?.studentName);
     if (!name) continue;
     const key = `${name}|${student.class ?? ''}`;

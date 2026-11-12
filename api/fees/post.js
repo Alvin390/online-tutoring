@@ -3,7 +3,7 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { postEntry, reverseEntry, PAYMENT_METHODS } from '../_lib/ledger.js';
 import { shouldAutoUnblock } from '../_lib/feeState.js';
-import { badRequest, notFound, forbidden } from '../_lib/errors.js';
+import { badRequest, notFound, forbidden, ApiError } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
@@ -90,6 +90,11 @@ export default createHandler({
 
     const studentSnap = await db.doc(`sessions/${session}/students/${phone}`).get();
     if (!studentSnap.exists) throw notFound('That student no longer exists.');
+    // 007Fixes / 08: staff are never charged. A payment or adjustment is still
+    // allowed, for corrections.
+    if (type === 'invoice' && studentSnap.data().staff === true) {
+      throw new ApiError(409, 'staff_no_charge', "This person is staff; staff aren't charged.", { expose: true });
+    }
 
     const result = await postEntry({
       phone,
