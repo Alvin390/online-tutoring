@@ -45,7 +45,7 @@ function stubs() {
   vi.doMock('@hooks/useIdleTimeout', () => ({ default: () => ({ warning: false, msRemaining: 0, reset: vi.fn() }) }));
   const panel = (name) => () => ({ default: () => <div data-testid={`panel-${name}`}>{name}</div> });
   vi.doMock('@features/dashboard/components/StudentSearchPanel', panel('students'));
-  vi.doMock('@features/dashboard/components/StatsCards', panel('stats'));
+  vi.doMock('@features/dashboard/components/CountLine', panel('stats'));
   vi.doMock('@features/dashboard/components/PendingApprovalsPanel', panel('approvals'));
   vi.doMock('@features/fees/components/FeeKpiCards', panel('fees'));
   vi.doMock('@features/whatsapp/components/WhatsAppPanel', panel('whatsapp'));

@@ -36,6 +36,9 @@ for (const width of WIDTHS) {
       // Viewport only: 500 seeded rows animate in with a 0.05 s stagger (~25 s),
       // so a full-page capture never stabilises. The top of the dashboard —
       // header, stats, tabs, first rows — is what a reset change would move.
+      // The pointer is left where the login button was, over the first rows:
+      // in some runs that opens a row's hover card. Park it in a corner.
+      await page.mouse.move(0, 0);
       await page.waitForTimeout(2500);
       await expect(page).toHaveScreenshot(`dashboard-${width}.png`, { timeout: 20_000 });
       await page.goto('/billing');
@@ -59,11 +62,15 @@ for (const width of [360, 1280]) {
     test('drawer, calendar and Help & feedback', async ({ page }) => {
       await signInTeacher(page);
       await settle(page);
+      // 007Fixes / 03: the calendar is its own tab.
+      await page.goto('/dashboard/calendar');
       const calendar = page.locator('.calendar-grid').first();
-      await calendar.scrollIntoViewIfNeeded();
+      await calendar.waitFor({ timeout: 20_000 });
       await page.waitForTimeout(800);
       await expect(calendar).toHaveScreenshot(`calendar-${width}.png`, { timeout: 20_000 });
 
+      await page.goto('/dashboard/students');
+      await page.locator('tr.student-row-wrapper').first().waitFor({ timeout: 30_000 });
       await page.locator('button[aria-label^="Open details and notes for"]').first().click();
       const drawer = page.getByRole('dialog').first();
       await drawer.waitFor();
@@ -72,7 +79,15 @@ for (const width of [360, 1280]) {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(500);
 
-      await page.getByRole('button', { name: /Help & feedback/ }).first().click();
+      // 007Fixes / 03–04: Help & feedback is in the account menu, or under More
+      // in the phone bottom bar.
+      if (width < 768) {
+        await page.getByRole('navigation', { name: 'Dashboard sections' }).getByRole('button', { name: /More/ }).click();
+        await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: /Help & feedback/ }).click();
+      } else {
+        await page.getByRole('button', { name: 'Account menu' }).click();
+        await page.getByRole('menuitem', { name: /Help & feedback/ }).click();
+      }
       const help = page.getByRole('dialog', { name: 'Help & feedback' });
       await help.waitFor();
       // "Your reports" loads after opening and changes the dialog's height.

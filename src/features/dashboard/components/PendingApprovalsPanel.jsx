@@ -145,10 +145,10 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
             style={{ fontSize: '2rem' }}
             aria-hidden="true"
           />
-          <h6 className="fw-bold mb-1">No one waiting for approval</h6>
+          <h6 className="fw-bold mb-1">Nobody is waiting.</h6>
           <p className="text-muted small mb-0">
-            New students appear here after they register, and stay out of class until
-            you approve them.
+            New registrations will appear here. They stay out of class until you
+            approve them.
           </p>
         </div>
       </div>
@@ -157,7 +157,7 @@ export default function PendingApprovalsPanel({ pending, onApprove, onReject, lo
 
   return (
     <m.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       className="card mb-4 border-warning"
     >

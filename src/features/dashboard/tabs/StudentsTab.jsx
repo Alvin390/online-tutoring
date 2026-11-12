@@ -1,4 +1,4 @@
-import StatsCards from '../components/StatsCards';
+import CountLine from '../components/CountLine';
 import StudentSearchPanel from '../components/StudentSearchPanel';
 
 /**
@@ -24,9 +24,10 @@ export default function StudentsTab({
 }) {
   return (
     <>
-      <StatsCards
+      {/* 007Fixes / 05: one count line instead of four stats cards. */}
+      <CountLine
         studentsBySession={studentsBySession}
-        sessions={sessions}
+        sessions={sessionTabs}
         totalCount={totalStudents}
         linksConfigured={linksConfigured}
         linksTotal={linksTotal}
@@ -61,7 +62,7 @@ export default function StudentsTab({
         </div>
 
         <div className="card-body p-0">
-          <div className="tab-content p-4" id="session-tabpanel" role="tabpanel" aria-labelledby={activeSession ? `tab-${activeSession}` : undefined}>
+          <div className="tab-content p-3 p-md-4" id="session-tabpanel" role="tabpanel" aria-labelledby={activeSession ? `tab-${activeSession}` : undefined}>
             {activeSession ? (
               <StudentSearchPanel
                 session={activeSession}

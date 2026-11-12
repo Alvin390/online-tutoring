@@ -219,7 +219,7 @@ export default function WhatsAppPanel({ preset = null }) {
   const overLimit = template.length > MAX_MESSAGE_LENGTH;
 
   return (
-    <m.div ref={panelRef} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div ref={panelRef} initial={false} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 className="mb-0">
           <i className="bi bi-whatsapp me-2" aria-hidden="true" />

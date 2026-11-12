@@ -63,7 +63,7 @@ export default function CalendarPanel({ readOnly = false, session, phone }) {
   }
 
   return (
-    <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div initial={false} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 className="mb-0">
           <i className="bi bi-calendar3 me-2" aria-hidden="true" />
@@ -134,6 +134,13 @@ export default function CalendarPanel({ readOnly = false, session, phone }) {
           <div className="text-center py-4">
             <span className="spinner-border spinner-border-sm text-muted" />
           </div>
+        )}
+
+        {/* 007Fixes / 05: an empty month says so, rather than an empty grid. */}
+        {!loading && view === 'month' && occurrences.length === 0 && (
+          <p className="text-muted text-center mb-3" data-testid="calendar-empty">
+            No classes scheduled this month.{readOnly ? '' : ' Click a day to add one.'}
+          </p>
         )}
 
         {!loading && view === 'month' && (

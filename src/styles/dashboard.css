@@ -5,26 +5,34 @@
   z-index: 1000;
 }
 
-.stat-card {
-  background: white;
-  border-radius: 1rem;
-  padding: 1.5rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
+/* 007Fixes / 05 — the Students tab's count line (replaced the stats cards).
+   Plain text in the page colours; each figure keeps its label on its own line
+   when it wraps on a phone. */
+.dashboard-count-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  margin-bottom: 1rem;
+  color: var(--text-secondary, #6b7280);
+  line-height: 1.8;
 }
 
-.stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+.dashboard-count-line > span {
+  white-space: nowrap;
 }
 
-.stat-value {
-  font-size: 2.5rem;
-  font-weight: 800;
-  background: var(--primary-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.dashboard-count-line strong {
+  color: var(--bs-body-color, #1f2937);
+}
+
+.dashboard-count-total {
+  font-weight: 600;
+  color: var(--primary-color, #667eea);
+}
+
+.dashboard-count-sep {
+  margin: 0 0.45rem;
+  color: #adb5bd;
 }
 
 .link-input-group {
@@ -33,6 +41,13 @@
   padding: 1.5rem;
   border: 2px dashed rgba(102, 126, 234, 0.2);
   transition: all 0.3s ease;
+}
+
+/* 007Fixes / 05: on a phone the card already pads; one padding, not two. */
+@media (max-width: 575.98px) {
+  .link-input-group {
+    padding: 1rem;
+  }
 }
 
 .link-input-group:hover {

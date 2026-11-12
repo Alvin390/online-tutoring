@@ -230,7 +230,7 @@ describe('I1 no hard-coded sessions', () => {
     'src/features/dashboard/components/ClassLinkManager.jsx',
     'src/pages/LandingPage.jsx',
     'src/features/dashboard/components/DashboardLayout.jsx',
-    'src/features/dashboard/components/StatsCards.jsx',
+    'src/features/dashboard/components/CountLine.jsx',
     'src/features/dashboard/components/SessionManager.jsx',
     // 007Fixes / 03: the dashboard frame's tabs and navigation.
     'src/features/dashboard/tabs/StudentsTab.jsx',
