@@ -19,6 +19,7 @@ import { useToast } from '@/context/ToastContext';
 import logger from '@utils/logger';
 import { trackStudentDelete, trackCSVExport } from '@utils/analytics';
 import { buildStudentsPdf } from './studentsPdf';
+import { splitStaff } from '../staff/splitStaff';
 
 // jsPDF is NOT imported statically — see exportToPDF. Phase 10 item 8.
 
@@ -37,6 +38,8 @@ export const useDashboard = () => {
    * leaking it — the plan's "Unsubscribe Properly" item.
    */
   const [studentsBySession, setStudentsBySession] = useState({});
+  // 007Fixes / 09: staff, split from the same snapshots ("on the side").
+  const [staffBySession, setStaffBySession] = useState({});
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [classLinkDocs, setClassLinkDocs] = useState({});
   const [legacyLinks, setLegacyLinks] = useState({});
@@ -92,11 +95,13 @@ export const useDashboard = () => {
       if (!ids.includes(id)) {
         unsubscribe();
         live.delete(id);
-        setStudentsBySession((prev) => {
+        const without = (prev) => {
           const next = { ...prev };
           delete next[id];
           return next;
-        });
+        };
+        setStudentsBySession(without);
+        setStaffBySession(without);
       }
     }
 
@@ -118,7 +123,12 @@ export const useDashboard = () => {
             }
             bySession.set(student.id, at);
           }
-          setStudentsBySession((prev) => ({ ...prev, [id]: students }));
+          // 007Fixes / 09: one pass splits the snapshot. Everything that reads
+          // studentsBySession (counts, cards, search, filters, partial line,
+          // duplicates, export, selection) then never sees staff.
+          const split = splitStaff(students);
+          setStudentsBySession((prev) => ({ ...prev, [id]: split.students }));
+          setStaffBySession((prev) => ({ ...prev, [id]: split.staff }));
           setLoading(false);
         })
       );
@@ -161,7 +171,8 @@ export const useDashboard = () => {
 
   // Pending approvals — one collection-group listener across all sessions.
   useEffect(() => {
-    const unsubscribe = subscribeToPendingApprovals(setPendingApprovals);
+    // 007Fixes / 09: staff are approved when marked; this drops any that are not.
+    const unsubscribe = subscribeToPendingApprovals((list) => setPendingApprovals(splitStaff(list).students));
     return () => unsubscribe();
   }, []);
 
@@ -451,5 +462,8 @@ export const useDashboard = () => {
     rejectStudents,
     // Summed across every watched session, not just the two original ones.
     totalStudents: Object.values(studentsBySession).reduce((sum, list) => sum + list.length, 0),
+    // 007Fixes / 09: staff, per session and in all (Staff tab, Phase 10).
+    staffBySession,
+    staffCount: Object.values(staffBySession).reduce((sum, list) => sum + list.length, 0),
   };
 };

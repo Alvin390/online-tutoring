@@ -14,6 +14,8 @@ import DashboardNav from '../nav/DashboardNav';
 import BottomNav from '../nav/BottomNav';
 import WaitingBanner from '../nav/WaitingBanner';
 import { visibleTabs, tabPath, tabFromPath, DEFAULT_TAB } from '../nav/dashboardTabs';
+import { useOptionalToast } from '@/context/ToastContext';
+import { otherRecords, markedToast } from '../staff/markStaffText';
 
 // Lazy too (001Fixes / 05): the student drawer opens on a click, so it need not
 // be in the dashboard's first download. Fetched when the browser is idle after
@@ -23,6 +25,9 @@ const StudentDrawer = lazy(loadStudentDrawer);
 // 006Fixes / 06: Complete or Partial, when approving the receipt of someone who owes.
 const loadApprovePaymentModal = () => import('./ApprovePaymentModal');
 const ApprovePaymentModal = lazy(loadApprovePaymentModal);
+// 007Fixes / 09: "Mark … as staff?", prefetched when idle.
+const loadMarkStaffDialog = () => import('../staff/MarkStaffDialog');
+const MarkStaffDialog = lazy(loadMarkStaffDialog);
 
 /**
  * 007Fixes / 03: every tab but Students is its own chunk, so the dashboard's
@@ -141,6 +146,7 @@ export default function DashboardLayout() {
   useEffect(() => {
     const prefetch = () => {
       loadStudentDrawer().catch(() => {});
+      loadMarkStaffDialog().catch(() => {});
       for (const id of Object.keys(TAB_LOADERS)) prefetchTab(id);
     };
     if (typeof window.requestIdleCallback === 'function') {
@@ -152,6 +158,42 @@ export default function DashboardLayout() {
   }, []);
 
   const [refreshing, setRefreshing] = useState(false);
+
+  /**
+   * Mark as staff — 007Fixes / 09. The edit view's switch and the selection
+   * bar hand over [{ session, phone, name, balance }]; the frame finds the same
+   * numbers in other sessions (from the rosters it already holds), asks, marks
+   * and says what was closed. The roster listener then moves them across.
+   */
+  const toast = useOptionalToast();
+  const [staffAsk, setStaffAsk] = useState(null);
+  const [staffBusy, setStaffBusy] = useState(false);
+  const sessionNames = useMemo(() => Object.fromEntries(sessions.map((x) => [x.id, x.name ?? x.id])), [sessions]);
+  const askMarkStaff = useCallback((people, done) => {
+    if (!people?.length) return;
+    setStaffAsk({
+      people: people.map((p) => ({ ...p, sessionName: sessionNames[p.session] ?? p.session })),
+      others: otherRecords(people, studentsBySession, sessionNames),
+      done,
+    });
+  }, [sessionNames, studentsBySession]);
+  const confirmMarkStaff = async ({ alsoOtherSession }) => {
+    if (!staffAsk) return;
+    setStaffBusy(true);
+    try {
+      // On demand: the students service is its own lazy chunk (bulk actions);
+      // a static import here put all of it in the dashboard's first download.
+      const { markStaff } = await import('@services/api/students');
+      const result = await markStaff(staffAsk.people.map(({ session, phone }) => ({ session, phone })), { alsoOtherSession });
+      toast?.showSuccess(markedToast(result));
+      staffAsk.done?.();
+      setStaffAsk(null);
+    } catch (error) {
+      toast?.showError(error?.message ?? 'Could not mark as staff. Please try again.');
+    } finally {
+      setStaffBusy(false);
+    }
+  };
 
   // Sign-out wipes the offline cache and reloads (Phase 13 / 08 B5), so the
   // destination is passed in rather than navigated to afterwards.
@@ -197,6 +239,7 @@ export default function DashboardLayout() {
     declineReceipt,
     approve: handleApprove,
     onView: notesEnabled ? setDrawerStudent : undefined,
+    markStaff: askMarkStaff,
   };
 
   // A tab that is hidden (flag off) or unknown opens Students, keeping the
@@ -300,6 +343,18 @@ export default function DashboardLayout() {
 
       {/* 007Fixes / 04: below 768 px the tabs live in a bottom bar (CSS-hidden above). */}
       <BottomNav tabs={navTabs} waitingCount={waiting.length} onLogout={handleLogout} />
+
+      {staffAsk && (
+        <Suspense fallback={null}>
+          <MarkStaffDialog
+            people={staffAsk.people}
+            others={staffAsk.others}
+            busy={staffBusy}
+            onCancel={() => { if (!staffBusy) setStaffAsk(null); }}
+            onConfirm={confirmMarkStaff}
+          />
+        </Suspense>
+      )}
 
       {approving && (
         <Suspense fallback={null}>

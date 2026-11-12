@@ -74,12 +74,22 @@ export default function StudentTable({
   suspendBar = false,
   // 003Fixes / 08: take one student out of their scheduled block (row tag).
   onCancelSchedule = null,
+  // 007Fixes / 09: mark people as staff (the frame confirms and marks).
+  // Called with [{ session, phone, name, balance }] and, from the selection
+  // bar, a callback that clears the selection.
+  onMarkStaff = null,
 }) {
   // The session a row belongs to, and a key unique across sessions (one phone
   // can be registered in two). Outside the all-sessions view these are simply
   // the open session and the phone.
   const rowSession = (student) => student?.__session ?? session;
   const rowKey = (student) => student?.__key ?? student?.id;
+  const asPerson = (student) => ({
+    session: rowSession(student),
+    phone: student.id,
+    name: student.studentName ?? '',
+    balance: Math.max(0, Number(student.feeBalance) || 0),
+  });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
@@ -430,6 +440,7 @@ export default function StudentTable({
             action={bulkAction}
             onAction={onBulkAction ? () => onBulkAction(bulkAction, selectedRows, clearSelection) : null}
             onDelete={onBulkAction ? () => onBulkAction('delete', selectedRows, clearSelection) : null}
+            onMarkStaff={onMarkStaff ? () => onMarkStaff(selectedRows.map(asPerson), clearSelection) : null}
             onClear={clearSelection}
             busy={bulkBusy}
           />
@@ -670,6 +681,29 @@ export default function StudentTable({
               placeholder="Payment details or receipt message"
             />
           </div>
+
+          {/* 007Fixes / 09 (owner): a teacher registered like a student. Turning
+              it on asks to confirm (the balance it closes, the other session). */}
+          {onMarkStaff && (
+            <div className="form-check form-switch mb-3">
+              <input
+                id="edit-is-staff"
+                type="checkbox"
+                role="switch"
+                className="form-check-input"
+                checked={false}
+                onChange={() => {
+                  const person = asPerson(selectedStudent);
+                  setShowEditModal(false);
+                  onMarkStaff([person]);
+                }}
+              />
+              <label className="form-check-label fw-semibold" htmlFor="edit-is-staff">
+                This is a teacher (staff)
+              </label>
+              <div className="small text-muted">Staff aren&apos;t counted as students and are never blocked.</div>
+            </div>
+          )}
 
           <div className="alert alert-info">
             <i className="bi bi-info-circle me-2" />

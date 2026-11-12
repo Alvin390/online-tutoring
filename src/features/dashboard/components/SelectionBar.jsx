@@ -34,7 +34,7 @@ export const BULK_LABELS = {
   cancelSchedule: 'Cancel schedule',
 };
 
-export default function SelectionBar({ count, action = 'block', onAction, onDelete = null, onClear, busy = false }) {
+export default function SelectionBar({ count, action = 'block', onAction, onDelete = null, onMarkStaff = null, onClear, busy = false }) {
   const phone = usePhone();
   const barRef = useRef(null);
   useEffect(() => {
@@ -76,6 +76,12 @@ export default function SelectionBar({ count, action = 'block', onAction, onDele
         {onDelete && (
           <button type="button" className="btn btn-sm btn-outline-danger" onClick={onDelete} disabled={busy}>
             <i className="bi bi-trash me-1" aria-hidden="true" />Delete
+          </button>
+        )}
+        {/* 007Fixes / 09 (owner): teachers registered like students. */}
+        {onMarkStaff && (
+          <button type="button" className="btn btn-sm btn-outline-primary" onClick={onMarkStaff} disabled={busy}>
+            <i className="bi bi-person-badge me-1" aria-hidden="true" />Mark as staff
           </button>
         )}
         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={onClear} disabled={busy}>

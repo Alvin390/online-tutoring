@@ -897,6 +897,12 @@
   }
   .selection-bar-actions .btn {
     min-height: 44px;
+    /* 007Fixes / 09: four actions on a phone. Each label stays on one line;
+       the row wraps instead (the bar's measured height keeps toasts above). */
+    white-space: nowrap;
+  }
+  .selection-bar-actions {
+    flex-wrap: wrap;
   }
   body.has-selection-bar {
     padding-bottom: 5.5rem;
