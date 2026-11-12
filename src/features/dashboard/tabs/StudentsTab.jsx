@@ -1,4 +1,4 @@
-import CountLine from '../components/CountLine';
+import StatsCards from '../components/StatsCards';
 import StudentSearchPanel from '../components/StudentSearchPanel';
 
 /**
@@ -24,10 +24,10 @@ export default function StudentsTab({
 }) {
   return (
     <>
-      {/* 007Fixes / 05: one count line instead of four stats cards. */}
-      <CountLine
+      {/* Owner review of Release A (2026-11-12): the stats cards stay. */}
+      <StatsCards
         studentsBySession={studentsBySession}
-        sessions={sessionTabs}
+        sessions={sessions}
         totalCount={totalStudents}
         linksConfigured={linksConfigured}
         linksTotal={linksTotal}

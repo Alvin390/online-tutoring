@@ -5,34 +5,26 @@
   z-index: 1000;
 }
 
-/* 007Fixes / 05 — the Students tab's count line (replaced the stats cards).
-   Plain text in the page colours; each figure keeps its label on its own line
-   when it wraps on a phone. */
-.dashboard-count-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  margin-bottom: 1rem;
-  color: var(--text-secondary, #6b7280);
-  line-height: 1.8;
+.stat-card {
+  background: white;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
 }
 
-.dashboard-count-line > span {
-  white-space: nowrap;
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 }
 
-.dashboard-count-line strong {
-  color: var(--bs-body-color, #1f2937);
-}
-
-.dashboard-count-total {
-  font-weight: 600;
-  color: var(--primary-color, #667eea);
-}
-
-.dashboard-count-sep {
-  margin: 0 0.45rem;
-  color: #adb5bd;
+.stat-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .link-input-group {
@@ -1028,18 +1020,47 @@
   display: none;
 }
 
+/* Owner review of Release A (2026-11-12): from a tablet up, a roomier bar,
+   taller with bigger tabs and more space between them. The phone header and
+   bottom bar are unchanged (owner: "the bottom nav bar is fine"). */
+.dashboard-nav-inner {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
 .dashboard-nav-link {
   color: rgba(255, 255, 255, 0.85);
   border-radius: 999px;
-  padding: 0.4rem 0.85rem;
+  padding: 0.6rem 1.15rem;
+  font-size: 1.02rem;
   font-weight: 500;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+@media (min-width: 768px) {
+  .dashboard-nav-inner {
+    min-height: 4.25rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+  .dashboard-nav-brand-icon {
+    font-size: 1.75rem !important;
+  }
+}
+
+@media (min-width: 1200px) {
+  .dashboard-nav-inner {
+    min-height: 4.75rem;
+  }
+  .dashboard-nav-tabs .nav {
+    gap: 0.4rem;
+  }
 }
 
 /* A tablet (768–1199 px) fits all six tabs: tighter pills, brand text hidden. */
 @media (max-width: 1199.98px) {
   .dashboard-nav-link {
-    padding: 0.4rem 0.5rem;
+    padding: 0.55rem 0.5rem;
     font-size: 0.95rem;
   }
 }

@@ -17,11 +17,11 @@ export default function DashboardNav({ tabs, waitingCount = 0, email, onRefresh,
   const current = tabs.find((tab) => tab.id === tabFromPath(pathname));
   return (
     <header className="dashboard-header dashboard-nav text-white sticky-top">
-      <div className="container-fluid d-flex align-items-center gap-2 gap-md-3 py-2">
+      <div className="container-fluid dashboard-nav-inner d-flex align-items-center gap-2 gap-md-3">
         <div className="d-flex align-items-center gap-2 flex-shrink-0">
-          <i className="bi bi-speedometer2 fs-4" aria-hidden="true" />
+          <i className="bi bi-speedometer2 fs-4 dashboard-nav-brand-icon" aria-hidden="true" />
           {/* Wide screens only: on a tablet the six tabs need the room. */}
-          <span className="fw-bold d-none d-xl-inline">Teacher Dashboard</span>
+          <span className="fw-bold fs-5 d-none d-xl-inline">Teacher Dashboard</span>
         </div>
 
         <h1 className="dashboard-nav-title d-md-none flex-grow-1 text-truncate h5 fw-bold mb-0">
@@ -38,7 +38,7 @@ export default function DashboardNav({ tabs, waitingCount = 0, email, onRefresh,
                   onMouseEnter={() => onPrefetch?.(tab.id)}
                   onFocus={() => onPrefetch?.(tab.id)}
                 >
-                  <i className={`bi ${tab.icon} me-1`} aria-hidden="true" />
+                  <i className={`bi ${tab.icon} me-2`} aria-hidden="true" />
                   {tab.label}
                   {tab.id === 'approvals' && waitingCount > 0 && (
                     <span className="badge rounded-pill text-bg-warning ms-1" aria-label={`${waitingCount} waiting`}>

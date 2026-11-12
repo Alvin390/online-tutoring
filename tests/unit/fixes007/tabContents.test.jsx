@@ -3,8 +3,8 @@ import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
- * 007Fixes / 05: each tab looks like its own page. The Students tab's four
- * stats cards become one count line; Fees gains shortcuts to the filtered
+ * 007Fixes / 05: each tab looks like its own page. (The Students tab's stats
+ * cards stay: owner review, 2026-11-12.) Fees gains shortcuts to the filtered
  * student list; Setup is two plain sections; empty tabs say so in plain words.
  */
 
@@ -16,8 +16,10 @@ const roster = (n, prefix) => Array.from({ length: n }, (_, i) => ({ id: `${pref
 beforeEach(() => { vi.resetModules(); });
 afterEach(() => { cleanup(); vi.doUnmock('@features/dashboard/components/StudentSearchPanel'); });
 
-describe('Students: one count line', () => {
-  async function renderStudents() {
+describe('Students: the stats cards (owner review of Release A, 2026-11-12)', () => {
+  // Phase 05 replaced them with a count line; the owner asked for the cards
+  // back exactly as before: "those were really nice".
+  it('shows the cards (two sessions, Total Students, Class Links) above the session tabs', async () => {
     vi.doMock('@features/dashboard/components/StudentSearchPanel', stub('search'));
     const { default: StudentsTab } = await import('@features/dashboard/tabs/StudentsTab');
     const sessionTabs = [
@@ -42,18 +44,12 @@ describe('Students: one count line', () => {
         />
       </MemoryRouter>,
     );
-    return container;
-  }
-
-  it('reads "Students 50 · Morning 17 · Evening 17 · Weekend 16 · Class links 2 of 3"', async () => {
-    await renderStudents();
-    const line = screen.getByTestId('count-line').textContent.replace(/\s+/g, ' ').trim();
-    expect(line).toBe('Students 50 · Morning 17 · Evening 17 · Weekend 16 · Class links 2 of 3');
-  });
-
-  it('has no stats cards', async () => {
-    const container = await renderStudents();
-    expect(container.querySelector('.stat-card')).toBeNull();
+    expect(container.querySelectorAll('.stat-card')).toHaveLength(4);
+    const text = container.textContent;
+    expect(text).toMatch(/Total Students/);
+    expect(text).toMatch(/Class Links/);
+    expect(text).toMatch(/2\/3/);
+    expect(screen.queryByTestId('count-line')).toBeNull();
   });
 });
 
