@@ -20,6 +20,7 @@ export default function SuccessScreen({
   countdown,
   onJoinNow,
   showSpinner = false,
+  slow = false,
 }) {
   const label = providerLabel(provider);
 
@@ -56,6 +57,15 @@ export default function SuccessScreen({
 
         <h3 className="fw-bold text-success mb-3">{title}</h3>
         <p className="text-muted mb-4">{message}</p>
+
+        {/* 007Fixes / 01: said once, politely, while a class-time request is slow. */}
+        {slow && (
+          <p className="alert alert-light small py-2 px-3 mb-4 text-start" role="status" aria-live="polite">
+            <i className="bi bi-wifi-1 me-1" aria-hidden="true" />
+            Still connecting… your network seems slow. Please wait.
+          </p>
+        )}
+
 
         {/* Visible countdown rather than an unexplained pause. */}
         {typeof countdown === 'number' && countdown > 0 && (

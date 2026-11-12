@@ -17,6 +17,9 @@ import { TIER_RANK } from '@shared/constants/tiers';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
 
+// 007Fixes / 05: true once the table has been shown in this visit (see `paged`).
+let tableShownBefore = false;
+
 // 003Fixes / 03: loaded on the first tick, prefetched when the browser is idle
 // or the pointer reaches the table. Once loaded it is rendered directly, not
 // through lazy(): a lazy component suspends on its first render, and React
@@ -114,7 +117,11 @@ export default function StudentTable({
    */
   const tableRef = useRef(null);
   const [pageState, setPageState] = useState(() => readStoredPage(pageKey));
-  const [paged, setPaged] = useState(false);
+  // 007Fixes / 05: the rows' staggered entrance plays once per visit. Coming
+  // back to the Students tab remounts the table; the rows then show at once,
+  // so a tab change feels instant.
+  const [paged, setPaged] = useState(() => tableShownBefore);
+  useEffect(() => { tableShownBefore = true; }, []);
   const pageCount = Math.max(1, Math.ceil(students.length / PAGE_SIZE));
   const page = Math.min(pageState.key === pageKey ? pageState.page : 0, pageCount - 1);
   const start = page * PAGE_SIZE;

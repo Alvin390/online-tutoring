@@ -6,7 +6,10 @@ import { useEffect, useRef, useState } from 'react';
  * loaded in this project, which is why toasts used to render unstyled).
  *
  * The auto-dismiss timer pauses while the pointer is over the toast or focus
- * is inside it, so nobody loses a message (or an Undo) mid-read.
+ * is inside it, so nobody loses a message (or an Undo) mid-read. On a touch
+ * screen (`hover: none`) a tap leaves a sticky "hover" behind, which used to
+ * pause a toast for good over the phone's selection bar (006Fixes finding);
+ * there only focus pauses it (007Fixes / 04).
  * Errors are `role="alert"` (interrupting); everything else is a polite status.
  */
 
@@ -21,11 +24,16 @@ const VARIANT = {
 // double-click — or, from the keyboard, two presses within this window.
 const KEY_REPEAT_MS = 1000;
 
+const cannotHover = () => (typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(hover: none)').matches
+  : false);
+
 const Toast = ({ type = 'info', title, message, duration = 5000, action, onClose }) => {
   const variant = VARIANT[type] ?? VARIANT.info;
   const reduceMotion = useReducedMotion();
   const [paused, setPaused] = useState(false);
   const [nudged, setNudged] = useState(false);
+  const [touchOnly] = useState(cannotHover);
   const remaining = useRef(duration);
   const startedAt = useRef(0);
   const lastKeyPress = useRef(0);
@@ -76,8 +84,8 @@ const Toast = ({ type = 'info', title, message, duration = 5000, action, onClose
       role={type === 'error' ? 'alert' : 'status'}
       aria-live={type === 'error' ? 'assertive' : 'polite'}
       aria-atomic="true"
-      onMouseEnter={pause}
-      onMouseLeave={resume}
+      onMouseEnter={touchOnly ? undefined : pause}
+      onMouseLeave={touchOnly ? undefined : resume}
       onFocus={pause}
       onBlur={resume}
       data-testid="toast"

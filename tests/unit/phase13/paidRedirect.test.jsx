@@ -66,7 +66,9 @@ async function renderPage({ afterPayment, paidResult = { status: 'success', bala
 
   const { default: SessionPage } = await import('@/features/registration/components/SessionPage.jsx');
   render(<MemoryRouter><SessionPage session="morning" label="Morning" icon="bi-sun" gradient="#000" /></MemoryRouter>);
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check in' })); });
+  // Wait for the card rather than reading the page in the same tick: on the
+  // slower CI runner it was not there yet (PR #35, 2026-11-12).
+  await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Check in' })); });
   await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Simulate M-Pesa success' })); });
 }
 

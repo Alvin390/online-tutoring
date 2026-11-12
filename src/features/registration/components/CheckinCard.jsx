@@ -5,8 +5,12 @@ import PhoneInput from './PhoneInput';
 import { usePhoneValidation } from '../hooks/usePhoneValidation';
 import { countries } from '@/shared/constants/countries';
 
-/** `waitSeconds` (002Fixes / 05): a rate-limit wait in progress — Continue stays disabled. */
-export default function CheckinCard({ onSubmit, loading, waitSeconds = 0 }) {
+/**
+ * `waitSeconds` (002Fixes / 05): a rate-limit wait in progress — Continue stays disabled.
+ * `slow` / `failedSlow` (007Fixes / 01): the check is taking long; the last one
+ * failed on the network, so the button offers "Try again".
+ */
+export default function CheckinCard({ onSubmit, loading, waitSeconds = 0, slow = false, failedSlow = false }) {
   const {
     selectedCountry,
     phoneNumber,
@@ -76,6 +80,11 @@ export default function CheckinCard({ onSubmit, loading, waitSeconds = 0 }) {
               <span className="spinner-border spinner-border-sm me-2" />
               Checking registration...
             </>
+          ) : failedSlow ? (
+            <>
+              <i className="bi bi-arrow-clockwise me-2" aria-hidden="true" />
+              Try again
+            </>
           ) : (
             <>
               Continue
@@ -83,6 +92,13 @@ export default function CheckinCard({ onSubmit, loading, waitSeconds = 0 }) {
             </>
           )}
         </button>
+        {/* 007Fixes / 01: said once, politely, while a class-time request is slow. */}
+        {slow && (
+          <p className="alert alert-light small py-2 px-3 mt-3 mb-0 text-start" role="status" aria-live="polite">
+            <i className="bi bi-wifi-1 me-1" aria-hidden="true" />
+            Still connecting… your network seems slow. Please wait.
+          </p>
+        )}
       </form>
     </m.div>
   );

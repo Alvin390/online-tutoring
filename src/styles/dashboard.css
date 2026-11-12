@@ -35,6 +35,13 @@
   transition: all 0.3s ease;
 }
 
+/* 007Fixes / 05: on a phone the card already pads; one padding, not two. */
+@media (max-width: 575.98px) {
+  .link-input-group {
+    padding: 1rem;
+  }
+}
+
 .link-input-group:hover {
   border-color: var(--primary-color);
   background: rgba(102, 126, 234, 0.08);
@@ -898,6 +905,15 @@
     width: 1.25rem;
     height: 1.25rem;
   }
+  /* 007Fixes / 04: directly above the bottom bar (the stacking rule in
+     index.css), which already keeps clear of the home indicator. */
+  body.has-bottom-nav .selection-bar {
+    bottom: calc(var(--bottom-nav-h));
+    padding-bottom: 0.6rem;
+  }
+  body.has-bottom-nav.has-selection-bar {
+    padding-bottom: calc(var(--bottom-nav-h) + var(--selection-bar-h, 5.5rem));
+  }
 }
 
 /* 003Fixes / 05 — the search box with Recent actions beside it. */
@@ -983,4 +999,189 @@
   .duplicate-sides {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── 007Fixes / 03: the dashboard's tab bar ───────────────────────────────
+   The current colours (the header's purple gradient, white text), cleaner:
+   tabs as light text, the open one as a white pill. The strip scrolls
+   sideways inside the bar rather than widening the page (Phase 13 / 07). */
+.dashboard-nav {
+  z-index: 1020;
+}
+
+.dashboard-nav-tabs {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-nav-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Owner review of Release A (2026-11-12): from a tablet up, a roomier bar,
+   taller with bigger tabs and more space between them. The phone header and
+   bottom bar are unchanged (owner: "the bottom nav bar is fine"). */
+.dashboard-nav-inner {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.dashboard-nav-link {
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  padding: 0.6rem 1.15rem;
+  font-size: 1.02rem;
+  font-weight: 500;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+@media (min-width: 768px) {
+  .dashboard-nav-inner {
+    min-height: 4.25rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+  .dashboard-nav-brand-icon {
+    font-size: 1.75rem !important;
+  }
+}
+
+@media (min-width: 1200px) {
+  .dashboard-nav-inner {
+    min-height: 4.75rem;
+  }
+  .dashboard-nav-tabs .nav {
+    gap: 0.4rem;
+  }
+}
+
+/* A tablet (768–1199 px) fits all six tabs: tighter pills, brand text hidden. */
+@media (max-width: 1199.98px) {
+  .dashboard-nav-link {
+    padding: 0.55rem 0.5rem;
+    font-size: 0.95rem;
+  }
+}
+
+.dashboard-nav-link:hover,
+.dashboard-nav-link:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dashboard-nav-link.active {
+  color: var(--primary-color, #667eea);
+  background: #fff;
+  font-weight: 600;
+}
+
+.dashboard-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  min-width: 15rem;
+  max-width: calc(100vw - 2rem);
+}
+
+.dashboard-waiting-banner {
+  border: 0;
+}
+
+/* 007Fixes / 04 — the phone bottom bar and its More sheet (below 768 px; the
+   component carries d-md-none). Where it sits relative to the selection bar
+   and toasts: the stacking rule in index.css. */
+.dashboard-bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1030;
+  display: flex;
+  background: #fff;
+  border-top: 1px solid rgba(31, 41, 55, 0.08);
+  box-shadow: 0 -4px 14px rgba(31, 41, 55, 0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+body.is-typing .dashboard-bottom-nav {
+  display: none;
+}
+
+.dashboard-bottom-nav-item {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 3.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.25rem 0.125rem;
+  border: 0;
+  background: none;
+  color: #6b7280;
+  font-size: 0.72rem;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dashboard-bottom-nav-item.active {
+  color: var(--primary-color, #667eea);
+  font-weight: 600;
+}
+
+.dashboard-bottom-nav-item:focus-visible {
+  outline: 2px solid var(--primary-color, #667eea);
+  outline-offset: -4px;
+}
+
+.dashboard-bottom-nav-icon {
+  position: relative;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.dashboard-bottom-nav-icon .badge {
+  position: absolute;
+  top: -0.35rem;
+  left: 100%;
+  translate: -45% 0;
+  font-size: 0.6rem;
+  padding: 0.2em 0.45em;
+}
+
+.dashboard-bottom-nav-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+  background: rgba(17, 24, 39, 0.4);
+}
+
+.dashboard-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1045;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -8px 24px rgba(31, 41, 55, 0.18);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.dashboard-sheet-item {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
 }

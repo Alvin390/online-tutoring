@@ -232,6 +232,12 @@ describe('I1 no hard-coded sessions', () => {
     'src/features/dashboard/components/DashboardLayout.jsx',
     'src/features/dashboard/components/StatsCards.jsx',
     'src/features/dashboard/components/SessionManager.jsx',
+    // 007Fixes / 03: the dashboard frame's tabs and navigation.
+    'src/features/dashboard/tabs/StudentsTab.jsx',
+    'src/features/dashboard/tabs/SetupTab.jsx',
+    'src/features/dashboard/nav/dashboardTabs.js',
+    'src/features/dashboard/nav/DashboardNav.jsx',
+    'src/features/dashboard/nav/WaitingBanner.jsx',
   ])('%s names no session literally', (rel) => {
     expect(code(rel)).not.toMatch(/['"`/](morning|evening)['"`]/);
   });

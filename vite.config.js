@@ -83,6 +83,19 @@ export default defineConfig({
           '**/AuditLogViewer-*.js', '**/UserManager-*.js', '**/ReportsInbox-*.js', '**/NotificationsSettingsCard-*.js',
           '**/HelpFeedbackModal-*.js', '**/HelpFeedbackButton-*.js', '**/compressImage*.js',
           '**/CalendarPanel-*.js', '**/WhatsAppPanel-*.js', '**/FeesTab-*.js', '**/NotesTab-*.js',
+          // 007Fixes / 03: the dashboard's lazy tabs are staff-only too.
+          '**/ApprovalsTab-*.js', '**/FeesOverviewTab-*.js', '**/WhatsAppTab-*.js', '**/CalendarTab-*.js',
+          '**/SetupTab-*.js', '**/StaffTab-*.js', '**/StudentsTab-*.js',
+          // 007Fixes / 03: staff-only chunks added in 003–006Fixes that were never
+          // listed here, so every student's phone pre-downloaded them (~22 KB gz).
+          // Found by the precache check in scripts/checkBundleSize.js, which now
+          // fails the build if a staff-only chunk is precached again.
+          '**/tiers-*.js', '**/students-*.js', '**/Skeleton-*.js', '**/SelectionBar-*.js',
+          '**/ScheduledPanel-*.js', '**/reports-*.js', '**/RecentActionsPanel-*.js', '**/receiptAmount-*.js',
+          '**/Modal-*.js', '**/DuplicatesPanel-*.js', '**/DuplicatePair-*.js', '**/BulkDeleteModal-*.js',
+          '**/BulkActionModal-*.js', '**/ApprovePaymentModal-*.js',
+          // Shared staff-only chunks split out once the tabs became lazy (007Fixes / 03).
+          '**/TierGate-*.js', '**/ProtectedRoute-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

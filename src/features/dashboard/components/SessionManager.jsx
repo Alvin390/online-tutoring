@@ -105,7 +105,7 @@ export default function SessionManager() {
   };
 
   return (
-    <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div initial={false} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center">
         <h5 className="mb-0">
           <i className="bi bi-calendar3 me-2" aria-hidden="true" />

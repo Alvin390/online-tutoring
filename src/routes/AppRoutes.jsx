@@ -30,7 +30,9 @@ export default function AppRoutes() {
 
         <Route element={<StaffShell />}>
           <Route path={ROUTES.LOGIN} element={<LoginPage />} />
-          <Route path={ROUTES.DASHBOARD} element={<StaffDashboard />} />
+          {/* 007Fixes / 03: the dashboard's tabs live under it (/dashboard/students …);
+              `/dashboard` itself opens Students, so every old link still works. */}
+          <Route path={`${ROUTES.DASHBOARD}/*`} element={<StaffDashboard />} />
 
           {/* Billing must stay reachable while locked — it is the only route that
               can resolve a lockout, so it never sits behind BillingGuard. */}

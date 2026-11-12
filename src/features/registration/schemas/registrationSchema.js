@@ -35,6 +35,6 @@ export const registrationSchema = z.object({
 
   receiptMessage: z
     .string()
-    .min(10, 'Please provide detailed payment information')
+    .min(10, "That's too short. Paste the whole M-Pesa message (or at least the 10-character code).")
     .max(500, 'Payment details are too long'),
 });

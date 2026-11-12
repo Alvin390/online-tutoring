@@ -145,16 +145,15 @@ export default function ClassLinkManager({ sessions = [], classLinks = {}, onUpd
   );
 
   return (
-    <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card mb-4">
+    <m.div initial={false} animate={{ opacity: 1, y: 0 }} className="card mb-4">
       <div className="card-header d-flex justify-content-between align-items-center">
         <h5 className="mb-0">
           <i className="bi bi-link-45deg me-2" aria-hidden="true" />
-          Class Link Management
+          Class links
         </h5>
-        <span className="badge bg-primary">Essential Setup</span>
       </div>
 
-      <div className="card-body p-4">
+      <div className="card-body p-3 p-md-4">
         {missing.length > 0 && (
           <div className="alert alert-warning mb-4" role="alert">
             <i className="bi bi-exclamation-triangle me-2" aria-hidden="true" />

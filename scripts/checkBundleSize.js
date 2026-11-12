@@ -75,6 +75,52 @@ const ROUTES = [
 ];
 const FIREBASE_CHUNK = /^vendor-firebase/;
 
+/**
+ * Staff-only chunks must never be precached — 007Fixes / 03.
+ *
+ * The service worker precaches what `globIgnores` (vite.config.js) does not
+ * exclude, on every visitor's first load — students' phones, on mobile data.
+ * That list is kept by hand, and 15 staff-only chunks (~22 KB gz) added in
+ * 003–006Fixes were never put on it. So this derives "staff-only" from the
+ * build itself instead of trusting the list: every chunk reachable (static or
+ * dynamic imports) from a staff page entry, that no public page can reach
+ * without going through a staff entry. Any of those in the precache manifest
+ * fails the check.
+ */
+const STAFF_ENTRIES = ['StaffShell', 'staffDashboard', 'staffBilling', 'LoginPage', 'SuperadminPage'];
+
+function allImports(name) {
+  const code = readFileSync(join(assetsDir, name), 'utf8');
+  return [...code.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*"\.\/([^"]+\.js)"/g)].map((m) => m[1]);
+}
+
+/** @returns {{ leaked: string[], precachedKb: number, precachedCount: number } | null} null when no sw.js */
+function precacheCheck(jsFiles, booted) {
+  const swPath = join(distDir, 'sw.js');
+  if (!existsSync(swPath)) return null;
+  const known = new Set(jsFiles);
+  const isStaffEntry = (f) => STAFF_ENTRIES.some((p) => f.startsWith(`${p}-`));
+  const reach = (starts, stop = () => false) => {
+    const seen = new Set();
+    const stack = [...starts];
+    while (stack.length) {
+      const name = stack.pop();
+      if (seen.has(name) || stop(name) || !known.has(name)) continue;
+      seen.add(name);
+      stack.push(...allImports(name));
+    }
+    return seen;
+  };
+  const publicReach = reach(booted, isStaffEntry);
+  const staffOnly = new Set([...reach(jsFiles.filter(isStaffEntry))].filter((f) => !publicReach.has(f)));
+  const precached = [...readFileSync(swPath, 'utf8').matchAll(/url:"assets\/([^"]+\.js)"/g)].map((m) => m[1]);
+  return {
+    leaked: precached.filter((f) => staffOnly.has(f)),
+    precachedCount: precached.length,
+    precachedKb: precached.reduce((sum, f) => sum + (known.has(f) ? gzipKb(join(assetsDir, f)) : 0), 0),
+  };
+}
+
 function staticImports(name) {
   const code = readFileSync(join(assetsDir, name), 'utf8');
   // Static ES imports only — `import("./x.js")` (dynamic) is deliberately not
@@ -221,6 +267,15 @@ function main() {
   console.log(`  Total CSS           ${cssKb.toFixed(1).padStart(7)} KB  / ${BUDGETS.totalCss} KB`);
   if (cssKb > BUDGETS.totalCss) {
     failures.push(`CSS is ${cssKb.toFixed(1)} KB, over the ${BUDGETS.totalCss} KB budget`);
+  }
+
+  // 007Fixes / 03: nothing staff-only on students' phones.
+  const precache = precacheCheck(jsFiles, [...booted]);
+  if (precache) {
+    console.log(`  Precached JS        ${precache.precachedKb.toFixed(1).padStart(7)} KB  (${precache.precachedCount} files, every visitor's first load)`);
+    if (precache.leaked.length) {
+      failures.push(`Staff-only chunks precached on every visitor's device (add them to globIgnores in vite.config.js): ${precache.leaked.join(', ')}`);
+    }
   }
 
   console.log('\n  Route chunks:');
