@@ -90,7 +90,9 @@ service cloud.firestore {
         // 003Fixes / 11: only the server holds, links or keeps duplicates.
         'duplicateHold', 'duplicateOf', 'duplicateKeep',
         // 006Fixes / 04: what a partial receipt approval left owing.
-        'partialPayment'
+        'partialPayment',
+        // 007Fixes / 07: only POST /api/students/staff marks or unmarks staff.
+        'staff', 'staffAt', 'staffBy'
       ];
     }
 
@@ -315,7 +317,13 @@ service cloud.firestore {
       allow list: if isTeacher();
 
       // Teacher: everything except server-owned truth.
-      allow update: if isTeacher() && touchesNone(serverOwnedStudentFields());
+      // 007Fixes / 07: and a staff record cannot be blocked from the browser
+      // (the row's Block button writes here directly). Read with a default:
+      // ordinary students have no `staff` field at all.
+      allow update: if isTeacher() && touchesNone(serverOwnedStudentFields())
+                    && !(resource.data.get('staff', false) == true
+                         && request.resource.data.get('blocked', false) == true
+                         && resource.data.get('blocked', false) != true);
 
       // Student, authenticated and bound to this phone: heartbeat, or a receipt
       // resubmission that can only ever land in the 'pending' state.

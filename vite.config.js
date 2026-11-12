@@ -96,6 +96,11 @@ export default defineConfig({
           '**/BulkActionModal-*.js', '**/ApprovePaymentModal-*.js',
           // Shared staff-only chunks split out once the tabs became lazy (007Fixes / 03).
           '**/TierGate-*.js', '**/ProtectedRoute-*.js',
+          // 007Fixes / 09: the "Mark as staff" confirmation.
+          '**/MarkStaffDialog-*.js',
+          // 007Fixes / 10: the wa.me link builder, now shared by the Staff and
+          // WhatsApp tabs (split into its own staff-only chunk).
+          '**/waLink-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

@@ -122,11 +122,16 @@ async function waitingByClass(db, sessionId) {
   const snap = await db.collection(`sessions/${sessionId}/students`).where('approvalStatus', '==', 'pending').get();
   const counts = new Map();
   for (const doc of snap.docs) {
+    // 007Fixes / 08: staff are approved when marked; this is a safety net.
+    if (doc.data().staff === true) continue;
     const cls = String(doc.data().class ?? 'No class');
     counts.set(cls, (counts.get(cls) ?? 0) + 1);
   }
   return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
 }
+
+/** For tests only. */
+export const __waitingByClassForTest = waitingByClass;
 
 /** Marker documents older than a week, a few per run. */
 async function purgeMarks(db, now, result) {

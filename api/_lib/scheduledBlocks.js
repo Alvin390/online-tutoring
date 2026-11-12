@@ -91,8 +91,11 @@ export async function createSchedule({ db, user, batchId = null, items, atMs, ki
   const writes = db.batch();
   let added = 0;
   let missing = 0;
+  let staff = 0;
   list.forEach((item, i) => {
     if (!snaps[i].exists) { missing += 1; return; }
+    // 007Fixes / 08: staff are never blocked, now or later.
+    if (snaps[i].data().staff === true) { staff += 1; return; }
     const previous = snaps[i].data().scheduledBlock;
     // One schedule per student: an earlier one gives way to this one.
     if (previous?.batchId && previous.batchId !== ref.id) {
@@ -106,7 +109,8 @@ export async function createSchedule({ db, user, batchId = null, items, atMs, ki
   else writes.set(ref, { ...data, count: added });
   await writes.commit();
 
-  return { batchId: ref.id, added, skipped: missing ? { missing } : {}, atMs: data.atMs };
+  const skipped = { ...(missing ? { missing } : {}), ...(staff ? { staff } : {}) };
+  return { batchId: ref.id, added, skipped, atMs: data.atMs };
 }
 
 /** Every waiting schedule (any staff account's), soonest first. */

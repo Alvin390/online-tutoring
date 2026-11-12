@@ -44,7 +44,9 @@ export default function AccountMenu({ email, onRefresh, refreshing = false, onLo
         onClick={() => setOpen((v) => !v)}
       >
         <i className="bi bi-person-circle fs-5" aria-hidden="true" />
-        <span className="d-none d-lg-inline text-truncate" style={{ maxWidth: '14rem' }}>{email}</span>
+        {/* Wide screens only (007Fixes / 10): seven tabs need the room; the
+            email is also in the menu ("Signed in as …"). */}
+        <span className="dashboard-account-email text-truncate" style={{ maxWidth: '14rem' }}>{email}</span>
         <i className="bi bi-chevron-down small" aria-hidden="true" />
       </button>
 

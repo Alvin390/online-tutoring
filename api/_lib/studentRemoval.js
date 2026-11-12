@@ -11,12 +11,13 @@ const memberPath = (batchId, session, phone) => `scheduledBlocks/${batchId}/memb
  * (the sweep skipped the missing student; the panel over-counted for ever).
  * Adds to `writes`; `schedules` maps batchId -> that schedule's data (or null).
  */
-export function leaveSchedulesOnDelete({ db, writes, user, members, schedules }) {
+export function leaveSchedulesOnDelete({ db, writes, user, members, schedules, because = 'deleted' }) {
   const perBatch = new Map();
   for (const m of members) {
     const schedule = schedules.get(m.batchId);
     if (!schedule || schedule.status !== 'scheduled') continue;
-    writes.set(db.doc(memberPath(m.batchId, m.session, m.phone)), { status: 'removed', removedBecause: 'deleted' }, { merge: true });
+    // 007Fixes / 07: marked as staff is the other way out of a schedule.
+    writes.set(db.doc(memberPath(m.batchId, m.session, m.phone)), { status: 'removed', removedBecause: because }, { merge: true });
     perBatch.set(m.batchId, (perBatch.get(m.batchId) ?? 0) + 1);
   }
   for (const [id, n] of perBatch) {

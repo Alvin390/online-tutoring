@@ -123,7 +123,7 @@ export default function WhatsAppPanel({ preset = null }) {
         title: title.trim(),
         messageTemplate: template.trim(),
         filter: canFilter
-          ? { type: filterType, values: filterValues, onlyOverdue }
+          ? (filterType === 'staff' ? { type: 'staff', values: [] } : { type: filterType, values: filterValues, onlyOverdue })
           : { type: 'all' },
         attachments,
       });
@@ -175,7 +175,7 @@ export default function WhatsAppPanel({ preset = null }) {
   // on mount would cost a request for the common case of sending to everyone.
   useEffect(() => {
     // 003Fixes / 09: not while a prepared recipient list is shown (no list to tick).
-    if (!canFilter || filterType === 'all' || options !== null || presetActive) return;
+    if (!canFilter || filterType === 'all' || filterType === 'staff' || options !== null || presetActive) return;
     let cancelled = false;
     setOptionsLoading(true);
     getCampaignOptions()
@@ -374,6 +374,8 @@ export default function WhatsAppPanel({ preset = null }) {
                 <option value="session">A particular session</option>
                 <option value="class">A particular class</option>
                 <option value="individual">Chosen students</option>
+                {/* 007Fixes / 10: every staff member (no list to tick). */}
+                <option value="staff">Staff (teachers)</option>
               </select>
 
               {!canFilter && (
@@ -402,7 +404,7 @@ export default function WhatsAppPanel({ preset = null }) {
                 </div>
               )}
 
-              {canFilter && filterType !== 'all' && !presetNote && (
+              {canFilter && filterType !== 'all' && filterType !== 'staff' && !presetNote && (
                 <div className="mt-2 border rounded p-2" style={{ maxHeight: 220, overflowY: 'auto' }}>
                   {optionsLoading && (
                     <div className="text-muted small py-2">
@@ -441,13 +443,13 @@ export default function WhatsAppPanel({ preset = null }) {
                 </div>
               )}
 
-              {canFilter && filterType !== 'all' && filterValues.length === 0 && (
+              {canFilter && filterType !== 'all' && filterType !== 'staff' && filterValues.length === 0 && (
                 <div className="form-text text-warning">
                   Choose at least one, or the campaign will match nobody.
                 </div>
               )}
 
-              {canFilter && (
+              {canFilter && filterType !== 'staff' && (
                 <div className="form-check mt-2">
                   <input
                     className="form-check-input"

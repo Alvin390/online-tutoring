@@ -78,6 +78,7 @@ export default function StudentsTab({
                 onUnblock={actions.unblockStudent}
                 onApprove={actions.approve}
                 onDecline={actions.declineReceipt}
+                onMarkStaff={actions.markStaff}
                 loading={loading}
               />
             ) : (

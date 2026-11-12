@@ -178,6 +178,9 @@ export async function applyStudents({
     const snap = studentSnaps[i];
     if (!snap.exists) { skip('missing', item); return; }
     const data = snap.data();
+    // 007Fixes / 08: staff are never blocked or charged, and have no receipts
+    // to approve. Unblocking one is harmless and allowed.
+    if (data.staff === true && action !== 'unblock') { skip('staff', item); return; }
     if (action === 'block') {
       if (effectiveApprovalStatus(data) === 'pending') { skip('awaitingApproval', item); return; }
       if (data.blocked === true) { skip('alreadyBlocked', item); return; }
@@ -353,6 +356,8 @@ export async function undoBatch({ db, user, batchId, nowMs }) {
   const tally = { undone: 0, changedSince: 0, missing: 0, failed: 0 };
   const outcome = items.map((item, i) => {
     if (!studentSnaps[i].exists) return 'missing';
+    // 007Fixes / 08: marked as staff since: Undo must never block them again.
+    if (studentSnaps[i].data().staff === true) return 'changedSince';
     return stillAsLeft(batch.action, studentSnaps[i].data(), item) ? 'undone' : 'changedSince';
   });
   // Every entry to reverse, in one transaction.

@@ -58,7 +58,7 @@ describe('the bar', () => {
     const sheet = screen.getByRole('dialog', { name: 'More' });
     const items = within(sheet).getAllByRole('button').concat(within(sheet).getAllByRole('link'))
       .map((el) => el.textContent.trim()).filter((t) => t && t !== 'Close');
-    expect(items.sort()).toEqual(['Billing', 'Calendar', 'Help & feedback', 'Logout', 'Setup'].sort());
+    expect(items.sort()).toEqual(['Billing', 'Calendar', 'Help & feedback', 'Logout', 'Setup', 'Staff'].sort()); // 007Fixes / 10
 
     await act(async () => { fireEvent.click(within(sheet).getByRole('link', { name: /Calendar/ })); });
     expect(loc.pathname).toBe('/dashboard/calendar');
@@ -69,10 +69,12 @@ describe('the bar', () => {
   it('a hidden tab drops out and the next one moves in', async () => {
     flags['registration.requireApproval'] = false;
     await renderBar();
-    expect(labels()).toEqual(['students', 'fees', 'whatsapp', 'calendar', 'more']);
+    // 007Fixes / 10: Staff (always shown) moves into the bar.
+    expect(labels()).toEqual(['students', 'fees', 'whatsapp', 'staff', 'more']);
     await act(async () => { fireEvent.click(within(bar()).getByRole('button', { name: /More/ })); });
     const sheet = screen.getByRole('dialog', { name: 'More' });
-    expect(within(sheet).queryByRole('link', { name: /Calendar/ })).toBeNull();
+    expect(within(sheet).queryByRole('link', { name: /Staff/ })).toBeNull();
+    expect(within(sheet).getByRole('link', { name: /Calendar/ })).toBeTruthy();
     expect(within(sheet).getByRole('link', { name: /Setup/ })).toBeTruthy();
   });
 
