@@ -53,6 +53,20 @@ export const SLOW_AFTER_MS = 6_000;
 export const SLOW_NETWORK_MESSAGE = 'Your internet is slow. Tap Try again.';
 const isTransient = (error) => error?.code === 'timeout' || error?.code === 'network_error';
 
+/**
+ * 008Fixes / 03: what an admission-number check-in can say instead of letting
+ * the student in. These are steps the page leads them through (confirm the
+ * phone, choose a number) or refusals it shows on the check-in card — never
+ * a toast. Returned as `{ admission: code, message }`, not thrown.
+ */
+export const ADMISSION_CODES = Object.freeze([
+  'verify_required', 'choose_number', 'number_required', 'number_mismatch',
+  'duplicate_records', 'other_device', 'invalid_number', 'refresh_needed',
+]);
+const admissionResult = (error) => (ADMISSION_CODES.includes(error?.code)
+  ? { admission: error.code, message: error.message, exists: true, data: null }
+  : null);
+
 export const useRegistration = (session) => {
   const [loading, setLoading] = useState(false);
   const [studentData, setStudentData] = useState(null);
@@ -134,10 +148,20 @@ export const useRegistration = (session) => {
   const passFor = (phone) => (passRef.current?.phone === phone ? passRef.current.pass : undefined);
   const keepPass = (phone, pass) => { if (pass) passRef.current = { phone, pass }; };
 
+  /**
+   * 008Fixes / 03: the admission number this flow checks in with. Every
+   * repeat check (Check again, the automatic checks, after paying, after a
+   * receipt or a resubmission, before joining) sends it too: once a record
+   * has a number, a phone-only check is refused. Memory only; cleared with
+   * the flow.
+   */
+  const numberRef = useRef(null);
+
   /** Leave the current flow: drop its pending replies, forget its number. */
   const resetFlow = useCallback(() => {
     flowRef.current += 1;
     passRef.current = null;
+    numberRef.current = null;
     clearRedirect();
     stopSlowTimer();
     setFailedSlow(false);
@@ -156,14 +180,20 @@ export const useRegistration = (session) => {
     return RESTART;
   }, [showError]);
 
-  const checkStudent = useCallback(async (phone) => {
+  /**
+   * `number` (008Fixes / 03): the admission number typed with the phone. Left
+   * out (repeat checks), the flow's own number is sent again; '' or null means
+   * none (the first time, phone only).
+   */
+  const checkStudent = useCallback(async (phone, number) => {
     if (!isUsablePhone(phone)) return refuseUnusable('checkin', '/api/student/checkin');
     const flow = flowRef.current;
+    if (number !== undefined) numberRef.current = number || null;
     setLoading(true);
     setPhoneNumber(phone);
     startSlowTimer();
     try {
-      const { exists, student, pass, retired, keptSuffix } = await checkinStudent(session, phone, passFor(phone));
+      const { exists, student, pass, retired, keptSuffix } = await checkinStudent(session, phone, passFor(phone), numberRef.current);
       if (flow !== flowRef.current) return STALE;
       keepPass(phone, pass);
 
@@ -179,6 +209,9 @@ export const useRegistration = (session) => {
       return { exists, data: student, ...(retired ? { retired, keptSuffix } : {}) };
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
+      // 008Fixes / 03: a step or refusal of the admission-number check-in.
+      const admission = admissionResult(error);
+      if (admission) return admission;
       logger.error('Check student failed', error);
       // A refusal for checking too often gets its own notice with the real
       // wait (SessionPage, 002Fixes / 05), not "please wait a moment".
@@ -207,22 +240,27 @@ export const useRegistration = (session) => {
       // The response carries the created record (the same projection as
       // check-in), so the caller routes on the real approval state without a
       // second request.
-      const { student, pass, held } = await registerStudentApi({ session, phone, ...formData });
+      const { student, pass, held, next } = await registerStudentApi({ session, phone, ...formData });
       // Registered either way; but if the student has left this flow, the
       // screens must not move on its account.
       if (flow !== flowRef.current) return STALE;
       keepPass(phone, pass);
+      // 008Fixes / 03: the number chosen on the form is this flow's number.
+      if (formData?.number) numberRef.current = formData.number;
       trackRegistration(session);
       // 003Fixes / 11: a registration held as a possible duplicate is received, not done.
-      showSuccess(held ? 'Registration received — your teacher will review it.' : 'Registration successful!');
+      // 008Fixes / 03: with admission numbers, the phone is confirmed next.
+      if (next !== 'verify') {
+        showSuccess(held ? 'Registration received — your teacher will review it.' : 'Registration successful!');
+      }
       setStudentData(student);
 
-      return { success: true, student };
+      return { success: true, student, ...(next ? { next } : {}) };
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
       logger.error('Registration failed', error);
 
-      if (error.code === 'retired_number') {
+      if (error.code === 'retired_number' || error.code === 'number_taken' || error.code === 'easy_number' || error.code === 'refresh_needed') {
         showError(error.message);
       } else if (error.code === 'already_registered' || error.code === 'permission-denied') {
         showError('Registration failed. You may already be registered.');
@@ -304,7 +342,7 @@ export const useRegistration = (session) => {
       if (flow !== flowRef.current) return STALE;
       showSuccess('Payment receipt submitted successfully! Awaiting teacher approval.');
 
-      const { student } = await checkinStudent(session, phoneNumber, passFor(phoneNumber));
+      const { student } = await checkinStudent(session, phoneNumber, passFor(phoneNumber), numberRef.current);
       if (flow !== flowRef.current) return STALE;
       setStudentData(student);
 
@@ -329,7 +367,7 @@ export const useRegistration = (session) => {
       if (flow !== flowRef.current) return STALE;
       showSuccess('Sent. Your teacher will review it shortly.');
 
-      const { student } = await checkinStudent(session, phoneNumber, passFor(phoneNumber));
+      const { student } = await checkinStudent(session, phoneNumber, passFor(phoneNumber), numberRef.current);
       if (flow !== flowRef.current) return STALE;
       setStudentData(student);
 

@@ -37,16 +37,9 @@ export function numberProblem(digits) {
 export const numberProblemMessage = (problem) =>
   (problem === 'easy' ? EASY_NUMBER_MESSAGE : problem === 'format' ? NUMBER_FORMAT_MESSAGE : '');
 
-/**
- * What a student typed into the number field: "0042" is an admission number;
- * "S-0042", "s0042" and "S 0042" are a staff number. Spaces around are
- * ignored. Returns { kind: 'student' | 'staff', digits } or null.
- */
-export function parseNumberInput(raw) {
-  const match = /^(s[\s-]?)?(\d{4})$/i.exec(String(raw ?? '').trim());
-  if (!match) return null;
-  return { kind: match[1] ? 'staff' : 'student', digits: match[2] };
-}
+// The parser lives in its own module so the check-in form (every student's
+// first view) loads only it (008Fixes / 04, the /:slug budget).
+export { parseNumberInput } from './admissionNumberInput';
 
 /** How a number is shown: "0042" for a student, "S-0042" for staff. */
 export const formatNumber = (kind, digits) => (kind === 'staff' ? `S-${digits}` : String(digits));

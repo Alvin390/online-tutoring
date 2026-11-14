@@ -19,7 +19,7 @@ export const PHONE = '+254711000009';
 export const OTHER_PHONE = '+254722000008';
 
 export const MOCKED = [
-  '@services/api/student', '@services/api/public', '@/context/ToastContext', '@utils/analytics',
+  '@services/api/student', '@services/api/studentAdmission', '@services/api/public', '@/context/ToastContext', '@utils/analytics',
   '@shared/config/FlagsContext',
   '@/features/registration/components/CheckinCard',
   '@/features/registration/components/RegistrationForm',
@@ -60,6 +60,11 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     getClassLink: vi.fn().mockResolvedValue({ url: 'https://zoom.us/j/1', provider: 'zoom', session: 'evening' }),
     resubmitRegistration: vi.fn().mockResolvedValue({ ok: true }),
     registerStudentApi: vi.fn().mockResolvedValue({ ok: true, student: { studentName: 'New', approvalStatus: 'pending', blocked: false } }),
+    // 008Fixes / 04: confirming the phone and choosing a number.
+    requestCode: vi.fn().mockResolvedValue({ ok: true, deliveryChannel: 'sms', expiresInSeconds: 600, retryAfterSeconds: 60 }),
+    verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.ticket', next: 'chooseNumber', numberKind: 'student' }),
+    checkNumber: vi.fn().mockResolvedValue({ status: 'free', message: 'Available' }),
+    chooseNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '4071', display: '4071' }),
     ...overrides,
   };
   const toast = { showError: vi.fn(), showSuccess: vi.fn() };
@@ -71,6 +76,13 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     getClassLink: (...a) => api.getClassLink(...a),
     resubmitRegistration: (...a) => api.resubmitRegistration(...a),
   }));
+  // 008Fixes / 04: the first-time steps' calls (their own module).
+  vi.doMock('@services/api/studentAdmission', () => ({
+    requestCode: (...a) => api.requestCode(...a),
+    verifyCode: (...a) => api.verifyCode(...a),
+    checkNumber: (...a) => api.checkNumber(...a),
+    chooseNumber: (...a) => api.chooseNumber(...a),
+  }));
   vi.doMock('@services/api/public', () => ({ registerStudentApi: (...a) => api.registerStudentApi(...a) }));
   vi.doMock('@/context/ToastContext', () => ({ useToast: () => toast, useOptionalToast: () => null }));
   vi.doMock('@utils/analytics', () => ({ trackRegistration: vi.fn(), trackZoomRedirect: vi.fn() }));
@@ -78,13 +90,13 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
   // 007Fixes / 01: a test may supply its own card to see the props it is given.
   vi.doMock('@/features/registration/components/CheckinCard', () => ({
     default: checkinCard
-      ? (props) => checkinCard({ ...props, submit: () => props.onSubmit(typed.phone) })
-      : ({ onSubmit }) => <button type="button" onClick={() => onSubmit(typed.phone)}>Check in</button>,
+      ? (props) => checkinCard({ ...props, submit: () => props.onSubmit(typed.phone, typed.number) })
+      : ({ onSubmit }) => <button type="button" onClick={() => onSubmit(typed.phone, typed.number)}>Check in</button>,
   }));
   vi.doMock('@/features/registration/components/RegistrationForm', () => ({
     default: ({ onSubmit, onBack }) => (
       <div data-testid="register">
-        <button type="button" onClick={() => onSubmit({ studentName: 'New', class: 'Form 3', subjects: ['English'], receiptMessage: 'QAB123XYZ9 Confirmed' })}>Register</button>
+        <button type="button" onClick={() => onSubmit({ studentName: 'New', class: 'Form 3', subjects: ['English'], receiptMessage: 'QAB123XYZ9 Confirmed', ...(typed.regNumber ? { number: typed.regNumber } : {}) })}>Register</button>
         <button type="button" onClick={onBack}>Back</button>
       </div>
     ),

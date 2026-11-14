@@ -65,7 +65,8 @@ describe('the pass', () => {
     await click('Use a different number');
     typed.phone = OTHER_PHONE;
     await click('Check in');
-    expect(api.checkinStudent.mock.calls[1]).toEqual(['evening', OTHER_PHONE, undefined]);
+    // 008Fixes / 03: the fourth argument is the flow's admission number (none here).
+    expect(api.checkinStudent.mock.calls[1]).toEqual(['evening', OTHER_PHONE, undefined, null]);
   });
 
   it('is never written to web storage', async () => {
