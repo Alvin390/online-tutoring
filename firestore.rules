@@ -92,7 +92,10 @@ service cloud.firestore {
         // 006Fixes / 04: what a partial receipt approval left owing.
         'partialPayment',
         // 007Fixes / 07: only POST /api/students/staff marks or unmarks staff.
-        'staff', 'staffAt', 'staffBy'
+        'staff', 'staffAt', 'staffBy',
+        // 008Fixes / 01-02: a confirmed phone, and the admission / staff
+        // number, are set only by the server (their reservations must match).
+        'phoneVerifiedAt', 'admissionNumber', 'staffNumber', 'numberChosenAt'
       ];
     }
 
@@ -358,9 +361,17 @@ service cloud.firestore {
       allow read, write: if isTeacher();
     }
 
+    // 008Fixes / 02: number reservations (`A0042` / `S0042`). Only the server
+    // creates them, in the transaction that sets the number on the record —
+    // that is what keeps a number unique. Nobody reads them from a browser.
+    match /sessions/{session}/numbers/{numberId} {
+      allow read, write: if false;
+    }
+
     // Phase 13 / 08 B3: the check-in heartbeat (`meta/activity`), kept off the
     // student document so dashboard listeners do not fire on every visit.
     // Written only by the server; teachers may read it.
+    // 008Fixes / 03: also the one-device lock (`meta/checkinLock`), the same way.
     match /sessions/{session}/students/{phone}/meta/{docId} {
       allow read: if isTeacher();
       allow write: if false;

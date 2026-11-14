@@ -52,6 +52,15 @@ export const DEFAULT_FLAGS = {
    * silently lose real money that a parent has already been charged.
    */
   'payments.daraja': false,
+
+  // --- 008Fixes ---
+  /**
+   * Check-in by admission number + phone, with the phone confirmed once by an
+   * SMS code and one device per class (008Fixes Release A). Off: check-in is
+   * phone-only, exactly as before — the instant rollback if class time goes
+   * wrong. Numbers already chosen are kept either way.
+   */
+  'checkin.admissionNumbers': false,
 };
 
 export const FLAG_KEYS = Object.freeze(Object.keys(DEFAULT_FLAGS));

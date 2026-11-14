@@ -9,6 +9,8 @@ import { sessionClasses } from '../_lib/sessions.js';
 import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
 import { isDuplicatePair, retiredMessage } from '../_lib/duplicates.js';
 import { accountRef } from '../_lib/ledger.js';
+import { isEnabled } from '../_lib/flags.js';
+import { numberProblem, numberProblemMessage, reservationId } from '../_lib/admissionNumber.js';
 
 /**
  * Student registration — Phase 13 / 08 A1.
@@ -41,6 +43,8 @@ const schema = z
       z.array(text(1, MAX_SUBJECT_NAME)).min(1).max(MAX_SUBJECTS),
     ]),
     receiptMessage: text(10, 500),
+    // 008Fixes / 03: the admission number the student chose (4 digits).
+    number: z.string().trim().max(8).optional(),
   })
   .strict();
 
@@ -49,9 +53,22 @@ export default createHandler({
   sessions: 'active',
   method: 'POST',
   schema,
-  rateLimit: { bucket: 'student_register', limit: 10, windowSeconds: 3600, keyBy: 'ip' },
+  // 008Fixes / 03: 10 → 30 an hour — new students behind one carrier address.
+  // The per-number limit below stays the bound.
+  rateLimit: { bucket: 'student_register', limit: 30, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, log }) => {
     const { session, phone } = body;
+
+    // 008Fixes / 03: with admission numbers on, a number is chosen here and
+    // checked before anything else (an old cached page sends none).
+    const numbersOn = await isEnabled('checkin.admissionNumbers');
+    if (numbersOn) {
+      if (!body.number) {
+        throw new ApiError(400, 'refresh_needed', 'This page has been updated. Please refresh the page, then register again.');
+      }
+      const problem = numberProblem(body.number);
+      if (problem) throw new ApiError(400, problem === 'easy' ? 'easy_number' : 'invalid_number', numberProblemMessage(problem));
+    }
 
     // Per number as well as per IP: the IP limit is spoofable behind a proxy.
     await enforceRateLimit({ key: phone, bucket: 'student_register_phone', limit: 5, windowSeconds: 3600 });
@@ -104,15 +121,28 @@ export default createHandler({
       receiptStatus: 'pending',
       feeBalance: 0,
       ...(original ? { duplicateHold: true, duplicateOf: original.parentPhone } : {}),
+      ...(numbersOn ? { admissionNumber: body.number, numberChosenAt: FieldValue.serverTimestamp() } : {}),
     };
 
-    try {
-      await ref.create(student);
-    } catch (err) {
-      if (err?.code === 6 || err?.code === 'already-exists') {
-        throw new ApiError(409, 'already_registered', 'That number is already registered for this class.');
+    const alreadyRegistered = () => new ApiError(409, 'already_registered', 'That number is already registered for this class.');
+    if (numbersOn) {
+      // 008Fixes / 03: the record and its number in ONE transaction, so the
+      // answer says which one was the problem and nothing is half-made.
+      const reservation = db.doc(`sessions/${session}/numbers/${reservationId('student', body.number)}`);
+      await db.runTransaction(async (tx) => {
+        const [mine, taken] = await Promise.all([tx.get(ref), tx.get(reservation)]);
+        if (mine.exists) throw alreadyRegistered();
+        if (taken.exists) throw new ApiError(409, 'number_taken', 'That admission number is taken. Choose another.');
+        tx.create(ref, student);
+        tx.create(reservation, { phone, kind: 'student', number: body.number, at: FieldValue.serverTimestamp() });
+      });
+    } else {
+      try {
+        await ref.create(student);
+      } catch (err) {
+        if (err?.code === 6 || err?.code === 'already-exists') throw alreadyRegistered();
+        throw err;
       }
-      throw err;
     }
 
     // The same number registering again after being deleted: the fee account
@@ -132,9 +162,12 @@ export default createHandler({
     log.info('Student registered', { session, held: Boolean(original) });
     // 002Fixes / 07: a new student usually goes straight to the waiting
     // screen; its "Check again" and automatic checks carry this pass.
-    const pass = issuePass({ session, phone });
+    // 008Fixes / 03: with admission numbers, the phone is confirmed next
+    // (the pass comes with the first full check-in).
+    const pass = numbersOn ? null : issuePass({ session, phone });
     return {
       ok: true,
+      ...(numbersOn ? { next: 'verify' } : {}),
       ...(original ? { held: 'duplicate' } : {}),
       student: projectStudent({ ...student, registeredAt: { toDate: () => new Date() } }),
       ...(pass ? { pass } : {}),

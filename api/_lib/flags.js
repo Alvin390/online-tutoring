@@ -27,6 +27,8 @@ const DEFAULT_FLAGS = {
   'whatsapp.broadcast': false,
   'whatsapp.advanced': false,
   'payments.daraja': false,
+  // 008Fixes Release A: admission number + phone check-in (see src/shared/config/flags.js).
+  'checkin.admissionNumbers': false,
 };
 
 const TTL_MS = 30_000;

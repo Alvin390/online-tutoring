@@ -1,6 +1,7 @@
 import { deleteRecursively } from './sessions.js';
 import { closeDeletedStudentAccount, accountRef } from './ledger.js';
 import { FieldValue } from './firebaseAdmin.js';
+import { recordNumber, reservationId } from './admissionNumber.js';
 
 const memberPath = (batchId, session, phone) => `scheduledBlocks/${batchId}/members/${session}__${String(phone).replace(/\D/g, '')}`;
 
@@ -30,6 +31,20 @@ export function leaveSchedulesOnDelete({ db, writes, user, members, schedules, b
 }
 
 /**
+ * 008Fixes / 02: frees the number `record` held — only if its reservation
+ * really is this registration's. One read, one delete.
+ */
+export async function freeNumber(db, session, phone, record) {
+  const held = recordNumber(record);
+  if (!held) return false;
+  const ref = db.doc(`sessions/${session}/numbers/${reservationId(held.kind, held.digits)}`);
+  const snap = await ref.get();
+  if (!snap.exists || snap.data().phone !== phone) return false;
+  await ref.delete();
+  return true;
+}
+
+/**
  * Removing a student record — shared by /api/student/remove and the duplicate
  * actions (003Fixes / 12), so a declined or merged duplicate is removed exactly
  * as a deleted student is.
@@ -47,6 +62,8 @@ export async function removeStudentRecord({ db, session, phone, user, closeKey, 
   // record pass it; the others cost one read). Left AFTER the record goes.
   const record = data ?? (await ref.get()).data();
   const { byCollection } = await deleteRecursively(db, ref);
+  // 008Fixes / 02: the number is free again (the lock went with meta/).
+  await freeNumber(db, session, phone, record);
   const batchId = record?.scheduledBlock?.batchId;
   if (batchId) {
     const scheduleSnap = await db.doc(`scheduledBlocks/${batchId}`).get();

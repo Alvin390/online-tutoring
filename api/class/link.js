@@ -4,11 +4,12 @@ import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { authenticate } from '../_lib/auth.js';
 import { forbidden, notFound } from '../_lib/errors.js';
-import { isEnabled } from '../_lib/flags.js';
+import { getFlags } from '../_lib/flags.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { assertSessionExists } from '../_lib/sessions.js';
 import { effectiveApprovalStatus, isBlockedNow } from '../_lib/studentState.js';
 import { passBypass } from '../_lib/checkinPass.js';
+import { DEVICE_ID_PATTERN, lockRef, deviceHash, lockState } from '../_lib/checkinLock.js';
 
 /**
  * Class link issuance — Phase 01 D1, completing the lockdown of
@@ -32,6 +33,8 @@ const schema = z
   .object({
     session: sessionSchema,
     phone: phoneSchema,
+    // 008Fixes / 03: the device that checked in (see checkin.js).
+    deviceId: z.string().regex(DEVICE_ID_PATTERN).optional(),
   })
   .strict();
 
@@ -68,6 +71,9 @@ export default createHandler({
       // Fall through to the legacy path.
     }
 
+    // 008Fixes / 03: one flags read for every flag this request uses.
+    const flags = await getFlags();
+    const isEnabled = async (key) => flags[key] === true;
     if (!authorized && !(await isEnabled('auth.legacyStudentRead'))) {
       throw forbidden('Please verify your phone number to continue.', 'verification_required');
     }
@@ -78,17 +84,20 @@ export default createHandler({
     // batchGet — subscription, student, class link — instead of three
     // sequential round trips. The gates below still run in the same order
     // with the same answers; the link is only ever returned if all pass.
-    const [billingOn, sessionError, requireApproval] = await Promise.all([
+    const [billingOn, sessionError, requireApproval, numbersOn] = await Promise.all([
       isEnabled('billing.enabled'),
       // Captured, not thrown: a locked subscription must still be reported
       // first (gate 1), exactly as when these ran one after another.
       isStaff ? null : assertSessionExists(db, session, { requireActive: true }).then(() => null, (err) => err),
       isStaff ? false : isEnabled('registration.requireApproval'),
+      isStaff ? false : isEnabled('checkin.admissionNumbers'),
     ]);
     const refs = {
       subscription: billingOn ? db.doc('subscription/current') : null,
       student: isStaff ? null : db.doc(`sessions/${session}/students/${phone}`),
       link: db.doc(`sessions/${session}/private/classLink`),
+      // 008Fixes / 03: this class's one-device lock, in the same batchGet.
+      lock: numbersOn ? lockRef(db, session, phone) : null,
     };
     const wanted = Object.entries(refs).filter(([, ref]) => ref);
     const snaps = Object.fromEntries(
@@ -120,6 +129,17 @@ export default createHandler({
       if (!snap.exists) throw notFound('No registration found for that number.');
 
       const data = snap.data();
+
+      // 008Fixes / 03: only the device that checked in with the admission
+      // number and phone, this class. Without this the link would still be
+      // one phone-only request away, and the lock would decide nothing.
+      if (numbersOn) {
+        const lock = snaps.lock?.exists ? snaps.lock.data() : null;
+        const hash = body.deviceId ? deviceHash(session, phone, body.deviceId) : null;
+        if (!hash || lockState(lock, hash) !== 'same') {
+          throw forbidden('Please check in again with your admission number and phone.', 'checkin_again');
+        }
+      }
 
       // 003Fixes / 11: held as a possible duplicate — the teacher decides,
       // whether or not approval is required.

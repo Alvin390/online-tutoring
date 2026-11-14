@@ -2,6 +2,39 @@ import { FieldValue } from './firebaseAdmin.js';
 import { postEntries, accountRef } from './ledger.js';
 import { leaveSchedulesOnDelete } from './studentRemoval.js';
 import { effectiveApprovalStatus } from './studentState.js';
+import { reservationId } from './admissionNumber.js';
+
+/**
+ * 008Fixes / 02 (owner answer 10): a number changes kind with the marker.
+ * Marking turns admission number N into staff number S-N (unmarking, the
+ * reverse); the old number is freed either way. When the new one is already
+ * taken the record is left without a number, and they choose one at their
+ * next check-in. `from`/`to` are the record fields. Adds to `writes`, and
+ * returns the record fields to merge. One getAll for the whole chunk.
+ */
+async function convertNumbers(db, writes, records, { from, to }) {
+  const fromKind = from === 'admissionNumber' ? 'student' : 'staff';
+  const toKind = fromKind === 'student' ? 'staff' : 'student';
+  const holding = records.filter((r) => r.data[from]);
+  const fields = new Map(records.map((r) => [r, {}]));
+  if (!holding.length) return fields;
+  const ref = (r, kind) => db.doc(`sessions/${r.session}/numbers/${reservationId(kind, r.data[from])}`);
+  const snaps = await db.getAll(...holding.map((r) => ref(r, fromKind)), ...holding.map((r) => ref(r, toKind)));
+  holding.forEach((r, i) => {
+    const old = snaps[i];
+    const target = snaps[holding.length + i];
+    if (old.exists && old.data().phone === r.phone) writes.delete(ref(r, fromKind));
+    const f = { [from]: FieldValue.delete() };
+    if (!target.exists) {
+      // create(): if another registration takes it at the same instant, the
+      // whole commit fails untouched and the retry sees it taken.
+      writes.create(ref(r, toKind), { phone: r.phone, kind: toKind, number: r.data[from], at: FieldValue.serverTimestamp() });
+      f[to] = r.data[from];
+    }
+    fields.set(r, f);
+  });
+  return fields;
+}
 
 /**
  * Staff registrations — 007Fixes / 07 (owner, 2026-11-11).
@@ -103,10 +136,12 @@ export async function markStaff({ db, user, items, alsoOtherSession = false, opI
     leaveSchedulesOnDelete({ db, writes, user, members, schedules, because: 'staff' });
   }
 
+  const numbers = await convertNumbers(db, writes, toMark, { from: 'admissionNumber', to: 'staffNumber' });
   const now = FieldValue.serverTimestamp();
   for (const r of toMark) {
     const wasBlocked = r.data.blocked === true;
     writes.set(studentRef(db, r.session, r.phone), {
+      ...numbers.get(r),
       staff: true,
       staffAt: now,
       staffBy: user.uid,
@@ -149,11 +184,15 @@ export async function unmarkStaff({ db, items }) {
   records.forEach((r, i) => {
     if (!snaps[i].exists) { skipped.push({ index: r.index, reason: 'missing' }); return; }
     if (snaps[i].data().staff !== true) { skipped.push({ index: r.index, reason: 'notStaff' }); return; }
+    done.push({ ...r, data: snaps[i].data() });
+  });
+  const numbers = await convertNumbers(db, writes, done, { from: 'staffNumber', to: 'admissionNumber' });
+  for (const r of done) {
     writes.set(studentRef(db, r.session, r.phone), {
+      ...numbers.get(r),
       staff: FieldValue.delete(), staffAt: FieldValue.delete(), staffBy: FieldValue.delete(),
     }, { merge: true });
-    done.push(r);
-  });
+  }
   if (done.length) await writes.commit();
   return { unmarked: done.length, skipped, sessions: [...new Set(done.map((r) => r.session))].sort() };
 }

@@ -6,6 +6,7 @@ import { auditRecord, AuditAction } from './audit.js';
 import { effectiveApprovalStatus } from './studentState.js';
 import { approvalFields, receiptIdFor, mpesaCodeFrom, paymentChoice } from './receiptApproval.js';
 import { badRequest, notFound, ApiError } from './errors.js';
+import { recordNumber, reservationId } from './admissionNumber.js';
 
 /**
  * Bulk actions on many students at once — 003Fixes / 04.
@@ -477,12 +478,20 @@ export async function deleteStudents({ db, user, batch, items, nowMs, context = 
   }
   // Their fee accounts and any waiting schedules, in one read.
   const scheduleIds = [...new Set(toDelete.map((i) => i.data.scheduledBlock?.batchId).filter(Boolean))];
+  // 008Fixes / 02: the numbers they hold, freed with the records.
+  const numbered = toDelete.filter((i) => recordNumber(i.data));
+  const numberRefs = numbered.map((i) => {
+    const held = recordNumber(i.data);
+    return db.doc(`sessions/${i.session}/numbers/${reservationId(held.kind, held.digits)}`);
+  });
   const lookups = toDelete.length
     ? await db.getAll(
       ...toDelete.map((i) => accountRef(db, i.session, i.phone)),
       ...scheduleIds.map((id) => db.doc(`scheduledBlocks/${id}`)),
+      ...numberRefs,
     )
     : [];
+  const numberSnaps = lookups.slice(toDelete.length + scheduleIds.length);
   const accountSnaps = lookups.slice(0, toDelete.length);
   const schedules = new Map(scheduleIds.map((id, k) => {
     const s = lookups[toDelete.length + k];
@@ -490,7 +499,11 @@ export async function deleteStudents({ db, user, batch, items, nowMs, context = 
   }));
 
   // 1. The records go (as deleteRecursively: children first, 450 a commit).
-  const allRefs = toDelete.flatMap((i) => i.refs);
+  const allRefs = [
+    ...toDelete.flatMap((i) => i.refs),
+    // Only a reservation that really is this registration's.
+    ...numberRefs.filter((ref, k) => numberSnaps[k]?.exists && numberSnaps[k].data().phone === numbered[k].phone),
+  ];
   for (let k = 0; k < allRefs.length; k += 450) {
     const writes = db.batch();
     allRefs.slice(k, k + 450).forEach((r) => writes.delete(r));

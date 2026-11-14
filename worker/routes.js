@@ -46,6 +46,8 @@ import studentRemove from '../api/student/remove.js';
 import studentUpdate from '../api/student/update.js';
 import studentsBulk from '../api/students/bulk.js';
 import studentsStaff from '../api/students/staff.js';
+import studentsAdmission from '../api/students/admission.js';
+import studentNumber from '../api/student/number.js';
 import studentsScheduled from '../api/students/scheduled.js';
 import studentsDuplicates from '../api/students/duplicates.js';
 import cronScheduledBlocksSweep from '../api/cron/scheduledBlocksSweep.js';
@@ -133,6 +135,9 @@ export const STATIC_ROUTES = {
   '/api/students/bulk': studentsBulk,
   // 007Fixes / 07: mark registrations as staff, or back to students.
   '/api/students/staff': studentsStaff,
+  // 008Fixes / 02-05: admission numbers.
+  '/api/students/admission': studentsAdmission,
+  '/api/student/number': studentNumber,
   '/api/students/scheduled': studentsScheduled,
   // 003Fixes / 12: decline / merge / keep both / allow a retired number.
   '/api/students/duplicates': studentsDuplicates,
