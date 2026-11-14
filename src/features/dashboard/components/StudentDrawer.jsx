@@ -8,6 +8,8 @@ import { effectiveApprovalStatus } from '@utils/studentState';
 // pay for on first paint, and most dashboard sessions never open it.
 const NotesTab = lazy(() => import('@features/notes/components/NotesTab'));
 const FeesTab = lazy(() => import('@features/fees/components/FeesTab'));
+// 008Fixes / 05: the number, Change, "Allow again" — loaded when a drawer opens with the flag on.
+const AdmissionActions = lazy(() => import('./admission/AdmissionActions'));
 
 /**
  * Student detail drawer — Phase 05 Part B.
@@ -37,6 +39,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
 
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
+  const numbersEnabled = useFlag('checkin.admissionNumbers');
   const flagState = { 'notes.enabled': notesEnabled, 'fees.enabled': feesEnabled };
   const visibleTabs = TABS.filter((t) => !t.flag || flagState[t.flag]);
 
@@ -197,6 +200,19 @@ export default function StudentDrawer({ open, student, session, onClose }) {
                     <dt className="col-5 text-muted fw-normal">Receipt</dt>
                     <dd className="col-7 text-capitalize">{student.receiptStatus ?? '—'}</dd>
                   </dl>
+
+                  {numbersEnabled && (
+                    <div className="mt-3 pt-3 border-top">
+                      <Suspense fallback={<span className="spinner-border spinner-border-sm text-muted" />}>
+                        <AdmissionActions
+                          key={student.id}
+                          session={session}
+                          phone={student.id ?? student.parentPhone}
+                          record={student}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
 
                   {student.receiptMessage && (
                     <div className="mt-3">

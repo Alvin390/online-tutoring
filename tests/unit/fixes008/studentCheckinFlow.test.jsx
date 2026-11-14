@@ -50,6 +50,12 @@ describe('the requests', () => {
     expect(link.deviceId).toBe(first.deviceId);
   });
 
+  it('the first-time calls wait as long as check-in does (a copied constant)', async () => {
+    const a = await import('@services/api/student');
+    const b = await import('@services/api/studentAdmission');
+    expect(b.CLASS_TIME_TIMEOUT_MS).toBe(a.CLASS_TIME_TIMEOUT_MS);
+  });
+
   it('registration sends the chosen number (and none when there is none)', async () => {
     const apiPost = vi.fn().mockResolvedValue({});
     vi.doMock('@services/api/client', () => ({ apiPost, apiGet: vi.fn() }));

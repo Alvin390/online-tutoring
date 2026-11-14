@@ -1,5 +1,12 @@
 import { apiPost } from './client';
-import { CLASS_TIME_TIMEOUT_MS } from './student';
+
+/**
+ * The class-time wait (student.js CLASS_TIME_TIMEOUT_MS, 007Fixes / 01). A
+ * copy, not an import: importing student.js from here split it into its own
+ * chunk on /:slug (+0.2 KB). tests/unit/fixes008/studentCheckinFlow.test.jsx
+ * keeps the two equal.
+ */
+export const CLASS_TIME_TIMEOUT_MS = 20_000;
 
 /**
  * 008Fixes / 01-02: confirming the phone and choosing a number. The code goes

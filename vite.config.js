@@ -101,6 +101,9 @@ export default defineConfig({
           // 007Fixes / 10: the wa.me link builder, now shared by the Staff and
           // WhatsApp tabs (split into its own staff-only chunk).
           '**/waLink-*.js',
+          // 008Fixes / 05: the teacher's number, "Allow again" and waiting-codes
+          // pieces, and their service (src/services/api/admission.js).
+          '**/AdmissionActions-*.js', '**/WaitingCodesPanel-*.js', '**/admission-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

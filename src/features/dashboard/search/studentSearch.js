@@ -126,6 +126,10 @@ export function parseQuery(q) {
     const joined = CLASS_JOINED.exec(word);
     if (joined) {
       classPhrases.push(`${CLASS_WORD[joined[1]]} ${Number(joined[2])}`);
+    } else if (word === 's' && /^\d{4}$/.test(words[i + 1] ?? '')) {
+      // 008Fixes / 05: "S-0042" (a staff number) is the 4 digits.
+      rest.push(words[i + 1]);
+      i += 1;
     } else if (CLASS_WORD[word] && /^\d{1,2}$/.test(words[i + 1] ?? '')) {
       classPhrases.push(`${CLASS_WORD[word]} ${Number(words[i + 1])}`);
       i += 1;
@@ -176,6 +180,8 @@ function makeRecord(student, session, duplicates = null) {
     name,
     nameTokens: name ? name.split(' ') : [],
     phones: [...new Set([...phoneForms(student.id), ...phoneForms(student.parentPhone)])],
+    // 008Fixes / 05: the admission or staff number, 4 digits ("0042").
+    number: String((student.staff === true ? student.staffNumber : student.admissionNumber) ?? ''),
     cls,
     clsWords: cls ? cls.split(' ') : [],
     clsLabel: String(student.class ?? '').trim(),
@@ -292,6 +298,7 @@ function editDistance(a, b, max) {
 
 const SCORE = {
   nameExact: 100, // bonus: the whole query is the whole name
+  number: 90, // 008Fixes / 05: the admission number names one student
   nameToken: 70,
   namePrefix: 60,
   phone: 50,
@@ -304,6 +311,8 @@ const SCORE = {
 
 function tokenScore(record, token) {
   const { t } = token;
+  // 008Fixes / 05: an admission or staff number, typed in full.
+  if (token.digits && t.length === 4 && record.number === t) return SCORE.number;
   if (token.phone && record.phones.some((p) => p.includes(t))) return SCORE.phone;
   // One- or two-digit fragments only ever mean a class ("10").
   if (token.digits && !token.phone) return record.clsWords.includes(t) ? SCORE.className : 0;
