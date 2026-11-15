@@ -157,12 +157,12 @@ describe('server tier requirements have a client gate', () => {
       'src/features/dashboard/tabs/CalendarTab.jsx',
       'src/features/dashboard/tabs/SetupTab.jsx',
       'src/features/dashboard/components/StudentDrawer.jsx',
-      'src/features/whatsapp/components/WhatsAppPanel.jsx',
+      'src/features/sms/components/SmsComposer.jsx',
       'src/pages/BillingPage.jsx',
     ].map((p) => readFileSync(join(ROOT, p), 'utf8')).join('\n');
 
-    // Two spellings count. `<TierGate>` is the general one; WhatsAppPanel
-    // predates it and gates its Gold controls inline with a rank comparison,
+    // Two spellings count. `<TierGate>` is the general one; SmsComposer (like
+    // the WhatsApp panel before it, 008Fixes / 11) gates its Gold controls inline with a rank comparison,
     // because it disables individual controls rather than replacing a whole
     // panel. Both are real gates, so both are accepted.
     const RANK_TO_TIER = { 1: 'bronze', 2: 'silver', 3: 'gold' };

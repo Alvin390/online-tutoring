@@ -44,7 +44,13 @@ export function SmsDetail({ campaignId, onBack }) {
     setBusy(true);
     setError('');
     try {
-      setData(await (refresh ? refreshSms(campaignId) : getSms(campaignId)));
+      try {
+        setData(await (refresh ? refreshSms(campaignId) : getSms(campaignId)));
+      } catch (err) {
+        // With SMS switched off, HashBack is not asked: show what is stored.
+        if (!(refresh && err?.code === 'sms_off')) throw err;
+        setData(await getSms(campaignId));
+      }
     } catch (err) {
       setError(err?.message || 'Could not load this message.');
     } finally {

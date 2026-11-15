@@ -68,6 +68,7 @@ const schema = z.discriminatedUnion('action', [
 ]);
 
 const SETUP_DOC = 'config/smsSetup';
+const READ_WHEN_OFF = new Set(['people', 'list', 'get']);
 const TEST_VALID_MS = 60 * 60_000;
 const iso = (v) => v?.toDate?.()?.toISOString?.() ?? null;
 
@@ -102,7 +103,11 @@ export default createHandler({
     const db = getDb();
     const user = withDevice(signedIn, req);
     const flags = await getFlags();
-    if (flags['sms.enabled'] !== true) throw forbidden('SMS is not switched on yet.', 'sms_off');
+    // 008Fixes / 11 (owner: the old WhatsApp panel is removed): with SMS off the
+    // Messages tab still offers WhatsApp to one person and the sent history, so
+    // these reads work either way. Every send, the setup and every HashBack
+    // call need SMS on.
+    if (flags['sms.enabled'] !== true && !READ_WHEN_OFF.has(body.action)) throw forbidden('SMS is not switched on yet.', 'sms_off');
     const isGold = user.role === 'superadmin' || (user.tierRank ?? 0) >= 3;
     const filtersAllowed = isGold && flags['whatsapp.advanced'] === true;
 

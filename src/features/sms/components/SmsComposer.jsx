@@ -33,14 +33,15 @@ const SEND_TO = [
 ];
 const wait = (s) => new Promise((resolve) => { setTimeout(resolve, s * 1000); });
 
-export default function SmsComposer({ setup, preset = null }) {
+export default function SmsComposer({ setup, preset = null, smsOff = false }) {
   const { tierRank, isSuperadmin } = useAuthState();
   const advanced = useFlag('whatsapp.advanced');
   const feesOn = useFlag('fees.enabled');
   const canChoose = (isSuperadmin || (tierRank ?? 0) >= 3) && advanced;
 
   const [view, setView] = useState('compose'); // compose | history | campaign
-  const [mode, setMode] = useState('sms');
+  // With SMS switched off (008Fixes / 11) only WhatsApp to one person is offered.
+  const [mode, setMode] = useState(smsOff ? 'whatsapp' : 'sms');
   // A prepared draft may hold characters SMS can't carry: dropped up front.
   const [text, setText] = useState(() => (preset?.template ? stripUnsupported(toFriendly(preset.template)).text : ''));
   const [people, setPeople] = useState(null);
@@ -157,9 +158,11 @@ export default function SmsComposer({ setup, preset = null }) {
       <div className="card-body">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <div className="btn-group" role="group" aria-label="Send by">
-            <button type="button" className={`btn btn-sm ${mode === 'sms' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => { setMode('sms'); setText((t) => stripUnsupported(t).text); }} aria-pressed={mode === 'sms'}>
-              <i className="bi bi-chat-text me-1" aria-hidden="true" />SMS
-            </button>
+            {!smsOff && (
+              <button type="button" className={`btn btn-sm ${mode === 'sms' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => { setMode('sms'); setText((t) => stripUnsupported(t).text); }} aria-pressed={mode === 'sms'}>
+                <i className="bi bi-chat-text me-1" aria-hidden="true" />SMS
+              </button>
+            )}
             <button type="button" className={`btn btn-sm ${mode === 'whatsapp' ? 'btn-success' : 'btn-outline-success'}`} onClick={() => setMode('whatsapp')} aria-pressed={mode === 'whatsapp'}>
               <i className="bi bi-whatsapp me-1" aria-hidden="true" />WhatsApp (one person)
             </button>
@@ -169,6 +172,11 @@ export default function SmsComposer({ setup, preset = null }) {
           </button>
         </div>
 
+        {smsOff && (
+          <div className="alert alert-info small py-2" role="status" data-testid="sms-paused">
+            Messages to many parents go by SMS, which is not switched on yet. You can still message one person on WhatsApp.
+          </div>
+        )}
         {peopleError && <div className="alert alert-danger small py-2" role="alert">{peopleError}</div>}
 
         {mode === 'sms' ? (

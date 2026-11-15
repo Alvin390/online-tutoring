@@ -244,6 +244,34 @@ describe('WhatsApp to one person', () => {
   });
 });
 
+describe('SMS switched off (the old WhatsApp panel is removed)', () => {
+  it('only WhatsApp to one person, with a notice; nothing is sent by SMS', async () => {
+    const { default: SmsComposer } = await import('@features/sms/components/SmsComposer');
+    render(<SmsComposer setup={null} smsOff />);
+    expect((await screen.findByTestId('sms-paused')).textContent).toMatch(/not switched on yet\. You can still message one person on WhatsApp/);
+    expect(screen.queryByRole('button', { name: 'SMS', exact: true })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review and send' })).toBeNull();
+    await act(async () => { fireEvent.change(await screen.findByLabelText('Choose one person: search'), { target: { value: 'ann' } }); });
+    await act(async () => { fireEvent.click(screen.getByRole('radio')); });
+    await typeMessage('Hi [Student name]');
+    const link = await screen.findByRole('link', { name: /Open WhatsApp/ });
+    expect(decodeURIComponent(link.getAttribute('href').split('text=')[1])).toBe('Hi Ann');
+  });
+
+  it('a sent message opens from what is stored when HashBack may not be asked', async () => {
+    sms.listSms.mockResolvedValue({ campaigns: [{ id: 's1', template: 'Hi', createdAt: '2026-11-15T10:00:00Z', counts: { delivered: 1 } }] });
+    sms.refreshSms.mockRejectedValue(Object.assign(new Error('SMS is not switched on yet.'), { code: 'sms_off', status: 403 }));
+    sms.getSms.mockResolvedValue({ campaign: { id: 's1', template: 'Hi', recipientCount: 1, counts: { delivered: 1 }, createdAt: '2026-11-15T10:00:00Z' }, recipients: [{ id: 'a', studentName: 'Ann', phoneEnding: '001', status: 'delivered' }] });
+    const { default: SmsComposer } = await import('@features/sms/components/SmsComposer');
+    render(<SmsComposer setup={null} smsOff />);
+    await click('Sent messages');
+    await click('Delivery');
+    expect((await screen.findAllByTestId('sms-person'))).toHaveLength(1);
+    expect(sms.getSms).toHaveBeenCalledWith('s1');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
 describe('history', () => {
   it('SMS with totals and old WhatsApp campaigns, newest first', async () => {
     sms.listSms.mockResolvedValue({ campaigns: [{ id: 's1', template: 'Hi', createdAt: '2026-11-15T10:00:00Z', counts: { sent: 0, delivered: 5, failed: 1, queued: 0 } }] });

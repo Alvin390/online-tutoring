@@ -1,33 +1,33 @@
 import { lazy, Suspense } from 'react';
-import WhatsAppPanel from '@features/whatsapp/components/WhatsAppPanel';
 import TierGate from '@shared/components/TierGate';
 import { useFlag } from '@shared/config/FlagsContext';
 
 // 008Fixes / 08–09: with SMS on, the tab asks for the SMS setup, then shows
 // the SMS / WhatsApp-one-person composer (both lazy).
+// 008Fixes / 11 (owner, 2026-11-15: remove the old WhatsApp panel): with SMS
+// off, the same composer offers WhatsApp to one person only, with a notice.
 const MessagesArea = lazy(() => import('@features/sms/components/MessagesArea'));
 const SmsComposer = lazy(() => import('@features/sms/components/SmsComposer'));
 
+const spinner = <div className="text-center py-4"><span className="spinner-border spinner-border-sm text-primary" /></div>;
+
 /**
- * WhatsApp — 007Fixes / 03. Its own lazy chunk; the gate sits inside the tab,
- * so a Bronze teacher downloads only the prompt. Silver, matching
- * api/whatsapp/campaign.js and (008Fixes) api/messages/sms.js.
+ * Messages — 007Fixes / 03 (its own lazy chunk; the gate sits inside the tab,
+ * so a Bronze teacher downloads only the prompt). Silver, matching
+ * api/messages/sms.js.
  */
 export default function WhatsAppTab({ preset }) {
   const smsOn = useFlag('sms.enabled');
-  // 003Fixes / 09: remounted with a prepared message from Recent actions.
-  const panel = <WhatsAppPanel key={preset.version} preset={preset.preset} />;
   return (
-    <TierGate
-      tier="silver"
-      feature={smsOn ? 'Messages' : 'WhatsApp broadcast'}
-      description={smsOn ? 'Message parents by SMS, or one person on WhatsApp' : 'Message every student at once, with no per-message cost'}
-    >
-      {smsOn ? (
-        <Suspense fallback={<div className="text-center py-4"><span className="spinner-border spinner-border-sm text-primary" /></div>}>
+    <TierGate tier="silver" feature="Messages" description="Message parents by SMS, or one person on WhatsApp">
+      <Suspense fallback={spinner}>
+        {smsOn ? (
+          // 003Fixes / 09: remounted with a prepared message from Recent actions.
           <MessagesArea>{(setup) => <SmsComposer key={preset.version} setup={setup} preset={preset.preset} />}</MessagesArea>
-        </Suspense>
-      ) : panel}
+        ) : (
+          <SmsComposer setup={null} smsOff />
+        )}
+      </Suspense>
     </TierGate>
   );
 }

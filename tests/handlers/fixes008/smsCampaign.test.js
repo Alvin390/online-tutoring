@@ -53,6 +53,23 @@ describe('the switch and the tiers', () => {
     expect(res.body.error.code).toBe('sms_off');
   });
 
+  it('off: who can be messaged and the sent history still read (WhatsApp to one person); sends, setup and HashBack calls refused', async () => {
+    await seed('evening', P(1));
+    await setFlags(db, { 'sms.enabled': false });
+    const hashbackCalls = () => externalCalls.filter((c) => c.url.includes('hashback')).length;
+    const before = hashbackCalls();
+    expect((await sms(gold, { action: 'people' })).status).toBe(200);
+    expect((await sms(gold, { action: 'list' })).status).toBe(200);
+    expect((await sms(gold, { action: 'get', campaignId: 'nope' })).status).toBe(404);
+    for (const body of [
+      { action: 'start', template: 'Hi', filter: { type: 'all' } },
+      { action: 'sendOne', session: 'evening', phone: P(1), template: 'Hi' },
+      { action: 'refresh', campaignId: 'nope' },
+      { action: 'setup' },
+    ]) expect((await sms(gold, body)).body.error.code, body.action).toBe('sms_off');
+    expect(hashbackCalls()).toBe(before);
+  });
+
   it('Silver sends to everyone; choosing who is Gold', async () => {
     await seed('evening', P(1));
     expect((await sms(silver, { action: 'preview', template: 'Hi', filter: { type: 'all' } })).status).toBe(200);

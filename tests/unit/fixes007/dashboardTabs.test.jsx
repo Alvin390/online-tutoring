@@ -49,7 +49,8 @@ function stubs() {
   vi.doMock('@features/dashboard/components/StatsCards', panel('stats'));
   vi.doMock('@features/dashboard/components/PendingApprovalsPanel', panel('approvals'));
   vi.doMock('@features/fees/components/FeeKpiCards', panel('fees'));
-  vi.doMock('@features/whatsapp/components/WhatsAppPanel', panel('whatsapp'));
+  vi.doMock('@features/sms/components/SmsComposer', panel('whatsapp'));
+  vi.doMock('@features/sms/components/MessagesArea', () => ({ default: ({ children }) => children({}) }));
   vi.doMock('@features/calendar/components/CalendarPanel', panel('calendar'));
   vi.doMock('@features/dashboard/components/SessionManager', panel('sessions'));
   vi.doMock('@features/dashboard/components/ClassLinkManager', panel('links'));
@@ -109,7 +110,7 @@ describe('addresses', () => {
 
   it('each tab shows only its own content, and marks itself current', async () => {
     await open('/dashboard/students');
-    for (const [name, panel] of [['Approvals', 'approvals'], ['Fees', 'fees'], ['WhatsApp', 'whatsapp'], ['Calendar', 'calendar'], ['Setup', 'sessions']]) {
+    for (const [name, panel] of [['Approvals', 'approvals'], ['Fees', 'fees'], ['Messages', 'whatsapp'], ['Calendar', 'calendar'], ['Setup', 'sessions']]) {
       await clickTab(name);
       expect(await screen.findByTestId(`panel-${panel}`)).toBeTruthy();
       expect(screen.queryByTestId('panel-students')).toBeNull();
@@ -124,7 +125,7 @@ describe('the data stays in the frame', () => {
     await open('/dashboard/students');
     await screen.findByTestId('panel-students');
     expect(hook.mounts).toBe(1);
-    for (const name of ['Approvals', 'Fees', 'WhatsApp', 'Calendar', 'Setup', 'Students']) {
+    for (const name of ['Approvals', 'Fees', 'Messages', 'Calendar', 'Setup', 'Students']) {
       await clickTab(name);
       await screen.findByRole('navigation', { name: 'Dashboard' });
     }
@@ -152,7 +153,7 @@ describe('which tabs show', () => {
     expect(await screen.findByTestId('panel-students')).toBeTruthy();
     expect(probe.location.pathname).toBe('/dashboard/students');
     const names = within(nav()).getAllByRole('link').map((a) => a.textContent.trim());
-    expect(names).toEqual(['Students', 'Fees', 'WhatsApp', 'Staff', 'Setup']); // 007Fixes / 10: Staff is always shown
+    expect(names).toEqual(['Students', 'Fees', 'Messages', 'Staff', 'Setup']); // 007Fixes / 10: Staff is always shown
   });
 
   // Release A browser pass: a refresh on Approvals sometimes landed on
