@@ -279,7 +279,7 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
   if (sent.length) await addPending(db, campaignId, nowMs + DELIVERY_WINDOW_MS);
   await Promise.all([
     lastBalance != null ? recordSmsBalance(lastBalance, { db, log }) : null,
-    recordSmsUsage({ db, uid: user.uid, units, cost, log }),
+    recordSmsUsage({ db, uid: user.uid, email: user.email ?? null, units, cost, log }),
   ]);
 
   const after = (await ref.get()).data();

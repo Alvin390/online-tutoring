@@ -7,7 +7,7 @@ import { PLACEHOLDERS, STARTERS, stripUnsupported } from '../smsDraft';
  * every emoji (or other character SMS can't carry) removed as it is typed,
  * with a one-line notice saying so.
  */
-export default function MessageBox({ value, onChange, sms = true, feesOn = false, schoolName = '', children }) {
+export default function MessageBox({ value, onChange, sms = true, feesOn = false, schoolName = '', starters: showStarters = true, children }) {
   const ref = useRef(null);
   const [removed, setRemoved] = useState([]);
   const buttons = PLACEHOLDERS.filter((p) => (!p.fees || feesOn) && (p.token !== 'schoolName' || schoolName));
@@ -65,7 +65,7 @@ export default function MessageBox({ value, onChange, sms = true, feesOn = false
         </div>
       )}
       {children}
-      {!value.trim() && (
+      {showStarters && !value.trim() && (
         <div className="mt-2">
           <span className="small text-muted me-2">Start from:</span>
           {starters.map((s) => (

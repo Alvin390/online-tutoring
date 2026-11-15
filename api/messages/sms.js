@@ -162,7 +162,7 @@ export default createHandler({
       }, { merge: true });
       await Promise.all([
         recordSmsBalance(sent.balance, { db, log }),
-        recordSmsUsage({ db, uid: user.uid, units: sent.units || 1, cost: sent.cost || SMS_RATE_KES, log }),
+        recordSmsUsage({ db, uid: user.uid, email: user.email ?? null, units: sent.units || 1, cost: sent.cost || SMS_RATE_KES, log }),
       ]);
       return { sent: true, phoneEnding: body.phone.slice(-3), sender: sent.senderId ?? 'HASHBACKSMS' };
     }

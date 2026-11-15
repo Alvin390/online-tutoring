@@ -1,6 +1,7 @@
 import health from '../api/health.js';
 
 import adminNotifications from '../api/admin/notifications.js';
+import adminSms from '../api/admin/sms.js';
 import adminReports from '../api/admin/reports.js';
 import adminSetRole from '../api/admin/setRole.js';
 import adminUsers from '../api/admin/users.js';
@@ -86,6 +87,7 @@ export const STATIC_ROUTES = {
   '/api/health': health,
 
   '/api/admin/notifications': adminNotifications,
+  '/api/admin/sms': adminSms,
   '/api/admin/reports': adminReports,
   '/api/admin/setRole': adminSetRole,
   '/api/admin/users': adminUsers,

@@ -127,7 +127,7 @@ export async function recordSmsBalance(balance, { log, db = getDb(), nowMs = Dat
 }
 
 /** Adds what a teacher sent: units and KES, in total and for this month. Best-effort. */
-export async function recordSmsUsage({ uid, units, cost, log, db = getDb(), nowMs = Date.now() }) {
+export async function recordSmsUsage({ uid, email = null, units, cost, log, db = getDb(), nowMs = Date.now() }) {
   if (!uid || !(units > 0)) return;
   const month = monthKey(nowMs);
   try {
@@ -137,6 +137,7 @@ export async function recordSmsUsage({ uid, units, cost, log, db = getDb(), nowM
           units: FieldValue.increment(units),
           cost: FieldValue.increment(cost),
           lastAt: new Date(nowMs),
+          ...(email ? { email } : {}),
           months: { [month]: { units: FieldValue.increment(units), cost: FieldValue.increment(cost) } },
         },
       },
