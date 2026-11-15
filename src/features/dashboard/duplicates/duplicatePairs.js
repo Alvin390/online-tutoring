@@ -75,6 +75,9 @@ export function reasonLabels(reasons) {
     receipt: 'Same receipt',
     code: 'Same M-Pesa code',
     number: 'Numbers 1–2 digits apart',
+    // 008Fixes / 06b
+    name: 'Same name and class',
+    payment: 'Same M-Pesa payment, different student',
     linked: 'Linked when registering',
   }[r] ?? r));
 }
@@ -83,6 +86,10 @@ export function reasonLabels(reasons) {
 export function matchedLine(held, original) {
   if (!original) return `Possible duplicate of a registration with a number ending ${suffixOf(held?.duplicateOf)}`;
   const reasons = matchReasons(held, original);
+  // 008Fixes / 06b: one M-Pesa payment used by a different student.
+  if (reasons.includes('payment')) {
+    return `Same M-Pesa payment as ${original.studentName} (number ending ${suffixOf(phoneOf(original))})`;
+  }
   const what = reasons.includes('receipt') ? 'Same name, class and receipt'
     : reasons.includes('code') ? 'Same name, class and M-Pesa code'
       : 'Same name and class';

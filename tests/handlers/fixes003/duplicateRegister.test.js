@@ -56,18 +56,21 @@ describe('registering', () => {
     expect(doc).toMatchObject({ approvalStatus: 'pending', duplicateHold: true, duplicateOf: ORIGINAL });
   });
 
-  it('a different class registers normally', async () => {
+  // 008Fixes / 06b: registration compares within the class only (one query,
+  // as before). The same payment in another class is shown in the Duplicates
+  // panel, which looks at the whole session.
+  it('a different class registers normally (the panel, not registration, catches a shared payment across classes)', async () => {
     const res = await register(phoneN(7101), { class: 'Grade 8' });
     expect(res.status).toBe(200);
     expect(res.body.held).toBeUndefined();
     expect((await stored(phoneN(7101))).duplicateHold).toBeUndefined();
   });
 
-  it('a different receipt but a number 1 digit off: held; 3+ digits off: normal', async () => {
+  it('a different receipt but a number 1 digit off: held; 3+ digits off: also held now (008Fixes / 06b: same name and class)', async () => {
     const near = await register(phoneN(7001), { receiptMessage: 'RZ98765432 Confirmed. Ksh1,000.00' });
     expect(near.body.held).toBe('duplicate');
     const far = await register(phoneN(7432), { receiptMessage: 'RZ98765433 Confirmed. Ksh1,000.00' });
-    expect(far.body.held).toBeUndefined();
+    expect(far.body.held).toBe('duplicate');
   });
 
   it('costs one more subrequest than a plain registration, and no more', async () => {

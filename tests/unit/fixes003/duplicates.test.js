@@ -53,10 +53,19 @@ describe('isDuplicatePair', () => {
   it('a different receipt but a number 1 digit off', () => {
     expect(matchReasons(s(), s({ parentPhone: '+254711000007', receiptMessage: 'RZ98765432 Confirmed.' }))).toEqual(['number']);
   });
-  it('not a duplicate: a different class, a different name, or nothing else in common', () => {
-    expect(isDuplicatePair(s(), s({ parentPhone: '+254799888777', class: 'Grade 8' }))).toBe(false);
-    expect(isDuplicatePair(s(), s({ parentPhone: '+254799888777', studentName: 'Amina Otieno' }))).toBe(false);
-    expect(isDuplicatePair(s(), s({ parentPhone: '+254799888777', receiptMessage: 'RZ98765432 Confirmed.' }))).toBe(false);
+  // 008Fixes / 06b (owner, 2026-11-15: "absolutely no duplicates in
+  // sessions"): one M-Pesa payment on two registrations is a duplicate
+  // whatever the names or classes, and the same name in the same class is a
+  // duplicate on its own. tests/unit/fixes008/duplicateRuleA2.test.js has the rest.
+  it('008Fixes / 06b: the same payment in another class or under another name; the same name and class alone', () => {
+    expect(matchReasons(s(), s({ parentPhone: '+254799888777', class: 'Grade 8' }))).toEqual(['payment']);
+    expect(matchReasons(s(), s({ parentPhone: '+254799888777', studentName: 'Amina Otieno' }))).toEqual(['payment']);
+    expect(matchReasons(s(), s({ parentPhone: '+254799888777', receiptMessage: 'RZ98765432 Confirmed.' }))).toEqual(['name']);
+  });
+  it('not a duplicate: a different class or name AND a different payment; the same record', () => {
+    const other = { parentPhone: '+254799888777', receiptMessage: 'RZ98765432 Confirmed.' };
+    expect(isDuplicatePair(s(), s({ ...other, class: 'Grade 8' }))).toBe(false);
+    expect(isDuplicatePair(s(), s({ ...other, studentName: 'Amina Otieno' }))).toBe(false);
     expect(isDuplicatePair(s(), s())).toBe(false); // the same record
   });
   it('a pair the teacher kept is never flagged again', () => {
@@ -72,11 +81,12 @@ describe('findDuplicateGroups', () => {
       s(),
       s({ parentPhone: '+254711000002', receiptMessage: 'other text' }), // number
       s({ parentPhone: '+254799888777' }), // receipt
-      s({ parentPhone: '+254700000000', studentName: 'Brian' }),
+      s({ parentPhone: '+254700000000', studentName: 'Brian' }), // 008Fixes / 06b: the same payment
+      s({ parentPhone: '+254700000099', studentName: 'Kevin', receiptMessage: 'cash' }), // nothing in common
     ];
     const groups = findDuplicateGroups(students);
     expect(groups).toHaveLength(1);
-    expect(groups[0].students.map((x) => x.parentPhone).sort()).toEqual(['+254711000001', '+254711000002', '+254799888777']);
+    expect(groups[0].students.map((x) => x.parentPhone).sort()).toEqual(['+254700000000', '+254711000001', '+254711000002', '+254799888777']);
     expect(groups[0].pairs.length).toBeGreaterThanOrEqual(2);
   });
   it('500 students in under 5 ms', () => {

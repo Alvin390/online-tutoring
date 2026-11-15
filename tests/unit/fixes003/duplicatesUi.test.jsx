@@ -201,7 +201,12 @@ describe('the student list', () => {
 });
 
 describe('speed', () => {
-  it('duplicatePairs on 5,000 students under 10 ms (warm)', async () => {
+  // 008Fixes / 06b raised this from 10 to 25 ms, deliberately: the owner's
+  // wider rule (2026-11-15) must look at every record's payment code and name
+  // words, and this roster's 500 same-name, same-class pairs are now real
+  // pairs (0 before). Measured: ~18 ms here; the school's real roster (211) is
+  // about 1 ms (issues/008Fixes/plan/completed/phase-06b-duplicate-rule.md).
+  it('duplicatePairs on 5,000 students under 25 ms (warm)', async () => {
     const { duplicatePairs } = await import('@features/dashboard/duplicates/duplicatePairs');
     const many = Array.from({ length: 5000 }, (_, i) => kid(`+2547${String(10000000 + i * 13).slice(0, 8)}`, `Student ${i % 4500}`, { class: `Grade ${i % 5}`, receiptMessage: `R${String(i).padStart(9, '0')} x` }));
     duplicatePairs([...many]);
@@ -214,6 +219,6 @@ describe('speed', () => {
       duplicatePairs(fresh);
       best = Math.min(best, performance.now() - t0);
     }
-    expect(best).toBeLessThan(10);
+    expect(best).toBeLessThan(25);
   });
 });
