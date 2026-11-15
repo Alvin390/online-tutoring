@@ -2,10 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, renderHook, within } from '@testing-library/react';
 
 /**
- * 003Fixes / 09 — after a bulk block, Recent actions offers "WhatsApp parents"
- * (Gold + whatsapp.advanced): the WhatsApp panel opens with exactly the blocked
- * students' parents and an editable draft. Optional: nothing is sent unless
- * the teacher starts the campaign as usual.
+ * 003Fixes / 09 — after a bulk block, Recent actions offers to message the
+ * blocked students' parents (Gold + whatsapp.advanced): the Messages tab opens
+ * with exactly those parents and an editable draft. Optional: nothing is sent
+ * unless the teacher sends it.
+ * 008Fixes / 11: by SMS ("SMS parents"), so only with sms.enabled on; the old
+ * WhatsApp panel is removed (the composer's handling of the draft is in
+ * tests/unit/fixes008/composer.test.jsx).
  */
 
 const api = vi.hoisted(() => ({
@@ -20,11 +23,13 @@ const wa = vi.hoisted(() => ({
 vi.mock('@services/api/whatsapp', () => wa);
 const who = vi.hoisted(() => ({ tierRank: 3 }));
 vi.mock('@features/auth/context/AuthContext', () => ({ useAuthState: () => ({ tierRank: who.tierRank, isSuperadmin: false }) }));
-vi.mock('@shared/config/FlagsContext', () => ({ useFlag: () => true }));
+const flags = vi.hoisted(() => ({ 'sms.enabled': true, 'whatsapp.advanced': true }));
+vi.mock('@shared/config/FlagsContext', () => ({ useFlag: (k) => flags[k] === true }));
 vi.mock('@/context/ToastContext', () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }), useOptionalToast: () => null }));
 
 beforeEach(() => {
   who.tierRank = 3;
+  flags['sms.enabled'] = true;
   sessionStorage.clear();
   for (const fn of [...Object.values(api), ...Object.values(wa)]) if (fn?.mockReset) fn.mockReset();
   wa.listCampaigns.mockResolvedValue({ campaigns: [] });
@@ -44,11 +49,11 @@ async function openRecent() {
   return { items: await screen.findAllByTestId('recent-action'), onClose };
 }
 
-describe('Recent actions → WhatsApp parents', () => {
+describe('Recent actions → SMS parents', () => {
   it('offered on a block (not an unblock); prepares the parents of exactly those students, then closes', async () => {
     const { items, onClose } = await openRecent();
-    expect(within(items[1]).queryByRole('button', { name: /WhatsApp parents/ })).toBeNull();
-    await act(async () => { fireEvent.click(within(items[0]).getByRole('button', { name: /WhatsApp parents/ })); });
+    expect(within(items[1]).queryByRole('button', { name: /SMS parents/ })).toBeNull();
+    await act(async () => { fireEvent.click(within(items[0]).getByRole('button', { name: /SMS parents/ })); });
     expect(api.listBulkItems).toHaveBeenCalledWith('B1');
     const { useWhatsappPreset } = await import('@features/whatsapp/whatsappPreset');
     const { result } = renderHook(() => useWhatsappPreset());
@@ -60,32 +65,12 @@ describe('Recent actions → WhatsApp parents', () => {
   it('not offered below Gold', async () => {
     who.tierRank = 2;
     const { items } = await openRecent();
-    expect(within(items[0]).queryByRole('button', { name: /WhatsApp parents/ })).toBeNull();
-  });
-});
-
-describe('the WhatsApp panel with a preset', () => {
-  it('shows the prepared recipients and draft; starting sends exactly those (session, number) pairs', async () => {
-    wa.createCampaign.mockResolvedValue({ ok: true, campaignId: 'C1', recipientCount: 2 });
-    wa.getCampaign.mockResolvedValue({ campaign: { id: 'C1', status: 'in_progress' }, recipients: [] });
-    const { default: WhatsAppPanel } = await import('@features/whatsapp/components/WhatsAppPanel.jsx');
-    const preset = { title: 'Blocked students', template: 'Dear parent, {{studentName}}', filterValues: ['morning:+254711000001', 'evening:+254711000002'], note: 'of the students blocked by this action' };
-    render(<WhatsAppPanel preset={preset} />);
-    expect(screen.getByTestId('wa-preset-recipients').textContent).toMatch(/2 parents of the students blocked by this action/);
-    // No student list is fetched while the prepared list is shown.
-    expect(wa.getCampaignOptions).not.toHaveBeenCalled();
-    expect(screen.getByLabelText('Message').value).toBe('Dear parent, {{studentName}}');
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Review recipients/ })); });
-    expect(wa.createCampaign).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Blocked students',
-      filter: expect.objectContaining({ type: 'individual', values: ['morning:+254711000001', 'evening:+254711000002'] }),
-    }));
+    expect(within(items[0]).queryByRole('button', { name: /SMS parents/ })).toBeNull();
   });
 
-  it('"Choose students instead" clears the prepared list', async () => {
-    const { default: WhatsAppPanel } = await import('@features/whatsapp/components/WhatsAppPanel.jsx');
-    render(<WhatsAppPanel preset={{ title: 't', template: 'm', filterValues: ['morning:+254711000001'] }} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Choose students instead' }));
-    expect(screen.queryByTestId('wa-preset-recipients')).toBeNull();
+  it('not offered with SMS off (several parents at once need SMS)', async () => {
+    flags['sms.enabled'] = false;
+    const { items } = await openRecent();
+    expect(within(items[0]).queryByRole('button', { name: /parents/ })).toBeNull();
   });
 });

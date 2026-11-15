@@ -162,6 +162,7 @@ describe('the Staff tab', () => {
   it('shows S- numbers, "No staff number yet", and finds by S-number', async () => {
     vi.resetModules();
     vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: () => true }));
+    vi.doMock('@features/auth/context/AuthContext', () => ({ useAuthState: () => ({ tierRank: 3, isSuperadmin: false }) }));
     vi.doMock('@services/api/students', () => ({ unmarkStaff: vi.fn() }));
     const { default: StaffTab } = await import('@features/dashboard/tabs/StaffTab');
     const since = { toDate: () => new Date('2026-11-12T08:00:00Z') };
@@ -179,6 +180,7 @@ describe('the Staff tab', () => {
     await act(async () => { fireEvent.change(screen.getByLabelText('Search staff'), { target: { value: 'S-0042' } }); });
     expect(screen.getAllByTestId('staff-row')).toHaveLength(1);
     vi.doUnmock('@shared/config/FlagsContext');
+    vi.doUnmock('@features/auth/context/AuthContext');
     vi.doUnmock('@services/api/students');
   });
 });

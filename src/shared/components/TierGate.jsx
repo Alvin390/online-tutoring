@@ -23,7 +23,7 @@ import { ROUTES } from '@/routes/routeConfig';
  *
  * SHOWN, NOT HIDDEN. The locked panel is replaced by a prompt naming the
  * feature and the plan that carries it, rather than disappearing. That is the
- * same choice `WhatsAppPanel` already makes for its Gold controls, for the same
+ * same choice `SmsComposer` (formerly the WhatsApp panel) makes for its Gold controls, for the same
  * reason: a teacher who never sees a capability never buys it, and a dashboard
  * whose contents change shape between plans is hard to support ("what do you
  * mean, there's no Fees section?").

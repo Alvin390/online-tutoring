@@ -121,7 +121,7 @@ describe('a tab switch feels instant', () => {
       'src/features/dashboard/components/SessionManager.jsx',
       'src/features/dashboard/components/ClassLinkManager.jsx',
       'src/features/dashboard/components/PendingApprovalsPanel.jsx',
-      'src/features/whatsapp/components/WhatsAppPanel.jsx',
+      'src/features/sms/components/SmsComposer.jsx',
       'src/features/calendar/components/CalendarPanel.jsx',
     ]) {
       expect(readFileSync(rel, 'utf8'), rel).not.toMatch(/initial=\{\{ opacity: 0, y: \d+ \}\}/);

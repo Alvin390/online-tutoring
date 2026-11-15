@@ -7,6 +7,10 @@ import { tabPath, tabFromPath } from './dashboardTabs';
 const HelpFeedbackModal = lazy(() => import('@features/reports/components/HelpFeedbackModal'));
 
 const BAR_SLOTS = 4;
+// 008Fixes / 08: how long after leaving a field the bar comes back (keyboard
+// focus), and after the finger lifts when a tap left it.
+export const SHOW_AFTER_MS = 300;
+export const SHOW_AFTER_TAP_MS = 150;
 const TYPING = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=range]), textarea, select, [contenteditable="true"]';
 
 /**
@@ -39,13 +43,42 @@ export default function BottomNav({ tabs, waitingCount = 0, onLogout }) {
   useEffect(() => {
     const body = document.body;
     body.classList.add('has-bottom-nav');
-    const onFocusIn = (e) => { if (e.target?.matches?.(TYPING)) body.classList.add('is-typing'); };
-    const onFocusOut = () => body.classList.remove('is-typing');
+    // 008Fixes / 08: the bar comes back only once the tap that left the field
+    // is over. It used to return at the first touch, so a button near the
+    // bottom edge (e.g. "Send test" just below the phone field) was covered
+    // between finger down and up, and the tap missed it — or hit the bar.
+    let timer = null;
+    let pointerDown = false;
+    const show = () => { timer = null; body.classList.remove('is-typing'); };
+    const showSoon = (ms) => { clearTimeout(timer); timer = setTimeout(show, ms); };
+    const typingNow = () => Boolean(document.activeElement?.matches?.(TYPING));
+    const onFocusIn = (e) => {
+      if (!e.target?.matches?.(TYPING)) return;
+      clearTimeout(timer);
+      timer = null;
+      body.classList.add('is-typing');
+    };
+    const onFocusOut = () => {
+      if (pointerDown) return; // shown when the finger lifts (onPointerUp)
+      showSoon(SHOW_AFTER_MS);
+    };
+    const onPointerDown = () => { pointerDown = true; };
+    const onPointerUp = () => {
+      pointerDown = false;
+      if (body.classList.contains('is-typing') && !typingNow()) showSoon(SHOW_AFTER_TAP_MS);
+    };
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('pointerup', onPointerUp, true);
+    document.addEventListener('pointercancel', onPointerUp, true);
     return () => {
+      clearTimeout(timer);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('pointerup', onPointerUp, true);
+      document.removeEventListener('pointercancel', onPointerUp, true);
       body.classList.remove('has-bottom-nav', 'is-typing');
     };
   }, []);

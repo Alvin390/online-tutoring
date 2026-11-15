@@ -1,5 +1,6 @@
 import { useMemo, useState, lazy, Suspense } from 'react';
 import { useFlag } from '@shared/config/FlagsContext';
+import { useAuthState } from '@features/auth/context/AuthContext';
 import Modal from '@components/ui/Modal';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
@@ -9,6 +10,8 @@ import { unmarkStaff } from '@services/api/students';
 
 // 008Fixes / 05: the staff number, Change, "Allow again" (lazy, shared with the drawer).
 const AdmissionActions = lazy(() => import('../components/admission/AdmissionActions'));
+// 008Fixes / 10: SMS to one staff member (lazy; only with sms.enabled).
+const StaffSmsModal = lazy(() => import('@features/sms/components/StaffSmsModal'));
 
 /**
  * Staff — 007Fixes / 10 (owner, 2026-11-11): "if they are teachers, there's
@@ -88,6 +91,11 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
   const numbers = useFlag('checkin.admissionNumbers');
+  const smsOn = useFlag('sms.enabled');
+  const { tierRank, isSuperadmin } = useAuthState();
+  // SMS is Silver, as on the Messages tab (api/messages/sms.js).
+  const canSms = smsOn && (isSuperadmin || (tierRank ?? 0) >= 2);
+  const [texting, setTexting] = useState(null);
 
   const names = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s.name ?? s.id])), [sessions]);
   const docs = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions]);
@@ -186,6 +194,12 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
                     )}
                   </div>
                   <div className="d-flex flex-wrap gap-1">
+                    {canSms && (
+                      <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => setTexting(p)}
+                        aria-label={`SMS ${p.studentName || 'them'}`}>
+                        <i className="bi bi-chat-text me-1" aria-hidden="true" />SMS
+                      </button>
+                    )}
                     {wa.valid && (
                       <a className="btn btn-sm btn-outline-success" href={wa.url} target="_blank" rel="noopener noreferrer"
                         aria-label={`Message ${p.studentName || 'them'} on WhatsApp`}>
@@ -218,6 +232,12 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
           numbers={numbers}
           onSave={(form) => onEdit(editing.__session, form.phone.trim(), { studentName: form.studentName, subjects: form.subjects }, editing.id)}
         />
+      )}
+
+      {texting && (
+        <Suspense fallback={null}>
+          <StaffSmsModal person={texting} session={texting.__session} sessionName={names[texting.__session] ?? texting.__session} onClose={() => setTexting(null)} />
+        </Suspense>
       )}
 
       {backing && (

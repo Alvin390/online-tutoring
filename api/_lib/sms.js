@@ -1,5 +1,3 @@
-import { getDb } from './firebaseAdmin.js';
-
 /**
  * HashBack SMS client — 008Fixes / 01 (owner, 2026-11-14: SMS through
  * HashBack, the owner's account, the shared sender HASHBACKSMS).
@@ -17,7 +15,17 @@ import { getDb } from './firebaseAdmin.js';
  * Nothing here logs a phone number or a message body.
  */
 
-const BASE = 'https://api.hashback.co.ke/sms';
+const HASHBACK = 'https://api.hashback.co.ke/sms';
+
+/**
+ * Where requests go: HashBack, or — for local browser checks only — a fake on
+ * this machine (HASHBACK_BASE_URL=http://127.0.0.1:…). Any other override is
+ * ignored, so a misconfigured deployment can never send the key elsewhere.
+ */
+function baseUrl() {
+  const override = process.env.HASHBACK_BASE_URL;
+  return override && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(override) ? override.replace(/\/$/, '') : HASHBACK;
+}
 
 export class SmsError extends Error {
   constructor(code, message, { status = null, retryAfter = null } = {}) {
@@ -36,7 +44,7 @@ async function request(path, { method = 'GET', body } = {}) {
   if (!smsAvailable()) throw new SmsError('sms_unavailable', 'SMS is not configured.');
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(`${baseUrl()}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${process.env.HASHBACK_API_KEY}`,
@@ -69,6 +77,7 @@ export async function sendSms({ to, message }) {
     cost: Number(json.cost) || 0,
     balance: Number.isFinite(Number(json.balance)) ? Number(json.balance) : null,
     status: json.status ?? null,
+    senderId: json.sender_id ?? null,
   };
 }
 
@@ -81,13 +90,6 @@ export const smsMessages = ({ limit = 50, offset = 0 } = {}) => request(`/messag
 
 /**
  * The wallet balance every HashBack reply carries, kept for the cost tracker
- * (Release B builds the alerts on it). Best-effort: never fails a send.
+ * and the credit alerts — 008Fixes / 07 moved it to api/_lib/smsCredit.js.
  */
-export async function recordSmsBalance(balance, { log } = {}) {
-  if (!Number.isFinite(balance)) return;
-  try {
-    await getDb().doc('config/smsBalance').set({ balance, at: new Date() }, { merge: true });
-  } catch (err) {
-    log?.warn?.('SMS balance not recorded', { code: err?.code });
-  }
-}
+export { recordSmsBalance } from './smsCredit.js';

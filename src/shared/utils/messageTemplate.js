@@ -2,7 +2,11 @@
  * Message templating — Phase 08 D3.
  *
  * `{{studentName}}`, `{{class}}`, `{{balance}}`, `{{dueDate}}`,
- * `{{sessionName}}`, resolved per recipient.
+ * `{{sessionName}}`, `{{schoolName}}` (008Fixes), resolved per recipient.
+ *
+ * PARITY (008Fixes / 07): api/_lib/messageTemplate.js renders SMS on the
+ * server with the same variables; tests/unit/fixes008/smsText.test.js keeps
+ * the two renders identical.
  *
  * `{{balance}}` is why this phase depends on Phase 06. "Dear parent, the
  * balance for {{studentName}} is KES {{balance}}, due {{dueDate}}" is the
@@ -29,7 +33,9 @@ function formatDate(value) {
       ? value.toMillis()
       : Date.parse(value);
   if (Number.isNaN(ms)) return '';
-  return new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
+  // 008Fixes / 09: in Nairobi time on both sides; the Worker runs in UTC, so
+  // a due date saved at midnight in Nairobi showed as the day before.
+  return new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Nairobi' });
 }
 
 /**
@@ -66,6 +72,14 @@ export const VARIABLES = [
     label: 'Session',
     example: 'Morning Session',
     resolve: (r) => r.sessionName ?? r.session ?? '',
+  },
+  // 008Fixes / 08: the school's name from the SMS setup (the shared sender
+  // HASHBACKSMS does not say who is writing).
+  {
+    token: 'schoolName',
+    label: 'School name',
+    example: 'Focus Online School',
+    resolve: (r) => r.schoolName ?? '',
   },
 ];
 

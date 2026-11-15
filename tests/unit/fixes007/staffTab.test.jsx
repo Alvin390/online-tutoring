@@ -122,26 +122,11 @@ describe('what can be done to one', () => {
   });
 });
 
-describe('WhatsApp: Send to Staff', () => {
-  it('"Staff" is a choice; it sends to all staff (no list to tick) as filter type "staff"', async () => {
-    wa.createCampaign.mockResolvedValue({ ok: true, campaignId: 'C1', recipientCount: 3 });
-    wa.getCampaign.mockResolvedValue({ campaign: { id: 'C1', status: 'in_progress' }, recipients: [] });
-    const { default: WhatsAppPanel } = await import('@features/whatsapp/components/WhatsAppPanel.jsx');
-    render(<WhatsAppPanel />);
-    const sendTo = screen.getByDisplayValue('All students');
-    expect([...sendTo.options].map((o) => o.textContent)).toContain('Staff (teachers)');
-    fireEvent.change(sendTo, { target: { value: 'staff' } });
-    expect(screen.queryByText(/Choose at least one/)).toBeNull();
-    expect(wa.getCampaignOptions).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText(/Campaign name/), { target: { value: 'Staff meeting' } });
-    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Staff meeting at 5 pm.' } });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Review recipients/ })); });
-    expect(wa.createCampaign).toHaveBeenCalledWith(expect.objectContaining({ filter: expect.objectContaining({ type: 'staff', values: [] }) }));
-  });
-});
+// 008Fixes / 11: the old WhatsApp panel (and its "Send to Staff") is removed;
+// sending to staff by SMS is covered in tests/unit/fixes008/composer.test.jsx.
 
 describe('the tab', () => {
-  it('Staff sits after WhatsApp, always shown; on a phone it is under More', async () => {
+  it('Staff sits after Messages, always shown; on a phone it is under More', async () => {
     const { DASHBOARD_TABS, visibleTabs } = await import('@features/dashboard/nav/dashboardTabs');
     expect(DASHBOARD_TABS.map((t) => t.id)).toEqual(['students', 'approvals', 'fees', 'whatsapp', 'staff', 'calendar', 'setup']);
     expect(visibleTabs(() => false).map((t) => t.id)).toEqual(['students', 'staff', 'setup']);

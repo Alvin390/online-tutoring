@@ -1,6 +1,7 @@
 import health from '../api/health.js';
 
 import adminNotifications from '../api/admin/notifications.js';
+import adminSms from '../api/admin/sms.js';
 import adminReports from '../api/admin/reports.js';
 import adminSetRole from '../api/admin/setRole.js';
 import adminUsers from '../api/admin/users.js';
@@ -51,6 +52,8 @@ import studentNumber from '../api/student/number.js';
 import studentsScheduled from '../api/students/scheduled.js';
 import studentsDuplicates from '../api/students/duplicates.js';
 import cronScheduledBlocksSweep from '../api/cron/scheduledBlocksSweep.js';
+import cronSmsDeliverySweep from '../api/cron/smsDeliverySweep.js';
+import messagesSms from '../api/messages/sms.js';
 import studentRequestCode from '../api/student/requestCode.js';
 import studentResubmit from '../api/student/resubmit.js';
 import studentVerifyCode from '../api/student/verifyCode.js';
@@ -84,6 +87,7 @@ export const STATIC_ROUTES = {
   '/api/health': health,
 
   '/api/admin/notifications': adminNotifications,
+  '/api/admin/sms': adminSms,
   '/api/admin/reports': adminReports,
   '/api/admin/setRole': adminSetRole,
   '/api/admin/users': adminUsers,
@@ -142,6 +146,9 @@ export const STATIC_ROUTES = {
   // 003Fixes / 12: decline / merge / keep both / allow a retired number.
   '/api/students/duplicates': studentsDuplicates,
   '/api/cron/scheduledBlocksSweep': cronScheduledBlocksSweep,
+  // 008Fixes / 07: SMS.
+  '/api/cron/smsDeliverySweep': cronSmsDeliverySweep,
+  '/api/messages/sms': messagesSms,
   '/api/student/requestCode': studentRequestCode,
   '/api/student/resubmit': studentResubmit,
   '/api/student/verifyCode': studentVerifyCode,
@@ -195,4 +202,5 @@ export const CRON_HANDLERS = {
   mpesaReconcile: cronMpesaReconcile,
   notificationsSweep: cronNotificationsSweep,
   scheduledBlocksSweep: cronScheduledBlocksSweep,
+  smsDeliverySweep: cronSmsDeliverySweep,
 };

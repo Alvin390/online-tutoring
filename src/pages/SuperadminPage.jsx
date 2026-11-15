@@ -7,6 +7,8 @@ const AuditLogViewer = lazy(() => import('@features/audit/components/AuditLogVie
 const UserManager = lazy(() => import('@features/admin/components/UserManager'));
 const ReportsInbox = lazy(() => import('@features/reports/components/ReportsInbox'));
 const NotificationsSettingsCard = lazy(() => import('@features/reports/components/NotificationsSettingsCard'));
+// 008Fixes / 10: the SMS wallet, usage per teacher and credit alerts.
+const SmsCostCard = lazy(() => import('@features/sms/components/SmsCostCard'));
 
 // Phase 13 / 06: bugs and feature requests are separate inboxes. `?tab=` is
 // what the link in every alert email targets, with `&report=<id>`.
@@ -15,6 +17,7 @@ const TABS = [
   { id: 'bugs', label: 'Bug reports', icon: 'bi-bug', type: 'bug' },
   { id: 'features', label: 'Feature requests', icon: 'bi-lightbulb', type: 'feature' },
   { id: 'audit', label: 'Audit log', icon: 'bi-shield-check' },
+  { id: 'sms', label: 'SMS', icon: 'bi-chat-text' },
   { id: 'settings', label: 'Settings', icon: 'bi-gear' },
 ];
 const TAB_IDS = new Set(TABS.map((t) => t.id));
@@ -266,6 +269,7 @@ export default function SuperadminPage() {
           <ReportsInbox key="feature" type="feature" initialReportId={requestedTab === 'features' ? linkedReport : null} onCountsChange={onCountsChange} />
         )}
         {tab === 'audit' && <AuditLogViewer />}
+        {tab === 'sms' && <SmsCostCard />}
         {tab === 'settings' && <NotificationsSettingsCard />}
       </Suspense>
     </div>

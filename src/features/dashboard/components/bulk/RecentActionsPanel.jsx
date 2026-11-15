@@ -37,11 +37,12 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
   const [confirming, setConfirming] = useState(null);
   const [working, setWorking] = useState(null);
   const [now, setNow] = useState(() => Date.now());
-  // 003Fixes / 09: messaging chosen students is Gold + whatsapp.advanced, as in the WhatsApp panel.
+  // 003Fixes / 09: messaging chosen students is Gold + whatsapp.advanced.
+  // 008Fixes / 11: by SMS (several parents at once), so only with SMS on.
   const { tierRank, isSuperadmin, user } = useAuthState();
-  const broadcast = useFlag('whatsapp.broadcast');
+  const smsOn = useFlag('sms.enabled');
   const advanced = useFlag('whatsapp.advanced');
-  const canMessage = broadcast && advanced && (isSuperadmin || (tierRank ?? 0) >= 3);
+  const canMessage = smsOn && advanced && (isSuperadmin || (tierRank ?? 0) >= 3);
   const [preparing, setPreparing] = useState(null);
 
   const messageParents = async (action) => {
@@ -133,8 +134,8 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
                   </div>
                 </div>
                 {canMessage && a.action === 'block' && (a.counts?.done ?? 0) > 0 && (
-                  <button type="button" className="btn btn-sm btn-outline-success" onClick={() => messageParents(a)} disabled={Boolean(working) || preparing === a.id}>
-                    <i className="bi bi-whatsapp me-1" aria-hidden="true" />WhatsApp parents
+                  <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => messageParents(a)} disabled={Boolean(working) || preparing === a.id}>
+                    <i className="bi bi-chat-text me-1" aria-hidden="true" />SMS parents
                   </button>
                 )}
                 {canUndo && confirming !== a.id && working?.id !== a.id && (

@@ -28,7 +28,7 @@ afterEach(() => { vi.unstubAllGlobals(); delete process.env.HASHBACK_API_KEY; })
 describe('sending', () => {
   it('POSTs to /sms/send with the Bearer key and returns id, units, cost, balance', async () => {
     const out = await sms.sendSms({ to: '+254712345678', message: 'Your code is 123456.' });
-    expect(out).toEqual({ id: 'abc', units: 1, cost: 0.35, balance: 412.6, status: 'sent' });
+    expect(out).toEqual({ id: 'abc', units: 1, cost: 0.35, balance: 412.6, status: 'sent', senderId: null });
     expect(calls[0].url).toBe('https://api.hashback.co.ke/sms/send');
     expect(calls[0].init.method).toBe('POST');
     expect(calls[0].init.headers.Authorization).toBe('Bearer hb_unit_only');
@@ -43,6 +43,18 @@ describe('sending', () => {
     await expect(sms.sendSms({ to: '+254712345678', message: 'x' })).rejects.toMatchObject({ code: 'sms_unavailable' });
     expect(calls).toHaveLength(0);
     expect(sms.smsAvailable()).toBe(false);
+  });
+});
+
+describe('where requests go (008Fixes / 08)', () => {
+  it('a local fake on this machine may stand in; any other address is ignored', async () => {
+    process.env.HASHBACK_BASE_URL = 'http://127.0.0.1:8790/sms';
+    await sms.sendSms({ to: '0712345678', message: 'x' });
+    expect(calls.at(-1).url).toBe('http://127.0.0.1:8790/sms/send');
+    process.env.HASHBACK_BASE_URL = 'https://elsewhere.example/sms';
+    await sms.sendSms({ to: '0712345678', message: 'x' });
+    expect(calls.at(-1).url).toBe('https://api.hashback.co.ke/sms/send');
+    delete process.env.HASHBACK_BASE_URL;
   });
 });
 
