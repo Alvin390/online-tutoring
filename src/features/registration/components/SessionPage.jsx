@@ -10,7 +10,7 @@ import SuccessScreen from './SuccessScreen';
 import { useRegistration } from '../hooks/useRegistration';
 import { useFlag } from '@shared/config/FlagsContext';
 import { resolveStudentGate, GATE } from '@utils/studentGate';
-import { retiredMessage } from '@utils/duplicates';
+import { retiredMessage } from '@utils/retiredMessage';
 import { providerLabel } from '@utils/classLink';
 import { formatSchedule, formatTime } from '@utils/formatSchedule';
 import { addFlowBreadcrumb, reportApiFailure } from '@utils/monitoring';

@@ -3,53 +3,72 @@ import * as client from '../../../src/shared/utils/duplicates.js';
 import * as server from '../../../api/_lib/duplicates.js';
 
 /**
- * 006Fixes / 00 — findDuplicateGroups was made fast (each student normalised
- * once per bucket; grouping by index). Its result must stay EXACTLY what the
- * rule says: every pair through matchReasons, connected into groups. This
- * reference is the pre-006 algorithm, written plainly.
+ * 006Fixes / 00 — findDuplicateGroups was made fast. Its GROUPS must stay
+ * exactly what the rule says: the records connected by matchReasons.
+ *
+ * 008Fixes / 06b: pairs now cross name buckets (one M-Pesa payment on two
+ * students; one name inside another), and name matches list only the pairs
+ * that connect a group (all of them was quadratic). So the reference checks:
+ *   - the groups (members, in roster order) are exactly the connected sets
+ *     of EVERY pair of non-staff records through matchReasons;
+ *   - every listed pair is a real match, with matchReasons' own reasons;
+ *   - every pair sharing an M-Pesa code (that matches) is listed;
+ *   - each group's listed pairs connect all its members.
  */
-function reference(lib, students) {
-  const buckets = new Map();
-  for (const s of students ?? []) {
-    const name = lib.normaliseName(s?.studentName);
-    if (!name) continue;
-    const key = `${name}|${s.class ?? ''}`;
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(s);
+function components(lib, students) {
+  const list = (students ?? []).filter((s) => s && s.staff !== true);
+  const parent = list.map((_, i) => i);
+  const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
+  const linked = new Set();
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      if (!lib.matchReasons(list[i], list[j]).length) continue;
+      linked.add(i).add(j);
+      const a = root(i);
+      const b = root(j);
+      if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
+    }
   }
-  const groups = [];
-  for (const bucket of buckets.values()) {
-    if (bucket.length < 2) continue;
-    const pairs = [];
-    const parent = bucket.map((_, i) => i);
-    const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
-    for (let i = 0; i < bucket.length; i += 1) {
-      for (let j = i + 1; j < bucket.length; j += 1) {
-        const reasons = lib.matchReasons(bucket[i], bucket[j]);
-        if (!reasons.length) continue;
-        pairs.push({ a: bucket[i], b: bucket[j], reasons });
-        parent[root(j)] = root(i);
+  const groups = new Map();
+  list.forEach((s, i) => {
+    if (!linked.has(i)) return;
+    const r = root(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(s.id);
+  });
+  return [...groups.values()];
+}
+
+const codeKey = (lib, text) => (lib.mpesaCode(text) ?? '').replace(/O/g, '0');
+
+function checkGroups(lib, students) {
+  const groups = lib.findDuplicateGroups(students);
+  expect(groups.map((g) => g.students.map((s) => s.id))).toEqual(components(lib, students));
+  const listed = new Set();
+  for (const g of groups) {
+    const ids = new Set(g.students.map((s) => s.id));
+    const parent = new Map(g.students.map((s) => [s.id, s.id]));
+    const root = (x) => (parent.get(x) === x ? x : root(parent.get(x)));
+    for (const p of g.pairs) {
+      expect(ids.has(p.a.id) && ids.has(p.b.id)).toBe(true);
+      expect(p.reasons).toEqual(lib.matchReasons(p.a, p.b));
+      expect(p.reasons.length).toBeGreaterThan(0);
+      listed.add(`${p.a.id}|${p.b.id}`).add(`${p.b.id}|${p.a.id}`);
+      parent.set(root(p.a.id), root(p.b.id));
+    }
+    expect(new Set(g.students.map((s) => root(s.id))).size).toBe(1); // connected
+  }
+  const list = (students ?? []).filter((s) => s && s.staff !== true);
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      const code = codeKey(lib, list[i].receiptMessage);
+      if (code && code === codeKey(lib, list[j].receiptMessage) && lib.matchReasons(list[i], list[j]).length) {
+        expect(listed.has(`${list[i].id}|${list[j].id}`)).toBe(true);
       }
     }
-    if (!pairs.length) continue;
-    const byRoot = new Map();
-    bucket.forEach((s, i) => {
-      if (!pairs.some((p) => p.a === s || p.b === s)) return;
-      const r = root(i);
-      if (!byRoot.has(r)) byRoot.set(r, { students: [], pairs: [] });
-      byRoot.get(r).students.push(s);
-    });
-    for (const p of pairs) byRoot.get(root(bucket.indexOf(p.a))).pairs.push(p);
-    groups.push(...byRoot.values());
   }
   return groups;
 }
-
-/** Comparable shape: ids instead of object identity. */
-const shape = (groups) => groups.map((g) => ({
-  students: g.students.map((s) => s.id),
-  pairs: g.pairs.map((p) => [p.a.id, p.b.id, p.reasons.join('+')]),
-}));
 
 const NAMES = ['Amina Wanjiku', 'amina  wanjiku', "Zoë O'Brien", 'Zoe OBrien', 'Brian Kamau', 'BRIAN KAMAU', 'Faith', '', '  ', 'Kevin Otieno'];
 const CLASSES = ['Grade 7', 'Form 3', undefined];
@@ -91,10 +110,10 @@ function roster(seed, n) {
 
 describe('006Fixes / 00: fast findDuplicateGroups gives exactly the rule\'s groups', () => {
   for (const [label, lib] of [['dashboard copy', client], ['server copy', server]]) {
-    it(`${label}: matches the plain reference on 40 random rosters`, () => {
+    it(`${label}: groups are exactly the rule's connected sets on 40 random rosters`, () => {
       for (let seed = 1; seed <= 40; seed += 1) {
         const students = roster(seed, 20 + (seed % 7) * 15);
-        expect(shape(lib.findDuplicateGroups(students))).toEqual(shape(reference(lib, students)));
+        checkGroups(lib, students);
       }
     });
   }
