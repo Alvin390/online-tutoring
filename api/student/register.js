@@ -9,7 +9,8 @@ import { sessionClasses } from '../_lib/sessions.js';
 import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, MAX_SUBJECTS_TEXT } from '../_lib/subjects.js';
 import { isDuplicatePair, retiredMessage } from '../_lib/duplicates.js';
 import { accountRef } from '../_lib/ledger.js';
-import { isEnabled } from '../_lib/flags.js';
+import { getFlags } from '../_lib/flags.js';
+import { verifyTicket } from '../_lib/verifyTicket.js';
 import { numberProblem, numberProblemMessage, reservationId } from '../_lib/admissionNumber.js';
 
 /**
@@ -45,6 +46,8 @@ const schema = z
     receiptMessage: text(10, 500),
     // 008Fixes / 03: the admission number the student chose (4 digits).
     number: z.string().trim().max(8).optional(),
+    // 009Fixes / 01: the verified-phone ticket (code-first registration).
+    ticket: z.string().max(80).optional(),
   })
   .strict();
 
@@ -61,13 +64,20 @@ export default createHandler({
 
     // 008Fixes / 03: with admission numbers on, a number is chosen here and
     // checked before anything else (an old cached page sends none).
-    const numbersOn = await isEnabled('checkin.admissionNumbers');
+    const flags = await getFlags();
+    const numbersOn = flags['checkin.admissionNumbers'] === true;
+    // 009Fixes / 01: code-first - the phone is confirmed before the record is
+    // saved, so a number that can't receive a code can't register.
+    const codeFirst = numbersOn && flags['student.fixNumber'] === true;
     if (numbersOn) {
-      if (!body.number) {
+      if (!body.number || (codeFirst && !body.ticket)) {
         throw new ApiError(400, 'refresh_needed', 'This page has been updated. Please refresh the page, then register again.');
       }
       const problem = numberProblem(body.number);
       if (problem) throw new ApiError(400, problem === 'easy' ? 'easy_number' : 'invalid_number', numberProblemMessage(problem));
+      if (codeFirst && !verifyTicket(body.ticket, { session, phone })) {
+        throw new ApiError(403, 'verify_first', 'Confirm your phone number first: we will send you a code.');
+      }
     }
 
     // Per number as well as per IP: the IP limit is spoofable behind a proxy.
@@ -122,6 +132,7 @@ export default createHandler({
       feeBalance: 0,
       ...(original ? { duplicateHold: true, duplicateOf: original.parentPhone } : {}),
       ...(numbersOn ? { admissionNumber: body.number, numberChosenAt: FieldValue.serverTimestamp() } : {}),
+      ...(codeFirst ? { phoneVerifiedAt: FieldValue.serverTimestamp() } : {}),
     };
 
     const alreadyRegistered = () => new ApiError(409, 'already_registered', 'That number is already registered for this class.');
@@ -167,7 +178,8 @@ export default createHandler({
     const pass = numbersOn ? null : issuePass({ session, phone });
     return {
       ok: true,
-      ...(numbersOn ? { next: 'verify' } : {}),
+      // 009Fixes / 01: code-first records are already confirmed - check in next.
+      ...(numbersOn ? { next: codeFirst ? 'checkin' : 'verify' } : {}),
       ...(original ? { held: 'duplicate' } : {}),
       student: projectStudent({ ...student, registeredAt: { toDate: () => new Date() } }),
       ...(pass ? { pass } : {}),

@@ -2,8 +2,8 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, getAdminAuth, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema, otpCodeSchema } from '../_lib/validate.js';
 import { sha256, safeCompare } from '../_lib/crypto.js';
-import { badRequest, notFound } from '../_lib/errors.js';
-import { isEnabled } from '../_lib/flags.js';
+import { ApiError, badRequest, notFound } from '../_lib/errors.js';
+import { getFlags } from '../_lib/flags.js';
 import { issueTicket } from '../_lib/verifyTicket.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
 import { setUserClaims } from '../_lib/claims.js';
@@ -38,6 +38,8 @@ const schema = z
     session: sessionSchema,
     phone: phoneSchema,
     code: otpCodeSchema,
+    // 009Fixes / 01: a registration code (asked for before the record exists).
+    purpose: z.enum(['register']).optional(),
   })
   .strict();
 
@@ -54,7 +56,9 @@ export default createHandler({
     const db = getDb();
     const ref = db.collection('otp').doc(sha256(phone));
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
-    const numbersOn = await isEnabled('checkin.admissionNumbers');
+    const flags = await getFlags();
+    const numbersOn = flags['checkin.admissionNumbers'] === true;
+    const forRegistration = body.purpose === 'register' && numbersOn && flags['student.fixNumber'] === true;
 
     const verified = await db.runTransaction(async (tx) => {
       // Both in one batchGet (the shim coalesces reads in the same tick).
@@ -78,6 +82,10 @@ export default createHandler({
       if (data.phone !== phone) reject();
       // 008Fixes / 01: a code is for the registration it was asked for.
       if (numbersOn && data.session !== session) reject();
+      // 009Fixes / 01: a registration code only registers, and a record's code
+      // only confirms that record - the same generic answer either way.
+      if (body.purpose === 'register' && !forRegistration) reject();
+      if ((data.purpose === 'register') !== forRegistration) reject();
 
       const matches = safeCompare(sha256(`${phone}:${code}`), data.codeHash);
 
@@ -100,6 +108,19 @@ export default createHandler({
 
     if (!verified.ok) {
       throw badRequest('That code is not valid or has expired.', 'invalid_code');
+    }
+
+    if (forRegistration) {
+      // 009Fixes / 01: confirmed before registering - a ticket for this number
+      // in this session, which registration requires. Nothing is saved here.
+      if (verified.record) throw new ApiError(409, 'already_registered', 'That number is already registered for this class. Check in instead.');
+      await tryWriteAudit(
+        { action: AuditAction.OTP_VERIFIED, actor: 'student', target: `${session}/${phone}`,
+          after: { purpose: 'register' }, context: { requestId: log.requestId } },
+        log
+      );
+      log.info('Phone confirmed for registration', { session });
+      return { ok: true, ticket: issueTicket({ session, phone }), next: 'register' };
     }
 
     if (numbersOn) {

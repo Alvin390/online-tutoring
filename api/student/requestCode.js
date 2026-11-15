@@ -7,6 +7,8 @@ import { ApiError, notFound, tooManyRequests } from '../_lib/errors.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
 import { sendSms, smsAvailable, recordSmsBalance } from '../_lib/sms.js';
+import { getFlags } from '../_lib/flags.js';
+import { retiredMessage } from '../_lib/duplicates.js';
 
 /**
  * Student phone verification, step 1 — Phase 02 D4, delivered by SMS since
@@ -27,6 +29,13 @@ import { sendSms, smsAvailable, recordSmsBalance } from '../_lib/sms.js';
  * The code is stored as a salted SHA-256 hash, plus ONE copy encrypted with
  * APP_ENCRYPTION_KEY that only the teacher's endpoint decrypts. Both expire in
  * 10 minutes; the student endpoints never return either.
+ *
+ * 009Fixes / 01 - code-first registration (owner, 2026-11-16): with admission
+ * numbers and `student.fixNumber` on, `purpose: 'register'` asks for a code
+ * for a number with NO record yet, so the phone is confirmed before the
+ * registration is saved. A number already registered (or retired by the
+ * teacher) is refused before any SMS. With the flag off that kind does not
+ * exist: the answer is the usual "No registration found".
  */
 
 export const CODE_TTL_SECONDS = 10 * 60;
@@ -40,6 +49,7 @@ const schema = z
   .object({
     session: sessionSchema,
     phone: phoneSchema,
+    purpose: z.enum(['register']).optional(),
   })
   .strict();
 
@@ -55,25 +65,38 @@ export default createHandler({
     const db = getDb();
     const otpRef = db.collection('otp').doc(sha256(phone));
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
+    const flags = body.purpose ? await getFlags() : null;
+    const forRegistration = body.purpose === 'register'
+      && flags['checkin.admissionNumbers'] === true && flags['student.fixNumber'] === true;
 
     // The record and the live code in one round trip, beside the limiter.
-    const [[studentSnap, otpSnap]] = await Promise.all([
-      db.getAll(studentRef, otpRef),
+    const [[studentSnap, otpSnap, retiredSnap]] = await Promise.all([
+      db.getAll(studentRef, otpRef, ...(forRegistration ? [db.doc(`sessions/${session}/retiredNumbers/${phone}`)] : [])),
       // Second limiter on the phone itself: the SMS cost bound, whatever the
       // address. Rotating addresses cannot pump codes at one number.
       enforceRateLimit({ key: phone, bucket: 'otp_request_phone', limit: CODES_PER_HOUR, windowSeconds: 3600 }),
     ]);
 
-    if (!studentSnap.exists) {
-      // Same shape as before — this must not become a registration oracle.
-      throw notFound('No registration found for that number.');
-    }
-    // Confirmed once is enough: no repeated SMS cost. A confirmed record that
-    // has not chosen its number yet (the page was closed in between) may ask
-    // again — choosing needs the ticket a confirmed code gives.
-    const record = studentSnap.data();
-    if (record.phoneVerifiedAt && recordNumber(record)) {
-      throw new ApiError(409, 'already_verified', 'Your phone is already confirmed. Check in with your admission number and phone.');
+    if (forRegistration) {
+      // 009Fixes / 01: registering - the number must be new here. The same
+      // answers registration itself gives, so nothing new is revealed.
+      if (studentSnap.exists) throw new ApiError(409, 'already_registered', 'That number is already registered for this class. Check in instead.');
+      if (retiredSnap?.exists) {
+        const retired = retiredSnap.data();
+        throw new ApiError(409, 'retired_number', retiredMessage(retired.reason, retired.keptSuffix));
+      }
+    } else {
+      if (!studentSnap.exists) {
+        // Same shape as before — this must not become a registration oracle.
+        throw notFound('No registration found for that number.');
+      }
+      // Confirmed once is enough: no repeated SMS cost. A confirmed record that
+      // has not chosen its number yet (the page was closed in between) may ask
+      // again — choosing needs the ticket a confirmed code gives.
+      const record = studentSnap.data();
+      if (record.phoneVerifiedAt && recordNumber(record)) {
+        throw new ApiError(409, 'already_verified', 'Your phone is already confirmed. Check in with your admission number and phone.');
+      }
     }
 
     const now = Date.now();
@@ -99,6 +122,8 @@ export default createHandler({
       sentAt: new Date(now),
       expiresAt: new Date(now + CODE_TTL_SECONDS * 1000),
       consumedAt: null,
+      // 009Fixes / 01: which kind of code this is (they are not interchangeable).
+      purpose: forRegistration ? 'register' : null,
     });
 
     // Delivery. A failure never loses the code: the teacher can read it.
