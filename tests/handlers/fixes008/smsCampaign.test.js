@@ -88,7 +88,9 @@ describe('every parent\'s version is checked', () => {
     await seed('evening', P(5), { approvalStatus: 'pending' });
     const res = await sms(gold, { action: 'preview', template: 'Dear parent of {{studentName}}, class at 7.', filter: { type: 'all' } });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ recipients: 2, units: 2, cost: 0.7, maxChars: 336, reserve: 100 });
+    expect(res.body).toMatchObject({ recipients: 2, units: 2, maxChars: 336 });
+    // 009Fixes / 00: no money for teachers (the school pays): credit is a yes/no.
+    for (const k of ['cost', 'rate', 'balance', 'reserve']) expect(res.body, k).not.toHaveProperty(k);
     expect(res.body.longest.studentName).toBe('Bartholomew Wekesa Omondi');
   });
 
@@ -207,6 +209,23 @@ describe('sending', () => {
   });
 });
 
+describe('no money in teacher replies (009Fixes / 00)', () => {
+  it('start, sendOne, list and get carry no cost', async () => {
+    await seed('evening', P(1));
+    const started = await sms(gold, { action: 'start', template: 'Hi', filter: { type: 'all' } });
+    expect(started.status).toBe(200);
+    expect(started.body).not.toHaveProperty('cost');
+    const one = await sms(gold, { action: 'sendOne', session: 'evening', phone: P(1), template: 'Hi' });
+    expect(one.status).toBe(200);
+    expect(one.body).not.toHaveProperty('cost');
+    const list = await sms(gold, { action: 'list' });
+    for (const c of list.body.campaigns) { expect(c).not.toHaveProperty('cost'); expect(c).not.toHaveProperty('sentCost'); }
+    const got = await sms(gold, { action: 'get', campaignId: started.body.campaignId });
+    expect(got.body.campaign).not.toHaveProperty('cost');
+    expect(got.body.campaign).not.toHaveProperty('sentCost');
+  });
+});
+
 describe('who can be messaged (Phase 09)', () => {
   it('students and staff, opted-out and unapproved left out, with what the counter needs', async () => {
     await seed('evening', P(1), { studentName: 'Ann', feeBalance: 2750 });
@@ -227,7 +246,8 @@ describe('credit', () => {
     const start = await sms(gold, { action: 'start', template: 'Hi', filter: { type: 'all' } });
     expect(start.status).toBe(402);
     expect(start.body.error.code).toBe('low_credit');
-    expect(start.body.error.message).toMatch(/check-in codes keep working/);
+    expect(start.body.error.message).toBe('SMS credit is low right now. Sending is paused so check-in codes keep working. The owner has been told.');
+    expect(start.body.error).not.toHaveProperty('detail'); // 009Fixes / 00: no balance for teachers
     await sms(gold, { action: 'start', template: 'Hi', filter: { type: 'all' } });
     const reserveMails = mails().filter((m) => /SMS paused/.test(m));
     expect(reserveMails).toHaveLength(1);

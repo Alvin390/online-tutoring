@@ -109,7 +109,7 @@ export default function StaffSmsModal({ person, session, sessionName = '', onClo
           )}
           <MessageBox value={text} onChange={setText} sms schoolName={setup.schoolName} starters={false}>
             <div className={`small mt-1 ${counter.over ? 'text-danger fw-semibold' : 'text-muted'}`} data-testid="staff-sms-counter" aria-live="polite">
-              {counter.length} / {SMS_MAX_CHARS} characters · {counter.units} SMS · KES {counter.cost.toFixed(2)}
+              {counter.length} / {SMS_MAX_CHARS} characters · {counter.units} SMS
               {counter.over > 0 && <> · Too long for 2 SMS. Shorten it by {counter.over} character{counter.over === 1 ? '' : 's'}.</>}
             </div>
           </MessageBox>

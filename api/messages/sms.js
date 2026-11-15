@@ -204,15 +204,12 @@ export default createHandler({
       const prepared = prepareMessages(body.template, people, schoolName);
       if (body.action === 'preview') {
         const balance = await lastKnownBalance(db);
+        // 009Fixes / 00: no money for teachers (the school pays): credit is a yes/no.
         return {
           recipients: prepared.messages.length,
           units: prepared.units,
-          cost: prepared.cost,
           longest: prepared.longest,
           maxChars: SMS_MAX_CHARS,
-          rate: SMS_RATE_KES,
-          balance,
-          reserve: SMS_RESERVE_KES,
           enoughCredit: balance == null ? null : balance - prepared.cost >= SMS_RESERVE_KES,
           sample: prepared.messages.slice(0, 3).map((m) => ({ studentName: m.studentName ?? null, text: m.text, units: m.units })),
         };
@@ -227,7 +224,7 @@ export default createHandler({
         context: { requestId: log.requestId, device: user.device },
       }, log));
       log.info('SMS campaign started', { recipients: prepared.messages.length, units: prepared.units });
-      return { campaignId: ref.id, recipients: prepared.messages.length, units: prepared.units, cost: prepared.cost, chunk: SMS_CHUNK };
+      return { campaignId: ref.id, recipients: prepared.messages.length, units: prepared.units, chunk: SMS_CHUNK };
     }
 
     if (body.action === 'sendChunk') {
@@ -265,7 +262,7 @@ export default createHandler({
           ? `SMS is busy. Please try again in ${result.retryAfter} seconds.`
           : 'The SMS was not sent. Please check the number and try again.');
       }
-      return { campaignId: ref.id, sent: 1, units: prepared.units, cost: prepared.cost };
+      return { campaignId: ref.id, sent: 1, units: prepared.units };
     }
 
     if (body.action === 'list') {

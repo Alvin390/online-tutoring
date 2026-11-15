@@ -73,7 +73,7 @@ export function SmsDetail({ campaignId, onBack }) {
       {error && <div className="alert alert-danger small py-2" role="alert">{error}</div>}
       {data && (
         <>
-          <p className="small text-muted mb-1">{when(data.campaign.createdAt)} · {data.campaign.recipientCount} people · KES {Number(data.campaign.sentCost || data.campaign.cost || 0).toFixed(2)}</p>
+          <p className="small text-muted mb-1">{when(data.campaign.createdAt)} · {data.campaign.recipientCount} people</p>
           <p className="border rounded p-2 small bg-light" style={{ whiteSpace: 'pre-wrap' }}>{data.campaign.template}</p>
           <Totals counts={data.campaign.counts} />
           <div className="d-flex flex-wrap gap-1 my-2" role="group" aria-label="Show">
