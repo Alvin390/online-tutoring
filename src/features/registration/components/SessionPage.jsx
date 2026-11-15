@@ -23,6 +23,18 @@ import RetryWaitNotice from './RetryWaitNotice';
 // normally ready before the lookup answers.
 const loadRegistrationForm = () => import('./RegistrationForm');
 const RegistrationForm = lazy(loadRegistrationForm);
+// 008Fixes / 04: the first-time steps (confirm the phone, choose a number),
+// loaded only when a student reaches them; prefetched with the registration
+// form when a number is submitted, so normally ready before the reply.
+const loadAdmissionSteps = () => import('./AdmissionSteps');
+const AdmissionFlow = lazy(loadAdmissionSteps);
+const stepFallback = (
+  <div className="text-center py-4">
+    <span className="spinner-border spinner-border-sm text-primary" role="status">
+      <span className="visually-hidden">Loading…</span>
+    </span>
+  </div>
+);
 import '@/styles/landing.css';
 
 /**
@@ -60,6 +72,17 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const { until: waitUntil, secondsLeft: waitSeconds, startWait } = useRetryWait(session);
 
   const requireApproval = useFlag('registration.requireApproval');
+  // 008Fixes / 04: admission number + phone. The server has the last word: a
+  // page whose flags are stale still follows what the check-in answers.
+  const numbersFlag = useFlag('checkin.admissionNumbers');
+  const [numbersSeen, setNumbersSeen] = useState(false);
+  const numbers = numbersFlag || numbersSeen;
+  // What the check-in card shows next time: a notice, the phone refilled, the
+  // number field focused. `key` remounts the card so the refill takes.
+  const [cardView, setCardView] = useState({ key: 0, notice: null, initialPhone: '', focusNumber: false });
+  // The number to check in with once the phone is confirmed (from registering).
+  const [admissionNumber, setAdmissionNumber] = useState(null);
+
 
   const {
     loading,
@@ -111,8 +134,32 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const startOver = useCallback(() => {
     resetFlow();
     setJoinTried(false);
+    setAdmissionNumber(null);
+    setCardView((v) => ({ key: v.key + 1, notice: null, initialPhone: '', focusNumber: false }));
     setStep('checkin');
   }, [resetFlow]);
+
+  /** Back to the check-in card with something to say, the phone refilled. */
+  const backToCard = (notice) => {
+    setCardView((v) => ({ key: v.key + 1, notice, initialPhone: phoneNumber, focusNumber: true }));
+    setStep('checkin');
+  };
+
+  /**
+   * 008Fixes / 04: a check-in that answered with an admission-number step or
+   * refusal (useRegistration ADMISSION_CODES). Steps lead on; refusals go
+   * back to the card with the server's own words.
+   */
+  const followAdmission = (result) => {
+    setNumbersSeen(true);
+    // Confirm the phone (a confirmed record without a number gets a code
+    // again: choosing needs the ticket a confirmed code gives).
+    if (result.admission === 'verify_required' || result.admission === 'choose_number') {
+      setStep('admission');
+      return;
+    }
+    backToCard({ tone: 'error', text: result.message });
+  };
 
   /**
    * Every student action, handled — 002Fixes / 05.
@@ -148,11 +195,13 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     return result;
   };
 
-  const handleCheckin = async (phone) => {
+  const handleCheckin = async (phone, number = '') => {
     addFlowBreadcrumb('action', { action: 'checkin', ...numberShape(phone) });
     loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
-    const result = settle(await checkStudent(phone));
+    if (numbers) loadAdmissionSteps().catch(() => {});
+    const result = settle(await checkStudent(phone, number));
     if (!result) return;
+    if (result.admission) { followAdmission(result); return; }
 
     if (!result.exists) {
       notRegistered(result);
@@ -167,6 +216,12 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     addFlowBreadcrumb('action', { action: 'register', ...numberShape(phoneNumber) });
     const result = settle(await register(phoneNumber, formData));
     if (!result?.success) return;
+    // 008Fixes / 04: confirm the phone, then check in with the chosen number.
+    if (result.next === 'verify') {
+      setAdmissionNumber(formData.number ?? null);
+      setStep('admission');
+      return;
+    }
 
     // Route on the record that was actually written, not on an assumption.
     // With approval on, a new registration goes to the pending screen and the
@@ -196,7 +251,8 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
       // The server refused. Re-check so the screen reflects the real reason
       // rather than leaving the student on a spinner.
       const check = settle(await checkStudent(phoneNumber));
-      if (check) routeTo(check.data);
+      if (check?.admission) followAdmission(check);
+      else if (check) routeTo(check.data);
     } catch (error) {
       // The re-check failed too: back to the welcome card, not a spinner.
       setStep(GATE.WELCOME);
@@ -208,12 +264,14 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     addFlowBreadcrumb('action', { action: source === 'auto' ? 'auto-refresh' : 'refresh', ...numberShape(phoneNumber) });
     const result = settle(await checkStudent(phoneNumber));
     if (!result) return;
+    if (result.admission) { followAdmission(result); return; }
     if (!result.exists) {
       notRegistered(result);
       return;
     }
     routeTo(result.data);
   };
+
 
   /**
    * M-Pesa paid from the blocked screen. A payment that clears the balance
@@ -234,6 +292,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
       if (flow !== currentFlow()) return;
       const result = settle(await checkStudent(phoneNumber));
       if (!result) return;
+      if (result.admission) { followAdmission(result); return; }
       if (!result.exists) {
         setStep(GATE.REGISTER);
         return;
@@ -320,29 +379,39 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
             <AnimatePresence mode="wait">
               {step === 'checkin' && (
                 <CheckinCard
-                  key="checkin"
+                  key={`checkin-${cardView.key}`}
                   session={session}
                   onSubmit={handled('checkin', handleCheckin)}
                   loading={loading}
                   waitSeconds={waitSeconds}
                   slow={slow}
                   failedSlow={failedSlow}
+                  numbers={numbers}
+                  notice={cardView.notice}
+                  initialPhone={cardView.initialPhone}
+                  focusNumber={cardView.focusNumber}
                 />
               )}
 
+              {/* 008Fixes / 04: confirm the phone, choose a number (lazy). */}
+              {step === 'admission' && (
+                <Suspense key="admission" fallback={stepFallback}>
+                  <AdmissionFlow
+                    session={session}
+                    phone={phoneNumber}
+                    number={admissionNumber}
+                    onDone={backToCard}
+                    onCheckin={(number) => handled('checkin', handleCheckin)(phoneNumber, number)}
+                    onBack={handleBack}
+                  />
+                </Suspense>
+              )}
+
               {step === GATE.REGISTER && (
-                <Suspense
-                  key="register"
-                  fallback={(
-                    <div className="text-center py-4">
-                      <span className="spinner-border spinner-border-sm text-primary" role="status">
-                        <span className="visually-hidden">Loading the registration form…</span>
-                      </span>
-                    </div>
-                  )}
-                >
+                <Suspense key="register" fallback={stepFallback}>
                   <RegistrationForm
                     session={session}
+                    numbers={numbers}
                     classes={classes}
                     subjectsByClass={subjectsByClass}
                     phoneNumber={phoneNumber}

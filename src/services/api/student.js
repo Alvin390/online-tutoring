@@ -1,4 +1,5 @@
 import { apiPost } from './client';
+import { getDeviceId } from '@utils/deviceId';
 
 /**
  * Student-facing operations — Phase 01.
@@ -27,8 +28,18 @@ const passHeaders = (pass) => (pass ? { 'X-Checkin-Pass': pass } : undefined);
  */
 export const CLASS_TIME_TIMEOUT_MS = 20_000;
 
-export const checkinStudent = (session, phone, pass) =>
-  apiPost('/api/student/checkin', { session, phone }, { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS, headers: passHeaders(pass) });
+/**
+ * 008Fixes / 03: every check-in carries this browser's device id (one device
+ * per class) and, once the student has one, the admission number. The device
+ * id is sent whatever the flag: it is how the server knows this page is new
+ * enough for admission numbers.
+ */
+export const checkinStudent = (session, phone, pass, number) =>
+  apiPost(
+    '/api/student/checkin',
+    { session, phone, deviceId: getDeviceId(), ...(number ? { number } : {}) },
+    { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS, headers: passHeaders(pass) },
+  );
 
 export const submitReceipt = (session, phone, receiptMessage) =>
   apiPost('/api/student/receipt', { session, phone, receiptMessage });
@@ -40,7 +51,7 @@ export const submitReceipt = (session, phone, receiptMessage) =>
  * UI renders whatever it is told.
  */
 export const getClassLink = (session, phone, pass) =>
-  apiPost('/api/class/link', { session, phone }, { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS, headers: passHeaders(pass) });
+  apiPost('/api/class/link', { session, phone, deviceId: getDeviceId() }, { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS, headers: passHeaders(pass) });
 
 /**
  * Resubmits corrected details after a rejection — Phase 04.

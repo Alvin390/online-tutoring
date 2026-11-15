@@ -50,6 +50,9 @@ export const TEST_ENV = Object.freeze({
   GMAIL_CLIENT_SECRET: 'gmail-secret-harness',
   GMAIL_REFRESH_TOKEN: 'gmail-refresh-harness',
   GMAIL_SENDER: 'alerts.harness@example.com',
+  // 008Fixes / 01: the fake HashBack below answers; nothing real is sent.
+  HASHBACK_API_KEY: 'hb_harness_only',
+  SMS_DISABLED: '',
 });
 
 export const SAFARICOM_IP = '196.201.214.200';
@@ -74,6 +77,8 @@ export const fakes = {
   // hold: a promise the fake Gmail send awaits before answering.
   gmail: { fail: null, oauthError: null, seq: 0, hold: null },
   storage: { fail: null, objects: new Map() },
+  // 008Fixes: fail = { code, status, retryAfter } for the next HashBack send(s).
+  hashback: { fail: null, balance: 500, seq: 0, sent: [] },
 };
 
 export function resetFakes() {
@@ -85,6 +90,9 @@ export function resetFakes() {
   fakes.gmail.hold = null;
   fakes.storage.fail = null;
   fakes.storage.objects.clear();
+  fakes.hashback.fail = null;
+  fakes.hashback.balance = 500;
+  fakes.hashback.sent.length = 0;
 }
 
 /**
@@ -182,6 +190,35 @@ export function installFetchGuard() {
       if (fakes.gmail.fail) return json({ error: { code: fakes.gmail.fail, message: 'fake gmail failure' } }, fakes.gmail.fail);
       fakes.gmail.seq += 1;
       return json({ id: `gmail_${fakes.gmail.seq}`, threadId: `t_${fakes.gmail.seq}`, labelIds: ['SENT'] });
+    }
+
+    if (hostname === 'api.hashback.co.ke') {
+      const hb = fakes.hashback;
+      const path = pathname.replace(/^\/sms/, '');
+      const auth = (init.headers?.Authorization ?? init.headers?.authorization) === 'Bearer hb_harness_only';
+      if (!auth) return json({ success: false, code: 'UNAUTHORIZED', message: 'bad key' }, 401);
+      const unitsFor = (text) => Math.max(1, Math.ceil(String(text ?? '').length / 168));
+      if ((path === '/send' || path === '/bulk') && hb.fail) {
+        return new Response(JSON.stringify({ success: false, code: hb.fail.code, message: 'fake failure' }), {
+          status: hb.fail.status ?? 402,
+          headers: { 'content-type': 'application/json', ...(hb.fail.retryAfter ? { 'retry-after': String(hb.fail.retryAfter) } : {}) },
+        });
+      }
+      if (path === '/send') {
+        hb.seq += 1;
+        const units = unitsFor(call.body?.message);
+        hb.balance = Math.round((hb.balance - units * 0.35) * 100) / 100;
+        const id = `hb_${hb.seq}`;
+        hb.sent.push({ id, to: call.body?.to, message: call.body?.message });
+        return json({ success: true, id, to: call.body?.to, sender_id: 'HASHBACKSMS', status: 'sent', units, cost: units * 0.35, balance: hb.balance }, 201);
+      }
+      if (path === '/balance') return json({ success: true, balance: hb.balance, currency: 'KES', rate: 0.35, sender_id: 'HASHBACKSMS', can_send: true });
+      if (path === '/quote') {
+        const units = unitsFor(call.body?.message);
+        const recipients = Array.isArray(call.body?.to) ? call.body.to.length : 1;
+        return json({ success: true, sender_id: 'HASHBACKSMS', encoding: 'GSM7', units, recipients, total_cost: units * 0.35 * recipients, balance: hb.balance, sufficient: true });
+      }
+      return json({ success: false, code: 'NOT_FOUND', message: 'fake: not handled' }, 404);
     }
 
     throw new Error(`Test fetch guard: blocked external call to ${url}`);

@@ -1,10 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, lazy, Suspense } from 'react';
+import { useFlag } from '@shared/config/FlagsContext';
 import Modal from '@components/ui/Modal';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
 import { buildWaLink } from '@utils/waLink';
 import { useOptionalToast } from '@/context/ToastContext';
 import { unmarkStaff } from '@services/api/students';
+
+// 008Fixes / 05: the staff number, Change, "Allow again" (lazy, shared with the drawer).
+const AdmissionActions = lazy(() => import('../components/admission/AdmissionActions'));
 
 /**
  * Staff — 007Fixes / 10 (owner, 2026-11-11): "if they are teachers, there's
@@ -21,7 +25,7 @@ const dateOf = (value) => {
     : '';
 };
 
-function EditStaff({ person, sessionDoc, onSave, onClose }) {
+function EditStaff({ person, sessionDoc, onSave, onClose, numbers = false }) {
   const [form, setForm] = useState({ studentName: person.studentName ?? '', phone: person.id, subjects: person.subjects ?? '' });
   const [saving, setSaving] = useState(false);
   // Subjects as at registration: the session's list for their class, if it has one.
@@ -64,6 +68,13 @@ function EditStaff({ person, sessionDoc, onSave, onClose }) {
             onChange={(e) => setForm({ ...form, subjects: e.target.value })} placeholder="English, Mathematics" />
         )}
       </div>
+      {numbers && (
+        <div className="mt-3 pt-3 border-top">
+          <Suspense fallback={<span className="spinner-border spinner-border-sm text-muted" />}>
+            <AdmissionActions session={person.__session} phone={person.id} record={person} />
+          </Suspense>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -76,6 +87,7 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
   const [backing, setBacking] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
+  const numbers = useFlag('checkin.admissionNumbers');
 
   const names = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s.name ?? s.id])), [sessions]);
   const docs = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s])), [sessions]);
@@ -88,7 +100,9 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
     const q = query.trim().toLowerCase();
     const digits = q.replace(/\D/g, '');
     return everyone.filter((p) => (!session || p.__session === session)
-      && (!q || String(p.studentName ?? '').toLowerCase().includes(q) || (digits && p.id.replace(/\D/g, '').includes(digits))));
+      && (!q || String(p.studentName ?? '').toLowerCase().includes(q) || (digits && p.id.replace(/\D/g, '').includes(digits))
+        // 008Fixes / 05: "S-0042" or "0042" finds the staff number.
+        || (digits.length === 4 && p.staffNumber === digits)));
   }, [everyone, query, session]);
 
   const staffSessions = useMemo(() => [...new Set(everyone.map((p) => p.__session))], [everyone]);
@@ -163,6 +177,13 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
                       {p.subjects ? <> · {p.subjects}</> : null}
                     </div>
                     {p.staffAt && <div className="small text-muted">Staff since {dateOf(p.staffAt)}</div>}
+                    {numbers && (
+                      <div className="small" data-testid="staff-number">
+                        {p.staffNumber
+                          ? <span className="badge text-bg-light border font-monospace fw-normal">S-{p.staffNumber}</span>
+                          : <span className="text-muted fst-italic">No staff number yet</span>}
+                      </div>
+                    )}
                   </div>
                   <div className="d-flex flex-wrap gap-1">
                     {wa.valid && (
@@ -194,6 +215,7 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
           person={editing}
           sessionDoc={docs[editing.__session] ?? null}
           onClose={() => setEditing(null)}
+          numbers={numbers}
           onSave={(form) => onEdit(editing.__session, form.phone.trim(), { studentName: form.studentName, subjects: form.subjects }, editing.id)}
         />
       )}

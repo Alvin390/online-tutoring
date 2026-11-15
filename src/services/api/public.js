@@ -86,5 +86,8 @@ export function __resetPublicBootstrap() {
 }
 
 /** Student registration (server-side since A1). Returns { ok, student }. */
-export const registerStudentApi = ({ session, phone, studentName, class: className, subjects, receiptMessage }) =>
-  apiPost('/api/student/register', { session, phone, studentName, class: className, subjects, receiptMessage });
+// 008Fixes / 04: plus the admission number chosen on the form, when there is one.
+export const registerStudentApi = ({ session, phone, studentName, class: className, subjects, receiptMessage, number }) =>
+  apiPost('/api/student/register', {
+    session, phone, studentName, class: className, subjects, receiptMessage, ...(number ? { number } : {}),
+  });

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { m } from 'framer-motion';
@@ -6,8 +6,12 @@ import { registrationSchema } from '../schemas/registrationSchema';
 import { DEFAULT_CLASSES } from '@shared/constants/sessions';
 import { subjectsForClass } from '@shared/constants/subjects';
 import SubjectPicker, { compulsoryNames } from './SubjectPicker';
+import AdmissionNumberField from './AdmissionNumberField';
 
 export default function RegistrationForm({
+  session,
+  // 008Fixes / 04: with admission numbers on, the student chooses theirs here.
+  numbers = false,
   phoneNumber,
   onSubmit,
   onBack,
@@ -29,6 +33,12 @@ export default function RegistrationForm({
     mode: 'onBlur',
     defaultValues: { subjects: '' },
   });
+
+  // 008Fixes / 04: kept outside the form library; checked live (one read).
+  const [admissionNumber, setAdmissionNumber] = useState('');
+  const [numberStatus, setNumberStatus] = useState('format');
+  const numberReady = !numbers || numberStatus === 'free' || numberStatus === 'unknown';
+  const submit = (data) => onSubmit(numbers ? { ...data, number: admissionNumber } : data);
 
   const selectedClass = watch('class');
   const picked = watch('subjects');
@@ -63,7 +73,7 @@ export default function RegistrationForm({
         <p className="text-muted">Fill in your details to join the class</p>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} noValidate>
+      <form onSubmit={handleSubmit(submit)} noValidate>
         {/* Phone Number (Read-only) */}
         <div className="mb-3">
           <label className="form-label fw-semibold">Parent's Phone Number</label>
@@ -73,10 +83,28 @@ export default function RegistrationForm({
             value={phoneNumber}
             disabled
           />
-          <div className="form-text text-success">
-            <i className="bi bi-check-circle-fill" /> Verified
-          </div>
+          {!numbers && (
+            <div className="form-text text-success">
+              <i className="bi bi-check-circle-fill" /> Verified
+            </div>
+          )}
+          {numbers && <div className="form-text">We will send a code to this number to confirm it.</div>}
         </div>
+
+        {numbers && (
+          <>
+            <AdmissionNumberField
+              session={session}
+              value={admissionNumber}
+              onChange={setAdmissionNumber}
+              onStatus={setNumberStatus}
+              disabled={loading}
+            />
+            <p className="small text-muted mb-3">
+              <strong>Don&apos;t forget it:</strong> you&apos;ll use it with this phone number every time you check in.
+            </p>
+          </>
+        )}
 
         {/* Student Name */}
         <div className="mb-3">
@@ -176,7 +204,7 @@ export default function RegistrationForm({
         <button
           type="submit"
           className="btn btn-primary btn-lg w-100 mb-2"
-          disabled={loading || !isValid}
+          disabled={loading || !isValid || !numberReady}
         >
           {loading ? (
             <>

@@ -5,6 +5,7 @@ import { z, phoneSchema, sessionSchema, studentNameSchema } from '../_lib/valida
 import { ApiError, notFound } from '../_lib/errors.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { accountRef } from '../_lib/ledger.js';
+import { recordNumber, reservationId } from '../_lib/admissionNumber.js';
 
 /**
  * Edit a student — Phase 13 / 03 D1.
@@ -91,7 +92,9 @@ async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log
   //    two simultaneous requests cannot both claim the number: the loser sees
   //    the marker and joins as a resume.
   if (!resuming) {
-    const data = oldSnap.data();
+    // 008Fixes / 01: a new phone has not been confirmed — its first check-in
+    // sends it a code. The admission number moves with the record.
+    const { phoneVerifiedAt, studentUid, ...data } = oldSnap.data(); // eslint-disable-line no-unused-vars
     try {
       await newRef.create({
         ...data,
@@ -133,6 +136,9 @@ async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log
     ]);
   }
 
+  // The number the record holds (from the old copy, or the new one on a resume).
+  const held = recordNumber(oldSnap.exists ? oldSnap.data() : (await newRef.get()).data());
+
   // 4. Delete old copies LAST — ledger, then notes, then the student; the old
   //    account document is replaced by a forwarding marker.
   await commitInBatches(db, [
@@ -146,6 +152,14 @@ async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log
     // The old number's "last seen" marker (Phase 13 / 08 B3); the new number
     // starts its own on the next check-in.
     (batch) => batch.delete(oldRef.collection('meta').doc('activity')),
+    // 008Fixes / 03: and its one-device lock.
+    (batch) => batch.delete(oldRef.collection('meta').doc('checkinLock')),
+    // 008Fixes / 02: the number's reservation now names the new phone.
+    ...(held ? [(batch) => batch.set(
+      db.doc(`sessions/${session}/numbers/${reservationId(held.kind, held.digits)}`),
+      { phone: newPhone, kind: held.kind, number: held.digits },
+      { merge: true },
+    )] : []),
     (batch) => batch.delete(oldRef),
   ]);
 

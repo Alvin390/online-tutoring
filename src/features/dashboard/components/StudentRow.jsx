@@ -163,6 +163,12 @@ function StudentRow({
           <div>
             <div className="d-flex align-items-center gap-2">
               <strong>{highlightMatches(student.studentName, terms)}</strong>
+              {/* 008Fixes / 05: the admission number the student checks in with. */}
+              {student.admissionNumber && (
+                <span className="badge text-bg-light border font-monospace fw-normal" data-testid="row-number" title="Admission number">
+                  #{highlightMatches(student.admissionNumber, terms)}
+                </span>
+              )}
               {sessionName && (
                 <span className="badge rounded-pill text-bg-light border row-session-badge" data-testid="row-session">
                   {sessionName}
@@ -352,6 +358,16 @@ function StudentRow({
                 </div>
               </div>
 
+              {student.admissionNumber && (
+                <div className="student-info-item">
+                  <i className="bi bi-hash student-info-icon" />
+                  <div className="student-info-content">
+                    <div className="student-info-label">Admission No.</div>
+                    <div className="student-info-value font-monospace">{student.admissionNumber}</div>
+                  </div>
+                </div>
+              )}
+
               <div className="student-info-item">
                 <i className="bi bi-book student-info-icon" />
                 <div className="student-info-content">
@@ -496,6 +512,8 @@ const WATCHED_FIELDS = [
   'approvalStatus',
   'feeBalance',
   'overdue',
+  // 008Fixes / 05
+  'admissionNumber',
 ];
 
 function areEqual(prev, next) {

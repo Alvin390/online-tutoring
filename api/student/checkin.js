@@ -3,11 +3,14 @@ import { projectStudent } from '../_lib/studentProjection.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { authenticate } from '../_lib/auth.js';
-import { forbidden } from '../_lib/errors.js';
-import { isEnabled } from '../_lib/flags.js';
+import { ApiError, badRequest, forbidden } from '../_lib/errors.js';
+import { getFlags } from '../_lib/flags.js';
 import { clientIp } from '../_lib/rateLimit.js';
 import { effectiveApprovalStatus, isBlockedNow } from '../_lib/studentState.js';
 import { issuePass, passBypass } from '../_lib/checkinPass.js';
+import { parseNumberInput, recordNumber, reservationId } from '../_lib/admissionNumber.js';
+import { DEVICE_ID_PATTERN, lockRef, deviceHash, lockState, lockUntil } from '../_lib/checkinLock.js';
+import { sessionSchedule } from '../_lib/sessions.js';
 
 /**
  * Student check-in — Phase 01 D1/D4.
@@ -41,8 +44,65 @@ const schema = z
   .object({
     session: sessionSchema,
     phone: phoneSchema,
+    // 008Fixes / 03: the admission number ("0042") or staff number ("S-0042"),
+    // and this browser's device id. New pages always send the device id.
+    number: z.string().trim().max(12).optional(),
+    deviceId: z.string().regex(DEVICE_ID_PATTERN).optional(),
   })
   .strict();
+
+/**
+ * 008Fixes / 03 — the refusals of an admission-number check-in. 409 for a
+ * step the page leads the student through, 403 for a refusal. Every message
+ * is written for the student: an old cached page shows `message` as it is.
+ */
+export const CHECKIN_STEP = Object.freeze({
+  REFRESH: 'refresh_needed',
+  VERIFY: 'verify_required',
+  CHOOSE: 'choose_number',
+  NUMBER: 'number_required',
+  MISMATCH: 'number_mismatch',
+  DUPLICATE: 'duplicate_records',
+  OTHER_DEVICE: 'other_device',
+});
+const step = (code, message) => new ApiError(409, code, message);
+const MISMATCH_MESSAGE = "That admission number and phone don't match. Check both, or ask your teacher.";
+
+/**
+ * 008Fixes / 03: with `checkin.admissionNumbers` on, who may come in. Returns
+ * the lock to write ({ until }) or null. Throws the step or refusal otherwise.
+ * Order (plan): verified → has a number → number given → it matches → the
+ * reservation agrees → no other device holds this class.
+ */
+function admissionGate({ data, phone, number, reservation, lock, hash }) {
+  if (!data.phoneVerifiedAt) {
+    throw step(CHECKIN_STEP.VERIFY, 'Confirm your phone number first: we will send you a code. If you do not see where to enter it, refresh the page.');
+  }
+  const held = recordNumber(data);
+  if (!held) {
+    throw step(CHECKIN_STEP.CHOOSE, data.staff === true
+      ? 'Choose your staff number to continue.'
+      : 'Choose your admission number to continue.');
+  }
+  if (!number) throw step(CHECKIN_STEP.NUMBER, 'Enter your admission number too.');
+  // The same message whichever of the two is wrong: it never says which.
+  if (number.kind !== held.kind || number.digits !== held.digits) {
+    throw forbidden(MISMATCH_MESSAGE, CHECKIN_STEP.MISMATCH);
+  }
+  // The reservation is what makes a number unique. If it names another
+  // number, two records claim this one — the teacher sorts it out.
+  if (!reservation || reservation.phone !== phone) {
+    throw step(CHECKIN_STEP.DUPLICATE, 'Your teacher needs to sort out duplicate records. Please try again later.');
+  }
+  const state = lockState(lock, hash);
+  if (state === 'other') {
+    throw forbidden(
+      'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.',
+      CHECKIN_STEP.OTHER_DEVICE,
+    );
+  }
+  return state === 'same' ? null : { write: state === 'none' ? 'create' : 'set' };
+}
 
 /** Heartbeat granularity: "last seen" does not need to be finer than this. */
 export const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000;
@@ -65,7 +125,7 @@ export default createHandler({
   },
   schema,
   handle: async ({ body, req, log, waitUntil }) => {
-    const { session, phone } = body;
+    const { session, phone, deviceId } = body;
 
     // Strongest available authorization first.
     let authorized = false;
@@ -77,8 +137,27 @@ export default createHandler({
       // No token, or an invalid one. Fall through to the legacy path.
     }
 
-    if (!authorized && !(await isEnabled('auth.legacyStudentRead'))) {
+    // ONE flags read for both (parallel reads of a cold cache would each go
+    // to Firestore — a check-in's cost is guarded by a test).
+    const flags = await getFlags();
+    const numbersOn = flags['checkin.admissionNumbers'] === true;
+    if (!authorized && flags['auth.legacyStudentRead'] !== true) {
       throw forbidden('Please verify your phone number to continue.', 'verification_required');
+    }
+
+    // 008Fixes / 03: a page from before admission numbers sends no device id.
+    // It is told to refresh (an old page shows the message as it is).
+    let number = null;
+    if (numbersOn) {
+      if (!deviceId) {
+        throw step(CHECKIN_STEP.REFRESH, 'This page has been updated. Please refresh the page, then check in again.');
+      }
+      if (body.number) {
+        number = parseNumberInput(body.number);
+        if (!number) {
+          throw badRequest('Enter your 4-digit admission number (staff: S- and 4 digits).', 'invalid_number');
+        }
+      }
     }
 
     // A second limiter keyed on the phone itself. The IP limit above is
@@ -107,7 +186,15 @@ export default createHandler({
     const activityRef = db.doc(`sessions/${session}/students/${phone}/meta/activity`);
     // 003Fixes / 12: a number the teacher declined or merged, in the same batchGet.
     const retiredRef = db.doc(`sessions/${session}/retiredNumbers/${phone}`);
-    const [[snap, activity, retiredSnap]] = await Promise.all([db.getAll(ref, activityRef, retiredRef), phoneLimit]);
+    // 008Fixes / 03: the number's reservation and this class's lock come back
+    // in the SAME batchGet — still one round trip.
+    const extraRefs = numbersOn
+      ? [lockRef(db, session, phone), ...(number ? [db.doc(`sessions/${session}/numbers/${reservationId(number.kind, number.digits)}`)] : [])]
+      : [];
+    const [[snap, activity, retiredSnap, lockSnap, reservationSnap]] = await Promise.all([
+      db.getAll(ref, activityRef, retiredRef, ...extraRefs),
+      phoneLimit,
+    ]);
 
     if (!snap.exists) {
       // Deliberately identical in shape to the found case — no timing or
@@ -127,6 +214,39 @@ export default createHandler({
     }
 
     const data = snap.data();
+
+    // 008Fixes / 03: admission number + phone, one device per class. The lock
+    // is written on the response path (create-if-absent), so two devices
+    // racing cannot both win.
+    if (numbersOn) {
+      const hash = deviceHash(session, phone, deviceId);
+      const lock = admissionGate({
+        data,
+        phone,
+        number,
+        reservation: reservationSnap?.exists ? reservationSnap.data() : null,
+        lock: lockSnap?.exists ? lockSnap.data() : null,
+        hash,
+      });
+      if (lock) {
+        const until = new Date(lockUntil(await sessionSchedule(db, session)));
+        const lockDoc = { deviceHash: hash, until, at: FieldValue.serverTimestamp() };
+        try {
+          if (lock.write === 'create') await lockRef(db, session, phone).create(lockDoc);
+          else await lockRef(db, session, phone).set(lockDoc);
+        } catch (err) {
+          if (err?.code !== 6 && err?.code !== 'already-exists') throw err;
+          // Another device got there a moment first.
+          const raced = (await lockRef(db, session, phone).get()).data();
+          if (lockState(raced, hash) !== 'same') {
+            throw forbidden(
+              'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.',
+              CHECKIN_STEP.OTHER_DEVICE,
+            );
+          }
+        }
+      }
+    }
 
     // Heartbeat — Phase 13 / 08 B3. Written to a SEPARATE document
     // (meta/activity), not the student document: every teacher dashboard

@@ -91,11 +91,13 @@ export async function deleteRecursively(db, ref) {
  * `listCollections`.
  */
 const KNOWN_SUBCOLLECTIONS = Object.freeze({
-  sessions: ['students', 'private'],
+  // 008Fixes / 02: a session's number reservations go with it.
+  sessions: ['students', 'private', 'numbers'],
   students: ['notes', 'meta'],
   notes: [],
   meta: [],
   private: [],
+  numbers: [],
 });
 
 /** Every document under `ref`, children first, then `ref` (006Fixes / 01: exported for bulk delete). */
@@ -349,7 +351,9 @@ async function lookupSession(db, slug) {
   const snap = await db.doc(`sessions/${slug}`).get();
   let entry;
   if (snap.exists) {
-    entry = { exists: true, active: snap.data().active !== false, at: Date.now() };
+    // 008Fixes / 03: the schedule rides along (check-in's one-device lock
+    // lasts until the class ends) — the same read, no extra request.
+    entry = { exists: true, active: snap.data().active !== false, schedule: snap.data().schedule ?? null, at: Date.now() };
   } else if (LEGACY_SLUGS.includes(slug)) {
     entry = { exists: true, active: true, legacy: true, at: Date.now() };
   } else {
@@ -361,6 +365,14 @@ async function lookupSession(db, slug) {
   }
   sessionCache.set(slug, entry);
   return entry;
+}
+
+/**
+ * The session's class schedule, from the same 60 s cache (008Fixes / 03).
+ * createHandler has already looked the session up, so this is normally free.
+ */
+export async function sessionSchedule(db, slug) {
+  return (await lookupSession(db, slug)).schedule ?? null;
 }
 
 /**

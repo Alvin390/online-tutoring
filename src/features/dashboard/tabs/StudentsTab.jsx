@@ -1,4 +1,10 @@
+import { lazy, Suspense } from 'react';
 import StatsCards from '../components/StatsCards';
+import { useFlag } from '@shared/config/FlagsContext';
+
+// 008Fixes / 05: with approvals off there is no Approvals tab, so the waiting
+// codes sit here (lazy; read when opened).
+const WaitingCodesPanel = lazy(() => import('../components/admission/WaitingCodesPanel'));
 import StudentSearchPanel from '../components/StudentSearchPanel';
 
 /**
@@ -22,8 +28,15 @@ export default function StudentsTab({
   loading,
   actions,
 }) {
+  const numbers = useFlag('checkin.admissionNumbers');
+  const approvals = useFlag('registration.requireApproval');
   return (
     <>
+      {numbers && !approvals && (
+        <Suspense fallback={null}>
+          <WaitingCodesPanel sessionNames={Object.fromEntries(sessions.map((s) => [s.id, s.name ?? s.id]))} />
+        </Suspense>
+      )}
       {/* Owner review of Release A (2026-11-12): the stats cards stay. */}
       <StatsCards
         studentsBySession={studentsBySession}
