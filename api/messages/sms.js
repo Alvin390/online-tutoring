@@ -25,6 +25,9 @@ import { sendSms, SmsError, smsAvailable } from '../_lib/sms.js';
  *   list/get   history, and one message's people with their delivery
  *   refresh    ask HashBack about delivery now (also done every minute for
  *              30 minutes after a send, with no new cron)
+ *   people     who can be messaged (008Fixes / 09): students and staff, by
+ *              the same rules as a send (opted-out and unapproved left out),
+ *              for "Choose students" and WhatsApp to one person
  *
  * Setup (008Fixes / 08, owner HashBack answers 1–2): messaging is LOCKED until
  *   setup          what is set: the school name, unlocked or not, the sender
@@ -58,6 +61,7 @@ const schema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('get'), campaignId: id }).strict(),
   z.object({ action: z.literal('refresh'), campaignId: id }).strict(),
   z.object({ action: z.literal('setup') }).strict(),
+  z.object({ action: z.literal('people') }).strict(),
   z.object({ action: z.literal('saveSchoolName'), schoolName: z.string().trim().min(2).max(30) }).strict(),
   z.object({ action: z.literal('sendTest'), phone: phoneSchema }).strict(),
   z.object({ action: z.literal('unlock') }).strict(),
@@ -114,6 +118,16 @@ export default createHandler({
     };
 
     if (body.action === 'setup') return { setup: setupView(await readSetup()) };
+
+    if (body.action === 'people') {
+      const [students, staff] = await Promise.all([smsRecipients(db, { type: 'all' }), smsRecipients(db, { type: 'staff' })]);
+      const view = (r) => ({
+        session: r.session, sessionName: r.sessionName, phone: r.phone, studentName: r.studentName ?? null,
+        class: r.class ?? null, feeBalance: r.feeBalance ?? 0, nextDueDate: r.nextDueDate?.toMillis?.() ?? r.nextDueDate ?? null,
+      });
+      const byName = (a, b) => String(a.studentName ?? '').localeCompare(String(b.studentName ?? ''));
+      return { students: students.map(view).sort(byName), staff: staff.map(view).sort(byName) };
+    }
 
     if (body.action === 'saveSchoolName') {
       const name = normalizeSmsText(body.schoolName).replace(/\s+/g, ' ').trim();

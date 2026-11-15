@@ -190,6 +190,19 @@ describe('sending', () => {
   });
 });
 
+describe('who can be messaged (Phase 09)', () => {
+  it('students and staff, opted-out and unapproved left out, with what the counter needs', async () => {
+    await seed('evening', P(1), { studentName: 'Ann', feeBalance: 2750 });
+    await seed('evening', P(2), { staff: true, studentName: 'Mwalimu Juma' });
+    await seed('evening', P(3), { whatsappOptOut: true });
+    await seed('morning', P(4), { approvalStatus: 'pending' });
+    const res = await sms(silver, { action: 'people' });
+    expect(res.status).toBe(200);
+    expect(res.body.students).toEqual([expect.objectContaining({ phone: P(1), studentName: 'Ann', session: 'evening', sessionName: 'Evening Session', feeBalance: 2750 })]);
+    expect(res.body.staff.map((p) => p.studentName)).toEqual(['Mwalimu Juma']);
+  });
+});
+
 describe('credit', () => {
   it('below the KES 100 reserve: refused and the owner emailed once; codes still go out', async () => {
     await seed('evening', P(1));

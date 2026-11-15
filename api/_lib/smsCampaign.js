@@ -3,7 +3,7 @@ import { ApiError, badRequest, notFound } from './errors.js';
 import { renderTemplate } from './messageTemplate.js';
 import { resolveRecipients } from './messageRecipients.js';
 import {
-  normalizeSmsText, unsupportedChars, smsLength, smsUnits, smsCost, SMS_MAX_CHARS, SMS_MAX_UNITS,
+  normalizeSmsText, unsupportedChars, smsLength, smsUnits, smsCost, SMS_MAX_CHARS, SMS_MAX_UNITS, smsPlainValue as plainValue,
 } from './smsText.js';
 import { sendSms, smsStatus, SmsError, smsAvailable } from './sms.js';
 import { recordSmsBalance, recordSmsUsage, lastKnownBalance, SMS_RESERVE_KES, smsAlertRecipient } from './smsCredit.js';
@@ -43,13 +43,6 @@ const PENDING_DOC = 'config/smsPending';
 
 export const campaignsCol = (db) => db.collection('sms/campaigns/items');
 export const recipientKey = (session, phone) => `${session}__${String(phone).replace(/\D/g, '')}`;
-
-/** A value made safe for SMS: decorative fonts read as letters, quotes made plain, anything else SMS can't carry dropped. */
-function plainValue(value) {
-  const text = normalizeSmsText(String(value ?? '').normalize('NFKC'));
-  const bad = new Set(unsupportedChars(text));
-  return bad.size ? [...text].filter((ch) => !bad.has(ch)).join('').replace(/\s{2,}/g, ' ').trim() : text;
-}
 
 /** One parent's message, as it will be sent. */
 export function renderSms(template, recipient, schoolName) {

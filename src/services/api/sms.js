@@ -24,3 +24,5 @@ export const sendSmsToOne = (session, phone, template) => call({ action: 'sendOn
 export const listSms = () => call({ action: 'list' });
 export const getSms = (campaignId) => call({ action: 'get', campaignId });
 export const refreshSms = (campaignId) => call({ action: 'refresh', campaignId });
+/** Who can be messaged: { students: [...], staff: [...] } (Phase 09). */
+export const listSmsPeople = () => call({ action: 'people' });

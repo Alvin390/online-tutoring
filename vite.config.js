@@ -105,7 +105,7 @@ export default defineConfig({
           // pieces, and their service (src/services/api/admission.js).
           '**/AdmissionActions-*.js', '**/WaitingCodesPanel-*.js', '**/admission-*.js',
           // 008Fixes / 08–10: the SMS setup, composer and their service.
-          '**/MessagesArea-*.js', '**/sms-*.js',
+          '**/MessagesArea-*.js', '**/SmsComposer-*.js', '**/smsText-*.js', '**/sms-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

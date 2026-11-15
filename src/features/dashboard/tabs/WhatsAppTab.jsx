@@ -3,8 +3,10 @@ import WhatsAppPanel from '@features/whatsapp/components/WhatsAppPanel';
 import TierGate from '@shared/components/TierGate';
 import { useFlag } from '@shared/config/FlagsContext';
 
-// 008Fixes / 08: with SMS on, the tab first asks for the SMS setup (lazy).
+// 008Fixes / 08–09: with SMS on, the tab asks for the SMS setup, then shows
+// the SMS / WhatsApp-one-person composer (both lazy).
 const MessagesArea = lazy(() => import('@features/sms/components/MessagesArea'));
+const SmsComposer = lazy(() => import('@features/sms/components/SmsComposer'));
 
 /**
  * WhatsApp — 007Fixes / 03. Its own lazy chunk; the gate sits inside the tab,
@@ -23,7 +25,7 @@ export default function WhatsAppTab({ preset }) {
     >
       {smsOn ? (
         <Suspense fallback={<div className="text-center py-4"><span className="spinner-border spinner-border-sm text-primary" /></div>}>
-          <MessagesArea>{() => panel}</MessagesArea>
+          <MessagesArea>{(setup) => <SmsComposer key={preset.version} setup={setup} preset={preset.preset} />}</MessagesArea>
         </Suspense>
       ) : panel}
     </TierGate>

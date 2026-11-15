@@ -52,6 +52,18 @@ export function unsupportedChars(text) {
   return seen;
 }
 
+/**
+ * A filled-in value (a name, a class) made safe for SMS — 008Fixes / 09:
+ * decorative fonts read as letters (NFKC), quotes made plain, anything else
+ * SMS can't carry dropped. Used by the server when it fills each parent's
+ * message, and by the composer's counter, so the two agree exactly.
+ */
+export function smsPlainValue(value) {
+  const text = normalizeSmsText(String(value ?? '').normalize('NFKC'));
+  const bad = new Set(unsupportedChars(text));
+  return bad.size ? [...text].filter((ch) => !bad.has(ch)).join('').replace(/\s{2,}/g, ' ').trim() : text;
+}
+
 /** Length as billed: extension characters (€ [ ] { } ~ ^ | \) count twice. */
 export function smsLength(text) {
   let n = 0;
