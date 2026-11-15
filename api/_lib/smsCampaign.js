@@ -319,16 +319,20 @@ export async function checkDelivery({ db, campaignId, limit = 12, log }) {
     if (!smsId) continue;
     try {
       // eslint-disable-next-line no-await-in-loop
-      const report = await smsStatus(smsId);
-      const status = String(report.status ?? report.message?.status ?? '').toLowerCase();
+      const reply = await smsStatus(smsId);
+      // HashBack's reply (seen on the first real send, 2026-11-16):
+      //   { success, sms: { status: 'delivered', dlr_status, refunded, error, … } }
+      // The top-level form is kept as a fallback.
+      const report = reply.sms ?? reply.message ?? reply;
+      const status = String(report.status ?? report.dlr_status ?? '').toLowerCase();
       if (HASHBACK_DELIVERED.has(status)) {
         delivered += 1;
         batch.update(doc.ref, { status: 'delivered', statusAt: now, providerStatus: status });
       } else if (HASHBACK_FAILED.has(status)) {
         failed += 1;
         batch.update(doc.ref, {
-          status: 'failed', statusAt: now, providerStatus: status, error: status,
-          refunded: report.refunded === true || report.message?.refunded === true,
+          status: 'failed', statusAt: now, providerStatus: status, error: report.error ? String(report.error).slice(0, 80) : status,
+          refunded: report.refunded === true,
         });
       }
     } catch (err) {

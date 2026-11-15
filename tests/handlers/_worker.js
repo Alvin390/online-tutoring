@@ -224,7 +224,9 @@ export function installFetchGuard() {
         const id = new URL(url).searchParams.get('id');
         if (!hb.sent.some((m) => m.id === id)) return json({ success: false, code: 'NOT_FOUND', message: 'No message with that id on this account.' }, 404);
         const status = hb.statuses.get(id) ?? 'sent';
-        return json({ success: true, id, status, refunded: status === 'failed' });
+        // 008Fixes / 11: HashBack's real reply (first real send, 2026-11-16)
+        // wraps the report in `sms`, with `status` and `dlr_status`.
+        return json({ success: true, sms: { id, status, dlr_status: status, refunded: status === 'failed', error: status === 'failed' ? 'DeliveryFailure' : null, units: 1, cost: 0.35 } });
       }
       if (path === '/balance') return json({ success: true, balance: hb.balance, currency: 'KES', rate: 0.35, sender_id: 'HASHBACKSMS', can_send: true });
       if (path === '/quote') {
