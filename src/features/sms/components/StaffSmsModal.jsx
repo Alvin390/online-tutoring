@@ -19,7 +19,7 @@ import MessageBox from './MessageBox';
 const lastSent = new Map();
 const DELIVERY = { sent: 'Sent', delivered: 'Delivered', failed: 'Not delivered', queued: 'Waiting', sending: 'Sending' };
 
-export default function StaffSmsModal({ person, session, onClose }) {
+export default function StaffSmsModal({ person, session, sessionName = '', onClose }) {
   const key = `${session}:${person.id}`;
   const [setup, setSetup] = useState(null);
   const [error, setError] = useState('');
@@ -48,8 +48,9 @@ export default function StaffSmsModal({ person, session, onClose }) {
   }, []);
 
   const counter = useMemo(
-    () => measure(text, [{ studentName: person.studentName ?? '', class: person.class ?? '', sessionName: '' }], setup?.schoolName ?? ''),
-    [text, person, setup],
+    // Filled as the server fills it (the session's name too), so the counter never undercounts.
+    () => measure(text, [{ studentName: person.studentName ?? '', class: person.class ?? '', sessionName }], setup?.schoolName ?? ''),
+    [text, person, sessionName, setup],
   );
 
   const send = async () => {

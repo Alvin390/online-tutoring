@@ -236,7 +236,7 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
 
       {texting && (
         <Suspense fallback={null}>
-          <StaffSmsModal person={texting} session={texting.__session} onClose={() => setTexting(null)} />
+          <StaffSmsModal person={texting} session={texting.__session} sessionName={names[texting.__session] ?? texting.__session} onClose={() => setTexting(null)} />
         </Suspense>
       )}
 

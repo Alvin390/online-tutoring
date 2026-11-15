@@ -74,6 +74,14 @@ describe('the pop-up', () => {
     expect((await screen.findByTestId('staff-sms-status')).textContent).toMatch(/^Sent/);
   });
 
+  it('[Session] counts with the real session name, as the server fills it', async () => {
+    await renderTab();
+    await open();
+    await act(async () => { fireEvent.change(await screen.findByLabelText('Message'), { target: { value: 'See you in [Session]' } }); });
+    // "See you in Evening" = 18 characters (an empty session name would give 11).
+    expect(screen.getByTestId('staff-sms-counter').textContent).toMatch(/^18 \/ 336 characters/);
+  });
+
   it('over two SMS: says by how much, and Send is disabled', async () => {
     await renderTab();
     await open();
