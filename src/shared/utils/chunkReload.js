@@ -15,6 +15,21 @@
 const KEY = 'tutoring.chunkReloadAt';
 const LOOP_WINDOW_MS = 30_000;
 
+/**
+ * 008Fixes / 08: set from the moment this page starts reloading onto a new
+ * version. Vite then resolves the interrupted import() to `undefined`, and
+ * whatever was using it fails harmlessly as the page goes (Sentry
+ * ONLINE-TUTORING-1-E, a PDF export across the 15 Nov release). Monitoring
+ * drops errors reported in that moment (monitoring.js prepareEvent).
+ */
+let reloading = false;
+export const isChunkReloading = () => reloading;
+
+/** Test hook. */
+export function __resetChunkReloading() {
+  reloading = false;
+}
+
 export function installChunkReload(win = window) {
   const onPreloadError = (event) => {
     let last = 0;
@@ -32,6 +47,7 @@ export function installChunkReload(win = window) {
       return;
     }
     event.preventDefault(); // Vite: do not throw; we are reloading
+    reloading = true;
     win.location.reload();
   };
 

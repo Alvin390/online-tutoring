@@ -105,6 +105,26 @@ describe('the bottom of a phone screen', () => {
     act(() => { input.focus(); fireEvent.focusIn(input); });
     expect(document.body.classList.contains('is-typing')).toBe(true);
     act(() => { input.blur(); fireEvent.focusOut(input); });
+    // 008Fixes / 08: shown again a moment later, not in the same instant.
+    expect(document.body.classList.contains('is-typing')).toBe(true);
+    await act(async () => { await new Promise((r) => { setTimeout(r, 350); }); });
+    expect(document.body.classList.contains('is-typing')).toBe(false);
+    input.remove();
+  });
+
+  it('008Fixes / 08: a tap that leaves a field reaches its button before the bar comes back', async () => {
+    await renderBar();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    act(() => { input.focus(); fireEvent.focusIn(input); });
+    // Finger down on a button: the field loses focus, the bar stays hidden…
+    act(() => { fireEvent.pointerDown(document.body); input.blur(); fireEvent.focusOut(input); });
+    await act(async () => { await new Promise((r) => { setTimeout(r, 400); }); });
+    expect(document.body.classList.contains('is-typing')).toBe(true);
+    // …until the finger lifts (and the click has landed).
+    act(() => { fireEvent.pointerUp(document.body); });
+    expect(document.body.classList.contains('is-typing')).toBe(true);
+    await act(async () => { await new Promise((r) => { setTimeout(r, 200); }); });
     expect(document.body.classList.contains('is-typing')).toBe(false);
     input.remove();
   });

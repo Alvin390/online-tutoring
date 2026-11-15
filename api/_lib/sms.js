@@ -15,7 +15,17 @@
  * Nothing here logs a phone number or a message body.
  */
 
-const BASE = 'https://api.hashback.co.ke/sms';
+const HASHBACK = 'https://api.hashback.co.ke/sms';
+
+/**
+ * Where requests go: HashBack, or — for local browser checks only — a fake on
+ * this machine (HASHBACK_BASE_URL=http://127.0.0.1:…). Any other override is
+ * ignored, so a misconfigured deployment can never send the key elsewhere.
+ */
+function baseUrl() {
+  const override = process.env.HASHBACK_BASE_URL;
+  return override && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(override) ? override.replace(/\/$/, '') : HASHBACK;
+}
 
 export class SmsError extends Error {
   constructor(code, message, { status = null, retryAfter = null } = {}) {
@@ -34,7 +44,7 @@ async function request(path, { method = 'GET', body } = {}) {
   if (!smsAvailable()) throw new SmsError('sms_unavailable', 'SMS is not configured.');
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(`${baseUrl()}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${process.env.HASHBACK_API_KEY}`,
@@ -67,6 +77,7 @@ export async function sendSms({ to, message }) {
     cost: Number(json.cost) || 0,
     balance: Number.isFinite(Number(json.balance)) ? Number(json.balance) : null,
     status: json.status ?? null,
+    senderId: json.sender_id ?? null,
   };
 }
 

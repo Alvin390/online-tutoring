@@ -1,5 +1,6 @@
 import { redactSentryEvent, redactString, redact } from './redact';
 import { releaseName } from './releaseName';
+import { isChunkReloading } from './chunkReload';
 
 /**
  * Sentry configuration — Phase 11 D2.
@@ -76,6 +77,9 @@ export function groupApiError(event, hint) {
 
 /** Everything an error event goes through on its way out. */
 export function prepareEvent(event, hint) {
+  // 008Fixes / 08: the page is reloading onto a new version; whatever failed
+  // as its old files vanished is not a fault (Sentry ONLINE-TUTORING-1-E).
+  if (isChunkReloading()) return null;
   const tab = dashboardTabTag(window.location.pathname);
   const tagged = {
     ...event,

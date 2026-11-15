@@ -14,7 +14,7 @@
  * (`includeSession`, names from `sessionNames`). With neither, the document
  * is exactly what it always was.
  *
- * @returns {Promise<import('jspdf').jsPDF>} the finished document (not saved)
+ * @returns {Promise<import('jspdf').jsPDF|null>} the finished document (not saved); null while the page reloads
  */
 export async function buildStudentsPdf({
   sessionName,
@@ -23,11 +23,17 @@ export async function buildStudentsPdf({
   subtitle = '',
   includeSession = false,
   sessionNames = {},
+  // 008Fixes / 08: how the two libraries are loaded (a test passes the empty
+  // result Vite gives while the page reloads onto a new version).
+  loadLibraries = () => Promise.all([import('jspdf'), import('jspdf-autotable')]),
 }) {
-  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
-  ]);
+  const [jspdfModule, autoTableModule] = await loadLibraries();
+  // 008Fixes / 08: an empty module means the page is reloading onto a new
+  // version (chunkReload.js) — nothing to build; the teacher presses Export
+  // again on the new page.
+  if (!jspdfModule || !autoTableModule) return null;
+  const { default: jsPDF } = jspdfModule;
+  const { default: autoTable } = autoTableModule;
 
   // Create new PDF document
   const doc = new jsPDF();

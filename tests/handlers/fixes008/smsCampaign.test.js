@@ -41,6 +41,8 @@ beforeEach(async () => {
   await db.doc('sessions/evening').set({ slug: 'evening', name: 'Evening Session', active: true, classes: ['Form 3', 'Grade 8'] });
   await db.doc('sessions/morning').set({ slug: 'morning', name: 'Morning Session', active: true, classes: ['Form 3'] });
   await db.doc('config/notifications').set({ reportRecipient: 'reports@school.example', smsAlertRecipient: 'owner@school.example' });
+  // 008Fixes / 08: set up and unlocked (smsSetup.test.js covers the lock).
+  await db.doc('config/smsSetup').set({ schoolName: 'Focus', unlockedAt: new Date() });
 });
 
 describe('the switch and the tiers', () => {

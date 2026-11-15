@@ -9,8 +9,9 @@ import {
   prepareMessages, smsRecipients, assertAboveReserve, createCampaign, sendChunk, checkDelivery,
   campaignsCol, campaignView, recipientView, SMS_CHUNK,
 } from '../_lib/smsCampaign.js';
-import { lastKnownBalance, SMS_RESERVE_KES } from '../_lib/smsCredit.js';
-import { SMS_MAX_CHARS, SMS_RATE_KES } from '../_lib/smsText.js';
+import { lastKnownBalance, SMS_RESERVE_KES, recordSmsBalance, recordSmsUsage } from '../_lib/smsCredit.js';
+import { SMS_MAX_CHARS, SMS_RATE_KES, unsupportedChars, normalizeSmsText } from '../_lib/smsText.js';
+import { sendSms, SmsError, smsAvailable } from '../_lib/sms.js';
 
 /**
  * SMS to parents (and staff) through HashBack — 008Fixes / 07.
@@ -24,6 +25,15 @@ import { SMS_MAX_CHARS, SMS_RATE_KES } from '../_lib/smsText.js';
  *   list/get   history, and one message's people with their delivery
  *   refresh    ask HashBack about delivery now (also done every minute for
  *              30 minutes after a send, with no new cron)
+ *
+ * Setup (008Fixes / 08, owner HashBack answers 1–2): messaging is LOCKED until
+ *   setup          what is set: the school name, unlocked or not, the sender
+ *   saveSchoolName the {{schoolName}} placeholder (up to 30, plain characters);
+ *                  can be changed later without locking again
+ *   sendTest       "Test from <school>: SMS is working." to the teacher's phone
+ *   unlock         after a test HashBack accepted in the last hour
+ * The setup is the school's (config/smsSetup): every staff account shares it,
+ * as they share everything (owner, 2026-10-31).
  *
  * The same tiers as WhatsApp (owner answer 16): Silver sends to everyone;
  * choosing sessions, classes, students or staff is Gold (with
@@ -47,7 +57,28 @@ const schema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list') }).strict(),
   z.object({ action: z.literal('get'), campaignId: id }).strict(),
   z.object({ action: z.literal('refresh'), campaignId: id }).strict(),
+  z.object({ action: z.literal('setup') }).strict(),
+  z.object({ action: z.literal('saveSchoolName'), schoolName: z.string().trim().min(2).max(30) }).strict(),
+  z.object({ action: z.literal('sendTest'), phone: phoneSchema }).strict(),
+  z.object({ action: z.literal('unlock') }).strict(),
 ]);
+
+const SETUP_DOC = 'config/smsSetup';
+const TEST_VALID_MS = 60 * 60_000;
+const iso = (v) => v?.toDate?.()?.toISOString?.() ?? null;
+
+function setupView(data) {
+  const d = data ?? {};
+  return {
+    schoolName: d.schoolName ?? '',
+    unlocked: Boolean(d.unlockedAt),
+    unlockedAt: iso(d.unlockedAt),
+    unlockedByEmail: d.unlockedByEmail ?? null,
+    lastTestAt: iso(d.lastTestAt),
+    lastTestEnding: d.lastTestEnding ?? null,
+    sender: d.sender ?? 'HASHBACKSMS',
+  };
+}
 
 /** The school name from the SMS setup (Phase 08), for {{schoolName}}. */
 async function schoolNameOf(db) {
@@ -71,6 +102,73 @@ export default createHandler({
     const isGold = user.role === 'superadmin' || (user.tierRank ?? 0) >= 3;
     const filtersAllowed = isGold && flags['whatsapp.advanced'] === true;
 
+    const setupRef = db.doc(SETUP_DOC);
+    const readSetup = async () => {
+      const snap = await setupRef.get();
+      return snap.exists ? snap.data() : {};
+    };
+    const assertUnlocked = async () => {
+      if (!(await readSetup()).unlockedAt) {
+        throw new ApiError(409, 'sms_locked', 'Set up SMS first: add your school name and send a test to your phone.');
+      }
+    };
+
+    if (body.action === 'setup') return { setup: setupView(await readSetup()) };
+
+    if (body.action === 'saveSchoolName') {
+      const name = normalizeSmsText(body.schoolName).replace(/\s+/g, ' ').trim();
+      const bad = unsupportedChars(name);
+      if (bad.length) throw new ApiError(400, 'unsupported_characters', `SMS can't carry ${bad.join(' ')}. Use plain letters.`);
+      await setupRef.set({ schoolName: name, schoolNameAt: new Date(), schoolNameBy: user.uid }, { merge: true });
+      waitUntil(tryWriteAudit({
+        action: 'sms.school_name_set', actor: user.uid, actorRole: user.role, target: SETUP_DOC,
+        after: { schoolName: name }, context: { requestId: log.requestId },
+      }, log));
+      return { setup: setupView(await readSetup()) };
+    }
+
+    if (body.action === 'sendTest') {
+      if (!smsAvailable()) throw new ApiError(503, 'sms_unavailable', 'SMS is not available right now. Ask the owner to check the SMS setup.');
+      const setup = await readSetup();
+      const message = `Test from ${setup.schoolName || 'your school'}: SMS is working.`;
+      let sent;
+      try {
+        sent = await sendSms({ to: body.phone, message });
+      } catch (err) {
+        const code = err instanceof SmsError ? err.code : 'error';
+        log.warn('SMS test not sent', { code });
+        throw new ApiError(code === 'INSUFFICIENT_FUNDS' ? 402 : 502, code === 'INSUFFICIENT_FUNDS' ? 'low_credit' : 'not_sent',
+          code === 'INSUFFICIENT_FUNDS'
+            ? 'The SMS credit has run out. Ask the owner to top it up.'
+            : 'The test SMS was not sent. Check the number and try again.');
+      }
+      await setupRef.set({
+        lastTestId: sent.id, lastTestAt: new Date(), lastTestBy: user.uid,
+        lastTestEnding: body.phone.slice(-3), ...(sent.senderId ? { sender: sent.senderId } : {}),
+      }, { merge: true });
+      await Promise.all([
+        recordSmsBalance(sent.balance, { db, log }),
+        recordSmsUsage({ db, uid: user.uid, units: sent.units || 1, cost: sent.cost || SMS_RATE_KES, log }),
+      ]);
+      return { sent: true, phoneEnding: body.phone.slice(-3), sender: sent.senderId ?? 'HASHBACKSMS' };
+    }
+
+    if (body.action === 'unlock') {
+      const setup = await readSetup();
+      const testedAt = setup.lastTestAt?.toMillis?.() ?? 0;
+      if (!setup.lastTestId || Date.now() - testedAt > TEST_VALID_MS) {
+        throw new ApiError(409, 'test_first', 'Send a test SMS to your phone first.');
+      }
+      if (!setup.unlockedAt) {
+        await setupRef.set({ unlockedAt: new Date(), unlockedBy: user.uid, unlockedByEmail: user.email ?? null }, { merge: true });
+        waitUntil(tryWriteAudit({
+          action: 'sms.unlocked', actor: user.uid, actorRole: user.role, target: SETUP_DOC,
+          context: { requestId: log.requestId, device: user.device },
+        }, log));
+      }
+      return { setup: setupView(await readSetup()) };
+    }
+
     const audience = async (filter) => {
       if (filter.type !== 'all' && !filtersAllowed) {
         throw forbidden('Choosing who receives it is a Gold feature. Silver sends to all students.', 'tier_required');
@@ -79,6 +177,8 @@ export default createHandler({
       if (people.length === 0) throw badRequest('Nobody matches that choice (or they asked not to get messages).', 'no_recipients');
       return people;
     };
+
+    if (body.action === 'preview' || body.action === 'start' || body.action === 'sendOne') await assertUnlocked();
 
     if (body.action === 'preview' || body.action === 'start') {
       const [people, schoolName] = await Promise.all([audience(body.filter), schoolNameOf(db)]);

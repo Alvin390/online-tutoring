@@ -346,6 +346,8 @@ export const useDashboard = () => {
       includeSession: Boolean(view?.allSessions),
       sessionNames,
     });
+    // 008Fixes / 08: the page is reloading onto a new version.
+    if (!doc) return;
 
     // Download
     const stamp = new Date().toISOString().split('T')[0];
