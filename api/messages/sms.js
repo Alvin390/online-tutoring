@@ -1,0 +1,191 @@
+import { createHandler } from '../_lib/handler.js';
+import { getDb } from '../_lib/firebaseAdmin.js';
+import { z, sessionSchema, phoneSchema } from '../_lib/validate.js';
+import { ApiError, badRequest, forbidden, notFound } from '../_lib/errors.js';
+import { tryWriteAudit } from '../_lib/audit.js';
+import { getFlags } from '../_lib/flags.js';
+import { withDevice } from '../_lib/device.js';
+import {
+  prepareMessages, smsRecipients, assertAboveReserve, createCampaign, sendChunk, checkDelivery,
+  campaignsCol, campaignView, recipientView, SMS_CHUNK,
+} from '../_lib/smsCampaign.js';
+import { lastKnownBalance, SMS_RESERVE_KES } from '../_lib/smsCredit.js';
+import { SMS_MAX_CHARS, SMS_RATE_KES } from '../_lib/smsText.js';
+
+/**
+ * SMS to parents (and staff) through HashBack — 008Fixes / 07.
+ *
+ *   preview    every parent's version checked: the longest (and whose), units,
+ *              cost, how many, the balance. Nothing is sent.
+ *   start      the same checks, the reserve, then the campaign is created
+ *   sendChunk  the next SMS_CHUNK parents (the dashboard calls it until done)
+ *   cancel     the rest are not sent
+ *   sendOne    one student or staff member (the Staff tab's SMS button)
+ *   list/get   history, and one message's people with their delivery
+ *   refresh    ask HashBack about delivery now (also done every minute for
+ *              30 minutes after a send, with no new cron)
+ *
+ * The same tiers as WhatsApp (owner answer 16): Silver sends to everyone;
+ * choosing sessions, classes, students or staff is Gold (with
+ * `whatsapp.advanced`, as WhatsApp's filters). Behind `sms.enabled`.
+ */
+
+const filterSchema = z.object({
+  type: z.enum(['all', 'session', 'class', 'individual', 'staff']),
+  values: z.array(z.string().trim().max(80)).max(1000).optional(),
+}).strict();
+
+const template = z.string().trim().min(1).max(2000);
+const id = z.string().trim().regex(/^[A-Za-z0-9]{1,40}$/);
+
+const schema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('preview'), template, filter: filterSchema }).strict(),
+  z.object({ action: z.literal('start'), template, filter: filterSchema, title: z.string().trim().max(140).optional() }).strict(),
+  z.object({ action: z.literal('sendChunk'), campaignId: id }).strict(),
+  z.object({ action: z.literal('cancel'), campaignId: id }).strict(),
+  z.object({ action: z.literal('sendOne'), session: sessionSchema, phone: phoneSchema, template }).strict(),
+  z.object({ action: z.literal('list') }).strict(),
+  z.object({ action: z.literal('get'), campaignId: id }).strict(),
+  z.object({ action: z.literal('refresh'), campaignId: id }).strict(),
+]);
+
+/** The school name from the SMS setup (Phase 08), for {{schoolName}}. */
+async function schoolNameOf(db) {
+  const snap = await db.doc('config/smsSetup').get();
+  return snap.exists ? (snap.data().schoolName ?? '') : '';
+}
+
+export default createHandler({
+  sessions: 'any',
+  method: 'POST',
+  auth: true,
+  role: 'teacher',
+  tier: 'silver',
+  schema,
+  rateLimit: { bucket: 'messages_sms', limit: 600, windowSeconds: 3600, keyBy: 'ip' },
+  handle: async ({ req, body, user: signedIn, log, waitUntil }) => {
+    const db = getDb();
+    const user = withDevice(signedIn, req);
+    const flags = await getFlags();
+    if (flags['sms.enabled'] !== true) throw forbidden('SMS is not switched on yet.', 'sms_off');
+    const isGold = user.role === 'superadmin' || (user.tierRank ?? 0) >= 3;
+    const filtersAllowed = isGold && flags['whatsapp.advanced'] === true;
+
+    const audience = async (filter) => {
+      if (filter.type !== 'all' && !filtersAllowed) {
+        throw forbidden('Choosing who receives it is a Gold feature. Silver sends to all students.', 'tier_required');
+      }
+      const people = await smsRecipients(db, filter);
+      if (people.length === 0) throw badRequest('Nobody matches that choice (or they asked not to get messages).', 'no_recipients');
+      return people;
+    };
+
+    if (body.action === 'preview' || body.action === 'start') {
+      const [people, schoolName] = await Promise.all([audience(body.filter), schoolNameOf(db)]);
+      const prepared = prepareMessages(body.template, people, schoolName);
+      if (body.action === 'preview') {
+        const balance = await lastKnownBalance(db);
+        return {
+          recipients: prepared.messages.length,
+          units: prepared.units,
+          cost: prepared.cost,
+          longest: prepared.longest,
+          maxChars: SMS_MAX_CHARS,
+          rate: SMS_RATE_KES,
+          balance,
+          reserve: SMS_RESERVE_KES,
+          enoughCredit: balance == null ? null : balance - prepared.cost >= SMS_RESERVE_KES,
+          sample: prepared.messages.slice(0, 3).map((m) => ({ studentName: m.studentName ?? null, text: m.text, units: m.units })),
+        };
+      }
+      await assertAboveReserve(db, prepared.cost, log);
+      const ref = await createCampaign({
+        db, user, kind: 'campaign', template: body.template, filter: body.filter, title: body.title, schoolName, prepared,
+      });
+      waitUntil(tryWriteAudit({
+        action: 'sms.campaign_started', actor: user.uid, actorRole: user.role, target: ref.id,
+        after: { recipients: prepared.messages.length, units: prepared.units, cost: prepared.cost, filter: body.filter.type },
+        context: { requestId: log.requestId, device: user.device },
+      }, log));
+      log.info('SMS campaign started', { recipients: prepared.messages.length, units: prepared.units });
+      return { campaignId: ref.id, recipients: prepared.messages.length, units: prepared.units, cost: prepared.cost, chunk: SMS_CHUNK };
+    }
+
+    if (body.action === 'sendChunk') {
+      const result = await sendChunk({ db, user, campaignId: body.campaignId, log });
+      log.info('SMS chunk', { sent: result.sent ?? 0, failed: result.failed ?? 0, remaining: result.remaining ?? 0 });
+      return result;
+    }
+
+    if (body.action === 'sendOne') {
+      const snap = await db.doc(`sessions/${body.session}/students/${body.phone}`).get();
+      if (!snap.exists) throw notFound('That person is no longer registered.');
+      const s = snap.data();
+      if (s.whatsappOptOut === true) throw new ApiError(409, 'opted_out', 'They asked not to get messages.');
+      const sessionSnap = await db.doc(`sessions/${body.session}`).get();
+      const person = {
+        phone: body.phone,
+        session: body.session,
+        sessionName: sessionSnap.exists ? (sessionSnap.data().name ?? body.session) : body.session,
+        studentName: s.studentName ?? null,
+        class: s.class ?? null,
+        staff: s.staff === true,
+        feeBalance: typeof s.feeBalance === 'number' ? s.feeBalance : 0,
+        nextDueDate: s.nextDueDate ?? null,
+      };
+      const prepared = prepareMessages(body.template, [person], await schoolNameOf(db));
+      await assertAboveReserve(db, prepared.cost, log);
+      const ref = await createCampaign({ db, user, kind: 'one', template: body.template, filter: null, schoolName: null, prepared });
+      const result = await sendChunk({ db, user, campaignId: ref.id, log });
+      waitUntil(tryWriteAudit({
+        action: 'sms.sent_one', actor: user.uid, actorRole: user.role, target: `${body.session}/${body.phone}`,
+        after: { units: prepared.units, sent: result.sent ?? 0 }, context: { requestId: log.requestId, device: user.device },
+      }, log));
+      if (!result.sent) {
+        throw new ApiError(502, 'not_sent', result.retryAfter
+          ? `SMS is busy. Please try again in ${result.retryAfter} seconds.`
+          : 'The SMS was not sent. Please check the number and try again.');
+      }
+      return { campaignId: ref.id, sent: 1, units: prepared.units, cost: prepared.cost };
+    }
+
+    if (body.action === 'list') {
+      const snap = await campaignsCol(db).orderBy('createdAt', 'desc').limit(50).get();
+      return { campaigns: snap.docs.map((d) => campaignView(d.id, d.data())) };
+    }
+
+    const ref = campaignsCol(db).doc(body.campaignId);
+
+    if (body.action === 'cancel') {
+      const queued = await ref.collection('recipients').where('status', '==', 'queued').get();
+      const snap = await ref.get();
+      if (!snap.exists) throw notFound('That message no longer exists.');
+      const batch = db.batch();
+      queued.docs.forEach((d) => batch.update(d.ref, { status: 'skipped', error: 'cancelled', statusAt: new Date() }));
+      const counts = { ...(snap.data().counts ?? {}) };
+      counts.skipped = (counts.skipped ?? 0) + queued.size;
+      counts.queued = Math.max(0, (counts.queued ?? 0) - queued.size);
+      batch.set(ref, { status: 'cancelled', counts }, { merge: true });
+      await batch.commit();
+      waitUntil(tryWriteAudit({
+        action: 'sms.campaign_cancelled', actor: user.uid, actorRole: user.role, target: body.campaignId,
+        after: { skipped: queued.size }, context: { requestId: log.requestId },
+      }, log));
+      return { cancelled: true, skipped: queued.size };
+    }
+
+    if (body.action === 'refresh') {
+      const snap = await ref.get();
+      if (!snap.exists) throw notFound('That message no longer exists.');
+      await checkDelivery({ db, campaignId: body.campaignId, limit: 20, log });
+    }
+
+    // get (and refresh's answer)
+    const [snap, people] = await Promise.all([ref.get(), ref.collection('recipients').orderBy('order').get()]);
+    if (!snap.exists) throw notFound('That message no longer exists.');
+    return {
+      campaign: campaignView(snap.id, snap.data()),
+      recipients: people.docs.map((d) => recipientView(d.id, d.data())),
+    };
+  },
+});

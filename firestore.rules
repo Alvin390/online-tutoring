@@ -605,5 +605,13 @@ service cloud.firestore {
     match /reportUploads/{document=**} { allow read, write: if false; }
     match /counters/{document=**}      { allow read, write: if false; }
     match /config/notifications        { allow read, write: if false; }
+    // 008Fixes / 07: SMS campaigns, credit, usage, pending delivery checks and
+    // the setup are the server's (read through /api/messages/sms and the
+    // superadmin endpoint).
+    match /sms/{document=**}           { allow read, write: if false; }
+    match /config/smsBalance           { allow read, write: if false; }
+    match /config/smsUsage             { allow read, write: if false; }
+    match /config/smsPending           { allow read, write: if false; }
+    match /config/smsSetup             { allow read, write: if false; }
   }
 }

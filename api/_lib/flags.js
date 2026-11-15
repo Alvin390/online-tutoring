@@ -29,6 +29,8 @@ const DEFAULT_FLAGS = {
   'payments.daraja': false,
   // 008Fixes Release A: admission number + phone check-in (see src/shared/config/flags.js).
   'checkin.admissionNumbers': false,
+  // 008Fixes Release B: SMS through HashBack (see src/shared/config/flags.js).
+  'sms.enabled': false,
 };
 
 const TTL_MS = 30_000;

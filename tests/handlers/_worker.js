@@ -78,7 +78,9 @@ export const fakes = {
   gmail: { fail: null, oauthError: null, seq: 0, hold: null },
   storage: { fail: null, objects: new Map() },
   // 008Fixes: fail = { code, status, retryAfter } for the next HashBack send(s).
-  hashback: { fail: null, balance: 500, seq: 0, sent: [] },
+  // statuses: id -> HashBack delivery status for /sms/status (default 'sent');
+  // failFor: phone -> { code, status } to fail one recipient's send.
+  hashback: { fail: null, balance: 500, seq: 0, sent: [], statuses: new Map(), failFor: new Map() },
 };
 
 export function resetFakes() {
@@ -93,6 +95,8 @@ export function resetFakes() {
   fakes.hashback.fail = null;
   fakes.hashback.balance = 500;
   fakes.hashback.sent.length = 0;
+  fakes.hashback.statuses.clear();
+  fakes.hashback.failFor.clear();
 }
 
 /**
@@ -204,6 +208,10 @@ export function installFetchGuard() {
           headers: { 'content-type': 'application/json', ...(hb.fail.retryAfter ? { 'retry-after': String(hb.fail.retryAfter) } : {}) },
         });
       }
+      if (path === '/send' && hb.failFor.has(call.body?.to)) {
+        const f = hb.failFor.get(call.body?.to);
+        return json({ success: false, code: f.code, message: 'fake failure' }, f.status ?? 400);
+      }
       if (path === '/send') {
         hb.seq += 1;
         const units = unitsFor(call.body?.message);
@@ -211,6 +219,12 @@ export function installFetchGuard() {
         const id = `hb_${hb.seq}`;
         hb.sent.push({ id, to: call.body?.to, message: call.body?.message });
         return json({ success: true, id, to: call.body?.to, sender_id: 'HASHBACKSMS', status: 'sent', units, cost: units * 0.35, balance: hb.balance }, 201);
+      }
+      if (path === '/status') {
+        const id = new URL(url).searchParams.get('id');
+        if (!hb.sent.some((m) => m.id === id)) return json({ success: false, code: 'NOT_FOUND', message: 'No message with that id on this account.' }, 404);
+        const status = hb.statuses.get(id) ?? 'sent';
+        return json({ success: true, id, status, refunded: status === 'failed' });
       }
       if (path === '/balance') return json({ success: true, balance: hb.balance, currency: 'KES', rate: 0.35, sender_id: 'HASHBACKSMS', can_send: true });
       if (path === '/quote') {

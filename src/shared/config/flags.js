@@ -61,6 +61,12 @@ export const DEFAULT_FLAGS = {
    * wrong. Numbers already chosen are kept either way.
    */
   'checkin.admissionNumbers': false,
+  /**
+   * SMS to parents and staff through HashBack (008Fixes Release B): the new
+   * Messages composer, the staff SMS button and the superadmin cost card.
+   * Off: messaging is the WhatsApp composer as before.
+   */
+  'sms.enabled': false,
 };
 
 export const FLAG_KEYS = Object.freeze(Object.keys(DEFAULT_FLAGS));

@@ -1,5 +1,3 @@
-import { getDb } from './firebaseAdmin.js';
-
 /**
  * HashBack SMS client — 008Fixes / 01 (owner, 2026-11-14: SMS through
  * HashBack, the owner's account, the shared sender HASHBACKSMS).
@@ -81,13 +79,6 @@ export const smsMessages = ({ limit = 50, offset = 0 } = {}) => request(`/messag
 
 /**
  * The wallet balance every HashBack reply carries, kept for the cost tracker
- * (Release B builds the alerts on it). Best-effort: never fails a send.
+ * and the credit alerts — 008Fixes / 07 moved it to api/_lib/smsCredit.js.
  */
-export async function recordSmsBalance(balance, { log } = {}) {
-  if (!Number.isFinite(balance)) return;
-  try {
-    await getDb().doc('config/smsBalance').set({ balance, at: new Date() }, { merge: true });
-  } catch (err) {
-    log?.warn?.('SMS balance not recorded', { code: err?.code });
-  }
-}
+export { recordSmsBalance } from './smsCredit.js';

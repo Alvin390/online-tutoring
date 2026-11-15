@@ -136,6 +136,8 @@ describe('server tier requirements have a client gate', () => {
       'fees/config.js',
       'fees/generateInvoices.js',
       'fees/post.js',
+      // 008Fixes / 07: SMS, Silver like WhatsApp (gated by WhatsAppTab).
+      'messages/sms.js',
       'sessions/manage.js',
       'whatsapp/campaign.js',
       'whatsapp/upload.js',
