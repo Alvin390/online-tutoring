@@ -65,4 +65,26 @@ describe('the browser and the server agree', () => {
     expect(serverTemplate.renderTemplate(template, r)).toMatch(/^Dear parent of Amina \(Form 3, Evening\): KES 2,750 due .*\. Focus \{\{unknown\}\}$/);
     expect(serverTemplate.VARIABLES.map((v) => v.token)).toEqual(clientTemplate.VARIABLES.map((v) => v.token));
   });
+
+  it('dates are Nairobi dates on both sides (midnight in Nairobi is 21:00 UTC the day before)', () => {
+    const midnightNairobi = Date.parse('2026-12-01T00:00:00+03:00');
+    // Run as the Worker does (UTC), whatever this machine's own zone is.
+    const before = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+      expect(new Date(midnightNairobi).getDate()).toBe(30); // UTC really is in force
+      for (const t of [serverTemplate, clientTemplate]) expect(t.renderTemplate('{{dueDate}}', { nextDueDate: midnightNairobi })).toBe('1 Dec 2026');
+    } finally {
+      if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+    }
+  });
+
+  it("the composer's counter fills each message exactly as the server sends it", async () => {
+    const { renderFor, toTemplate } = await import('@features/sms/smsDraft');
+    const { renderSms } = await import('../../../api/_lib/smsCampaign.js');
+    const person = { studentName: '𝐀𝐦𝐢𝐧𝐚 “Ama”', class: 'Form 3', sessionName: 'Evening', feeBalance: 2750, nextDueDate: Date.parse('2026-12-01T00:00:00+03:00') };
+    const friendly = '[School name]: [Student name] ([Class], [Session]) owes [Fee balance], due [Due date].';
+    expect(renderFor(friendly, person, 'Focus School')).toBe(renderSms(toTemplate(friendly), person, 'Focus School'));
+    expect(renderFor(friendly, person, 'Focus School')).toBe('Focus School: Amina "Ama" (Form 3, Evening) owes KES 2,750, due 1 Dec 2026.');
+  });
 });

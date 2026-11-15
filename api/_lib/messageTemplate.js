@@ -15,7 +15,9 @@ function formatDate(value) {
       ? value.toMillis()
       : Date.parse(value);
   if (Number.isNaN(ms)) return '';
-  return new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
+  // 008Fixes / 09: in Nairobi time on both sides; the Worker runs in UTC, so
+  // a due date saved at midnight in Nairobi showed as the day before.
+  return new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Nairobi' });
 }
 
 /**

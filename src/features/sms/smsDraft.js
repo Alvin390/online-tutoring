@@ -57,7 +57,12 @@ export function stripUnsupported(text) {
   return { text: [...String(text)].filter((ch) => !drop.has(ch)).join(''), removed: bad };
 }
 
-/** One person's message, exactly as the server will fill it. */
+/** One person's WhatsApp message: no SMS cleaning (WhatsApp carries every letter). */
+export function renderWhatsApp(friendlyText, person, schoolName) {
+  return renderTemplate(toTemplate(friendlyText), { ...person, schoolName: schoolName ?? '' }).trim();
+}
+
+/** One person's SMS, exactly as the server will fill it. */
 export function renderFor(friendlyText, person, schoolName) {
   const safe = {
     ...person,

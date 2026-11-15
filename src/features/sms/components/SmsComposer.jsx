@@ -5,7 +5,7 @@ import { useFlag } from '@shared/config/FlagsContext';
 import { listSmsPeople, previewSms, startSms, sendSmsChunk, cancelSms } from '@services/api/sms';
 import { buildWaLink } from '@utils/waLink';
 import { SMS_MAX_CHARS, SMS_UNIT_CHARS } from '@utils/smsText';
-import { measure, renderFor, toTemplate, toFriendly } from '../smsDraft';
+import { measure, renderWhatsApp, toTemplate, toFriendly, stripUnsupported } from '../smsDraft';
 import MessageBox from './MessageBox';
 import PeoplePicker, { personKey } from './PeoplePicker';
 import SmsHistory, { SmsDetail } from './SmsHistory';
@@ -41,10 +41,13 @@ export default function SmsComposer({ setup, preset = null }) {
 
   const [view, setView] = useState('compose'); // compose | history | campaign
   const [mode, setMode] = useState('sms');
-  const [text, setText] = useState(preset?.template ? toFriendly(preset.template) : '');
+  // A prepared draft may hold characters SMS can't carry: dropped up front.
+  const [text, setText] = useState(() => (preset?.template ? stripUnsupported(toFriendly(preset.template)).text : ''));
   const [people, setPeople] = useState(null);
   const [peopleError, setPeopleError] = useState('');
-  const [sendTo, setSendTo] = useState(preset?.filterValues?.length && canChoose ? 'individual' : 'all');
+  // A draft for chosen people never falls back to everyone (if choosing isn't
+  // allowed the server refuses it, rather than messaging every parent).
+  const [sendTo, setSendTo] = useState(preset?.filterValues?.length ? 'individual' : 'all');
   const [sessions, setSessions] = useState(new Set());
   const [classes, setClasses] = useState(new Set());
   // A draft from Recent actions names its people as "session:phone".
@@ -96,10 +99,12 @@ export default function SmsComposer({ setup, preset = null }) {
     const total = review?.data?.recipients ?? audience.length;
     setReview(null);
     cancelled.current = false;
+    setCampaignId(null);
     setProgress({ total, sent: 0, failed: 0, waiting: 0, done: false, error: '' });
     try {
       const started = await startSms(toTemplate(text), filter);
       setCampaignId(started.campaignId);
+      if (cancelled.current) await cancelSms(started.campaignId).catch(() => {});
       let sent = 0;
       let failed = 0;
       for (let guard = 0; guard < 2000 && !cancelled.current; guard += 1) {
@@ -123,7 +128,7 @@ export default function SmsComposer({ setup, preset = null }) {
 
   // ---------------------------------------------------------- WhatsApp, one
   const person = useMemo(() => [...students, ...staff].find((p) => one.has(personKey(p))) ?? null, [one, students, staff]);
-  const waText = person ? renderFor(text, person, schoolName) : '';
+  const waText = person ? renderWhatsApp(text, person, schoolName) : '';
   const wa = person ? buildWaLink(person.phone, waText) : null;
 
   if (view === 'history') {
@@ -152,7 +157,7 @@ export default function SmsComposer({ setup, preset = null }) {
       <div className="card-body">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <div className="btn-group" role="group" aria-label="Send by">
-            <button type="button" className={`btn btn-sm ${mode === 'sms' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setMode('sms')} aria-pressed={mode === 'sms'}>
+            <button type="button" className={`btn btn-sm ${mode === 'sms' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => { setMode('sms'); setText((t) => stripUnsupported(t).text); }} aria-pressed={mode === 'sms'}>
               <i className="bi bi-chat-text me-1" aria-hidden="true" />SMS
             </button>
             <button type="button" className={`btn btn-sm ${mode === 'whatsapp' ? 'btn-success' : 'btn-outline-success'}`} onClick={() => setMode('whatsapp')} aria-pressed={mode === 'whatsapp'}>
@@ -231,6 +236,9 @@ export default function SmsComposer({ setup, preset = null }) {
                   {progress.done && campaignId && (
                     <button type="button" className="btn btn-sm btn-primary" onClick={() => setView('campaign')}>See delivery</button>
                   )}
+                  {progress.done && !campaignId && (
+                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setProgress(null)}>Back to the message</button>
+                  )}
                 </div>
               </div>
             ) : (
@@ -272,6 +280,9 @@ export default function SmsComposer({ setup, preset = null }) {
           onClose={() => setReview(null)}
           onConfirm={send}
           confirmLabel={`Send to ${review.data.recipients}`}
+          footer={review.data.enoughCredit === false
+            ? <button type="button" className="btn btn-secondary" onClick={() => setReview(null)}>Close</button>
+            : undefined}
         >
           <p className="mb-2">
             <strong>{review.data.recipients}</strong> {review.data.recipients === 1 ? 'person' : 'people'} · <strong>{review.data.units}</strong> SMS ·

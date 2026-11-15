@@ -159,6 +159,54 @@ describe('sending', () => {
     expect((await screen.findByRole('alert')).textContent).toMatch(/check-in codes keep working/);
   });
 
+  it('start refused (e.g. too long): the reason, then back to the message', async () => {
+    sms.previewSms.mockResolvedValue({ recipients: 3, units: 3, cost: 1.05, longest: null, balance: 400, enoughCredit: true, reserve: 100 });
+    sms.startSms.mockRejectedValue(Object.assign(new Error("Too long for 2 SMS in Bartholomew's message."), { code: 'too_long', status: 400 }));
+    await renderComposer();
+    await typeMessage('Hi');
+    await click('Review and send');
+    await click('Send to 3');
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Too long for 2 SMS/);
+    expect(screen.queryByRole('button', { name: 'See delivery' })).toBeNull();
+    await click('Back to the message');
+    expect((await find('Review and send')).disabled).toBe(false);
+    expect(screen.getByLabelText('Message').value).toBe('Hi');
+  });
+
+  it('not enough credit: the review says so and offers no Send', async () => {
+    sms.previewSms.mockResolvedValue({ recipients: 3, units: 3, cost: 1.05, longest: null, balance: 100.5, enoughCredit: false, reserve: 100 });
+    await renderComposer();
+    await typeMessage('Hi');
+    await click('Review and send');
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toMatch(/not enough: KES 100 is kept for check-in codes/);
+    expect(within(dialog).queryByRole('button', { name: /^Send to/ })).toBeNull();
+    expect(sms.startSms).not.toHaveBeenCalled();
+  });
+
+  it('Stop pressed while the send is starting cancels it once it exists', async () => {
+    sms.previewSms.mockResolvedValue({ recipients: 3, units: 3, cost: 1.05, longest: null, balance: 400, enoughCredit: true, reserve: 100 });
+    let resolveStart;
+    sms.startSms.mockReturnValue(new Promise((r) => { resolveStart = r; }));
+    sms.cancelSms.mockResolvedValue({});
+    await renderComposer();
+    await typeMessage('Hi');
+    await click('Review and send');
+    await click('Send to 3');
+    await click('Stop sending');
+    await act(async () => { resolveStart({ campaignId: 'c9', recipients: 3 }); });
+    await waitFor(() => expect(sms.cancelSms).toHaveBeenCalledWith('c9'));
+    expect(sms.sendSmsChunk).not.toHaveBeenCalled();
+  });
+
+  it('a draft for chosen people never falls back to everyone, even when choosing is not allowed', async () => {
+    auth.tierRank = 2;
+    const { default: SmsComposer } = await import('@features/sms/components/SmsComposer');
+    render(<SmsComposer setup={setup} preset={{ template: 'Dear parent, {{studentName}} is blocked.', filterValues: ['evening:+254711000001'] }} />);
+    await waitFor(() => expect(screen.getByTestId('sms-audience').textContent).toMatch(/^1 person/));
+    expect(screen.getByLabelText('Send to').value).toBe('individual');
+  });
+
   it('a draft from Recent actions opens with its text and its people chosen', async () => {
     await (async () => {
       const { default: SmsComposer } = await import('@features/sms/components/SmsComposer');
@@ -180,6 +228,19 @@ describe('WhatsApp to one person', () => {
     expect(link.getAttribute('href')).toMatch(/^https:\/\/wa\.me\/254711000009\?text=/);
     expect(decodeURIComponent(link.getAttribute('href').split('text=')[1])).toBe('Hello Mwalimu Juma, see you at Focus.');
     expect(sms.startSms).not.toHaveBeenCalled();
+  });
+
+  it('WhatsApp keeps every letter of a name; switching back to SMS drops what SMS cannot carry', async () => {
+    sms.listSmsPeople.mockResolvedValue({ ...PEOPLE, students: [{ ...PEOPLE.students[0], studentName: 'Wanjirũ Ĩria' }, ...PEOPLE.students.slice(1)] });
+    await renderComposer();
+    await click('WhatsApp (one person)');
+    await typeMessage('Hongera [Student name] 🎉');
+    await act(async () => { fireEvent.change(screen.getByLabelText('Choose one person: search'), { target: { value: 'wanj' } }); });
+    await act(async () => { fireEvent.click(screen.getByRole('radio')); });
+    const link = await screen.findByRole('link', { name: /Open WhatsApp/ });
+    expect(decodeURIComponent(link.getAttribute('href').split('text=')[1])).toBe('Hongera Wanjirũ Ĩria 🎉');
+    await click('SMS');
+    expect(screen.getByLabelText('Message').value).toBe('Hongera [Student name] ');
   });
 });
 
