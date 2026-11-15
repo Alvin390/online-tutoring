@@ -49,6 +49,7 @@ import studentsBulk from '../api/students/bulk.js';
 import studentsStaff from '../api/students/staff.js';
 import studentsAdmission from '../api/students/admission.js';
 import studentNumber from '../api/student/number.js';
+import studentFixNumber from '../api/student/fixNumber.js';
 import studentsScheduled from '../api/students/scheduled.js';
 import studentsDuplicates from '../api/students/duplicates.js';
 import cronScheduledBlocksSweep from '../api/cron/scheduledBlocksSweep.js';
@@ -142,6 +143,8 @@ export const STATIC_ROUTES = {
   // 008Fixes / 02-05: admission numbers.
   '/api/students/admission': studentsAdmission,
   '/api/student/number': studentNumber,
+  // 009Fixes / 02: a student's one-time move to their real number.
+  '/api/student/fixNumber': studentFixNumber,
   '/api/students/scheduled': studentsScheduled,
   // 003Fixes / 12: decline / merge / keep both / allow a retired number.
   '/api/students/duplicates': studentsDuplicates,

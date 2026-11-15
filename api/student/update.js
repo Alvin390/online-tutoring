@@ -2,10 +2,9 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { SubrequestBudgetExceeded } from '../_lib/firestoreRest.js';
 import { z, phoneSchema, sessionSchema, studentNameSchema } from '../_lib/validate.js';
-import { ApiError, notFound } from '../_lib/errors.js';
+import { notFound } from '../_lib/errors.js';
 import { tryWriteAudit } from '../_lib/audit.js';
-import { accountRef } from '../_lib/ledger.js';
-import { recordNumber, reservationId } from '../_lib/admissionNumber.js';
+import { moveStudent } from '../_lib/moveStudent.js';
 
 /**
  * Edit a student — Phase 13 / 03 D1.
@@ -37,7 +36,6 @@ import { recordNumber, reservationId } from '../_lib/admissionNumber.js';
  *    the history of what was sent to Safaricom, against the number used then.
  */
 
-const BATCH_LIMIT = 450; // under Firestore's 500 writes per commit
 
 const changesSchema = z
   .object({
@@ -57,134 +55,6 @@ const schema = z
     changes: changesSchema.default({}),
   })
   .strict();
-
-const conflict = (message) => new ApiError(409, 'phone_in_use', message, { expose: true });
-
-/** Commits `ops` (functions taking a batch) in batches of BATCH_LIMIT. */
-async function commitInBatches(db, ops) {
-  for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
-    const batch = db.batch();
-    ops.slice(i, i + BATCH_LIMIT).forEach((op) => op(batch));
-    // eslint-disable-next-line no-await-in-loop
-    await batch.commit();
-  }
-}
-
-async function moveStudent({ db, session, oldPhone, newPhone, changes, user, log }) {
-  const oldRef = db.doc(`sessions/${session}/students/${oldPhone}`);
-  const newRef = db.doc(`sessions/${session}/students/${newPhone}`);
-  // 004Fixes / 06: this session's account only — the same number in the other
-  // session is a different registration, with its own money, and stays put.
-  const oldAccount = accountRef(db, session, oldPhone);
-  const newAccount = accountRef(db, session, newPhone);
-
-  const [oldSnap, targetSnap] = await Promise.all([oldRef.get(), newRef.get()]);
-
-  let resuming = false;
-  if (targetSnap.exists) {
-    const t = targetSnap.data();
-    if (t.moveInProgress === true && t.movedFrom === oldPhone) resuming = true;
-    else throw conflict('Another student already uses that number.');
-  }
-  if (!oldSnap.exists && !resuming) throw notFound('That student no longer exists.');
-
-  // 1. The new record, created first and marked in progress. `create()` means
-  //    two simultaneous requests cannot both claim the number: the loser sees
-  //    the marker and joins as a resume.
-  if (!resuming) {
-    // 008Fixes / 01: a new phone has not been confirmed — its first check-in
-    // sends it a code. The admission number moves with the record.
-    const { phoneVerifiedAt, studentUid, ...data } = oldSnap.data(); // eslint-disable-line no-unused-vars
-    try {
-      await newRef.create({
-        ...data,
-        ...changes,
-        parentPhone: newPhone,
-        moveInProgress: true,
-        movedFrom: oldPhone,
-        updatedAt: FieldValue.serverTimestamp(),
-        updatedBy: user.uid,
-      });
-    } catch (err) {
-      if (err?.code !== 6 && err?.code !== 'already-exists') throw err;
-      const raced = (await newRef.get()).data();
-      if (!(raced?.moveInProgress === true && raced?.movedFrom === oldPhone)) {
-        throw conflict('Another student already uses that number.');
-      }
-    }
-  }
-
-  // 2. Notes — copy every one that is still under the old number.
-  const notes = await oldRef.collection('notes').get();
-  await commitInBatches(
-    db,
-    notes.docs.map((n) => (batch) => batch.set(newRef.collection('notes').doc(n.id), n.data()))
-  );
-
-  // 3. Fee account + ledger, copied verbatim.
-  const [accountSnap, ledger] = await Promise.all([
-    oldAccount.get(),
-    oldAccount.collection('ledger').get(),
-  ]);
-  const hasMoneyToMove = accountSnap.exists && accountSnap.data().phoneChanged !== newPhone;
-  if (hasMoneyToMove || ledger.size > 0) {
-    await commitInBatches(db, [
-      ...(hasMoneyToMove
-        ? [(batch) => batch.set(newAccount, { ...accountSnap.data(), key: newAccount.id, phone: newPhone, phoneChangedFrom: oldPhone }, { merge: true })]
-        : []),
-      ...ledger.docs.map((e) => (batch) => batch.set(newAccount.collection('ledger').doc(e.id), e.data())),
-    ]);
-  }
-
-  // The number the record holds (from the old copy, or the new one on a resume).
-  const held = recordNumber(oldSnap.exists ? oldSnap.data() : (await newRef.get()).data());
-
-  // 4. Delete old copies LAST — ledger, then notes, then the student; the old
-  //    account document is replaced by a forwarding marker.
-  await commitInBatches(db, [
-    ...ledger.docs.map((e) => (batch) => batch.delete(e.ref)),
-    ...(accountSnap.exists
-      // 004Fixes / 07: the marker keeps `key` and `phone`, so the sweep reads it
-      // as a per-session account (with no balance to chase), not a legacy one.
-      ? [(batch) => batch.set(oldAccount, { key: oldAccount.id, phone: oldPhone, phoneChanged: newPhone, movedAt: new Date(), session })]
-      : []),
-    ...notes.docs.map((n) => (batch) => batch.delete(n.ref)),
-    // The old number's "last seen" marker (Phase 13 / 08 B3); the new number
-    // starts its own on the next check-in.
-    (batch) => batch.delete(oldRef.collection('meta').doc('activity')),
-    // 008Fixes / 03: and its one-device lock.
-    (batch) => batch.delete(oldRef.collection('meta').doc('checkinLock')),
-    // 008Fixes / 02: the number's reservation now names the new phone.
-    ...(held ? [(batch) => batch.set(
-      db.doc(`sessions/${session}/numbers/${reservationId(held.kind, held.digits)}`),
-      { phone: newPhone, kind: held.kind, number: held.digits },
-      { merge: true },
-    )] : []),
-    (batch) => batch.delete(oldRef),
-  ]);
-
-  // 5. Done: clear the in-progress marker.
-  await newRef.update({
-    moveInProgress: FieldValue.delete(),
-    movedFrom: FieldValue.delete(),
-  });
-
-  await tryWriteAudit(
-    {
-      action: 'student.phone_changed',
-      actor: user.uid,
-      actorRole: user.role,
-      target: `${session}/${newPhone}`,
-      before: { phone: oldPhone },
-      after: { phone: newPhone, notes: notes.size, ledgerEntries: ledger.size, changed: Object.keys(changes) },
-      context: { requestId: log.requestId, resumed: resuming },
-    },
-    log
-  );
-
-  log.info('Student phone changed', { session, notes: notes.size, ledgerEntries: ledger.size, resumed: resuming });
-  return { ok: true, phone: newPhone, moved: { notes: notes.size, ledgerEntries: ledger.size } };
-}
 
 export default createHandler({
   // Phase 13 / 02 D6: every session slug in the body must exist.
