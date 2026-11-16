@@ -9,7 +9,7 @@ import { getFlags } from '../_lib/flags.js';
 import { issueTicket, verifyTicket } from '../_lib/verifyTicket.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
 import { retiredMessage, sameStudentName } from '../_lib/duplicates.js';
-import { issueCode, CODES_PER_HOUR } from '../_lib/otpIssue.js';
+import { issueCode, tooManyCodes, tooManyTries, CODES_PER_HOUR } from '../_lib/otpIssue.js';
 import { moveStudent } from '../_lib/moveStudent.js';
 
 /**
@@ -165,7 +165,8 @@ export default createHandler({
         // Five tries an hour for one record, and the usual SMS cost bound on
         // the real number (shared with requestCode).
         enforceRateLimit({ key: `${session}:${found.phone}`, bucket: 'fix_number_record', limit: RECORD_TRIES_PER_HOUR, windowSeconds: 3600 }),
-        enforceRateLimit({ key: newPhone, bucket: 'otp_request_phone', limit: CODES_PER_HOUR, windowSeconds: 3600 }),
+        enforceRateLimit({ key: newPhone, bucket: 'otp_request_phone', limit: CODES_PER_HOUR, windowSeconds: 3600 })
+          .catch((err) => { throw err?.status === 429 ? tooManyCodes(err.retryAfter) : err; }),
       ]);
       return issueCode({
         otpRef, otpSnap, session, phone: newPhone, purpose: 'move', extra: { fromPhone: found.phone }, log, waitUntil,
@@ -179,7 +180,8 @@ export default createHandler({
       if (!snap.exists) return { ok: false };
       const data = snap.data();
       const expiresAt = data.expiresAt?.toMillis?.() ?? 0;
-      if (data.consumedAt || expiresAt < Date.now() || (data.attempts ?? 0) >= (data.maxAttempts ?? 5)) return { ok: false };
+      if (data.consumedAt || expiresAt < Date.now()) return { ok: false };
+      if ((data.attempts ?? 0) >= (data.maxAttempts ?? 5)) return { ok: false, locked: true };
       // A move code, for this session, this record and this real number only.
       if (data.purpose !== 'move' || data.session !== session || data.phone !== newPhone || data.fromPhone !== found.phone) {
         return { ok: false };
@@ -191,7 +193,7 @@ export default createHandler({
       tx.update(otpRef, { consumedAt: FieldValue.serverTimestamp(), attempts: FieldValue.increment(1) });
       return { ok: true };
     });
-    if (!verified.ok) throw invalidCode();
+    if (!verified.ok) throw verified.locked ? tooManyTries() : invalidCode();
 
     try {
       await moveStudent({

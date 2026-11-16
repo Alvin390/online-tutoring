@@ -5,7 +5,7 @@ import { sha256 } from '../_lib/crypto.js';
 import { enforceRateLimit, clientIp } from '../_lib/rateLimit.js';
 import { ApiError, notFound } from '../_lib/errors.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
-import { issueCode, CODE_TTL_SECONDS, RESEND_WAIT_SECONDS, CODES_PER_HOUR, codeMessage } from '../_lib/otpIssue.js';
+import { issueCode, tooManyCodes, CODE_TTL_SECONDS, RESEND_WAIT_SECONDS, CODES_PER_HOUR, codeMessage } from '../_lib/otpIssue.js';
 import { getFlags } from '../_lib/flags.js';
 import { retiredMessage } from '../_lib/duplicates.js';
 
@@ -69,7 +69,9 @@ export default createHandler({
       db.getAll(studentRef, otpRef, ...(forRegistration ? [db.doc(`sessions/${session}/retiredNumbers/${phone}`)] : [])),
       // Second limiter on the phone itself: the SMS cost bound, whatever the
       // address. Rotating addresses cannot pump codes at one number.
-      enforceRateLimit({ key: phone, bucket: 'otp_request_phone', limit: CODES_PER_HOUR, windowSeconds: 3600 }),
+      // 010Fixes / 03: in words the student can act on.
+      enforceRateLimit({ key: phone, bucket: 'otp_request_phone', limit: CODES_PER_HOUR, windowSeconds: 3600 })
+        .catch((err) => { throw err?.status === 429 ? tooManyCodes(err.retryAfter) : err; }),
     ]);
 
     if (forRegistration) {

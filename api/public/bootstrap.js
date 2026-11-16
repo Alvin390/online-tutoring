@@ -15,8 +15,10 @@ import { getPublicBootstrap } from '../_lib/publicBootstrap.js';
  * a no-op (it needs a custom domain), so the edge cache the plan proposed would
  * do nothing there. Instead:
  *   - a per-isolate memory cache (60 s) — most requests cost no Firestore call;
- *   - `Cache-Control: public, max-age=60, stale-while-revalidate=300` for the
- *     browser and any shared cache in front of a future custom domain.
+ *   - `Cache-Control: public, max-age=30, stale-while-revalidate=30` for the
+ *     browser and any shared cache in front of a future custom domain
+ *     (010Fixes / 01: was max-age 60 + 300 stale, so a page could act on old
+ *     switches for up to 6 minutes after a change).
  * A session or flag change is visible within ~60 s. `invalidateBootstrap()` is
  * called by the writes that change it, which clears THIS isolate at once.
  *
@@ -31,7 +33,7 @@ export default async function handler(req, res) {
 
   try {
     const payload = await getPublicBootstrap();
-    res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
     return res.status(200).json(payload);
   } catch (err) {
     createLogger(randomUUID()).error('Public bootstrap failed', err);

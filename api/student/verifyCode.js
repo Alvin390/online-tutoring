@@ -3,6 +3,7 @@ import { getDb, getAdminAuth, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema, otpCodeSchema } from '../_lib/validate.js';
 import { sha256, safeCompare } from '../_lib/crypto.js';
 import { ApiError, badRequest, notFound } from '../_lib/errors.js';
+import { tooManyTries } from '../_lib/otpIssue.js';
 import { getFlags } from '../_lib/flags.js';
 import { issueTicket } from '../_lib/verifyTicket.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
@@ -78,7 +79,8 @@ export default createHandler({
 
       if (data.consumedAt) reject();
       if (expiresAt < Date.now()) reject();
-      if ((data.attempts ?? 0) >= (data.maxAttempts ?? 5)) reject();
+      // 010Fixes / 03: a code locked by wrong tries says so (not "not valid").
+      if ((data.attempts ?? 0) >= (data.maxAttempts ?? 5)) return { ok: false, locked: true };
       if (data.phone !== phone) reject();
       // 008Fixes / 01: a code is for the registration it was asked for.
       if (numbersOn && data.session !== session) reject();
@@ -107,6 +109,7 @@ export default createHandler({
     });
 
     if (!verified.ok) {
+      if (verified.locked) throw tooManyTries();
       throw badRequest('That code is not valid or has expired.', 'invalid_code');
     }
 

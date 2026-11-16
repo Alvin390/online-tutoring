@@ -49,7 +49,7 @@ describe('GET /api/public/bootstrap', () => {
 
   it('is cacheable by the browser and served from the isolate cache on the next request', async () => {
     const first = await call('/api/public/bootstrap', { method: 'GET' });
-    expect(first.headers.get('cache-control')).toBe('public, max-age=60, stale-while-revalidate=300');
+    expect(first.headers.get('cache-control')).toBe('public, max-age=30, stale-while-revalidate=30'); // 010Fixes / 01
     await db.doc('sessions/evening').set({ active: false }, { merge: true }); // a raw write: no invalidation
     const second = await call('/api/public/bootstrap', { method: 'GET' });
     expect(second.body.sessions.map((s) => s.slug)).toEqual(['morning', 'evening']); // cached

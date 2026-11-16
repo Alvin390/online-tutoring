@@ -150,7 +150,8 @@ export default createHandler({
     let number = null;
     if (numbersOn) {
       if (!deviceId) {
-        throw step(CHECKIN_STEP.REFRESH, 'This page has been updated. Please refresh the page, then check in again.');
+        // 010Fixes / 05: words a student can act on (old pages show them as they are).
+        throw step(CHECKIN_STEP.REFRESH, 'This page is out of date. Close it, then open the class link again and check in.');
       }
       if (body.number) {
         number = parseNumberInput(body.number);
