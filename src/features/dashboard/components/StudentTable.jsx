@@ -16,6 +16,8 @@ import { useAuthState } from '@features/auth/context/AuthContext';
 import { TIER_RANK } from '@shared/constants/tiers';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
+import { visibleColumns } from './table/studentColumns';
+import { useTableLayout } from './table/useTableLayout';
 
 // 007Fixes / 05: true once the table has been shown in this visit (see `paged`).
 let tableShownBefore = false;
@@ -106,6 +108,12 @@ export default function StudentTable({
    * fees off a charge was still posted silently. Now the fee option is the
    * default only when it can actually work; otherwise it is shown disabled.
    */
+  // 011Fixes / 01: the columns, from one list and this device's layout.
+  const numbersOn = useFlag('checkin.admissionNumbers');
+  const { layout } = useTableLayout();
+  const columns = useMemo(() => visibleColumns(layout, { numbersOn }), [layout, numbersOn]);
+  const columnIds = useMemo(() => columns.map((c) => c.id), [columns]);
+
   const feesFlag = useFlag('fees.enabled');
   const { tierRank, isSuperadmin } = useAuthState();
   const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
@@ -489,13 +497,9 @@ export default function StudentTable({
                 </label>
                 <span className="select-head-num">#</span>
               </th>
-              <th>Student Name</th>
-              <th>Parent Phone</th>
-              <th>Class</th>
-              <th>Subjects</th>
-              <th style={{ width: '200px' }}>Payment Receipt</th>
-              <th style={{ width: '150px' }}>Registered</th>
-              <th style={{ width: '100px' }}>Action</th>
+              {columns.filter((c) => c.id !== 'select').map((c) => (
+                <th key={c.id} data-col={c.id}>{c.label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -525,6 +529,7 @@ export default function StudentTable({
                   onApprove={onApprove}
                   onDecline={onDecline}
                   terms={terms}
+                  columns={columnIds}
                 />
               ))}
             </AnimatePresence>

@@ -3,6 +3,10 @@ import { useState, useEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { highlightMatches } from '@features/dashboard/search/highlightMatches';
 import { nairobiParts, WEEKDAY_LABELS } from '@utils/dates';
+import { STUDENT_COLUMNS } from './table/studentColumns';
+
+// 011Fixes / 01: without a list from the table, every column.
+const ALL_COLUMNS = Object.freeze(STUDENT_COLUMNS.map((c) => c.id));
 
 /** "Sun 18:00" (Nairobi) for the scheduled-block tag — 003Fixes / 08. */
 const shortWhen = (ms) => {
@@ -33,7 +37,10 @@ function StudentRow({
   terms,
   // 001Fixes / 06: shown as a badge in the all-sessions view.
   sessionName,
+  // 011Fixes / 01: the ids of the shown columns, in order (from the table).
+  columns = ALL_COLUMNS,
 }) {
+  const show = (id) => columns.includes(id);
   const [showPopup, setShowPopup] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState(null);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -163,12 +170,6 @@ function StudentRow({
           <div>
             <div className="d-flex align-items-center gap-2">
               <strong>{highlightMatches(student.studentName, terms)}</strong>
-              {/* 008Fixes / 05: the admission number the student checks in with. */}
-              {student.admissionNumber && (
-                <span className="badge text-bg-light border font-monospace fw-normal" data-testid="row-number" title="Admission number">
-                  #{highlightMatches(student.admissionNumber, terms)}
-                </span>
-              )}
               {sessionName && (
                 <span className="badge rounded-pill text-bg-light border row-session-badge" data-testid="row-session">
                   {sessionName}
@@ -200,21 +201,34 @@ function StudentRow({
           </div>
         </div>
       </td>
+      {/* 011Fixes / 01: the admission number the student checks in with (008Fixes / 05), in its own column. */}
+      {show('admissionNumber') && (
+        <td data-testid="cell-admissionNumber" className="font-monospace">
+          {student.admissionNumber ? highlightMatches(student.admissionNumber, terms) : '—'}
+        </td>
+      )}
+      {show('phone') && (
       <td>
         <code className="bg-light px-2 py-1 rounded">
           {highlightMatches(student.parentPhone, terms)}
         </code>
       </td>
+      )}
+      {show('class') && (
       <td>
         <span className="badge bg-primary">
           {highlightMatches(student.class, terms)}
         </span>
       </td>
+      )}
+      {show('subjects') && (
       <td>
         <small className="text-muted">
           {highlightMatches(student.subjects, terms)}
         </small>
       </td>
+      )}
+      {show('receipt') && (
       <td>
         <small
           className="text-muted"
@@ -230,9 +244,12 @@ function StudentRow({
           {student.receiptMessage}
         </small>
       </td>
+      )}
+      {show('registered') && (
       <td>
         <small className="text-muted">{regDate}</small>
       </td>
+      )}
       <td>
         <div className="d-flex gap-1 flex-wrap">
           {/* Opens the detail drawer (Phase 05) — details, and private notes
@@ -528,6 +545,8 @@ function areEqual(prev, next) {
   // 006Fixes / 08: the partial badge — compared by value (each snapshot is a new object).
   if ((prev.student?.partialPayment?.paid ?? null) !== (next.student?.partialPayment?.paid ?? null)) return false;
   if (prev.onCancelSchedule !== next.onCancelSchedule) return false;
+  // 011Fixes / 01: the shown columns (one memoised list from the table).
+  if (prev.columns !== next.columns) return false;
 
   // Callback identity: the parent passes inline arrows for onDelete/onEdit/
   // onView, so these change every render and are deliberately NOT compared —

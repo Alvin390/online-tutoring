@@ -51,12 +51,14 @@ describe('the row', () => {
     </tbody></table></LazyMotion>);
   };
 
-  it('shows the admission number; nothing when there is none', async () => {
+  // 011Fixes / 01: in its own Admission No. column (the badge by the name is gone).
+  it('shows the admission number; "—" when there is none', async () => {
     await renderRow({ ...base, admissionNumber: '0042' });
-    expect(screen.getByTestId('row-number').textContent).toBe('#0042');
+    expect(screen.getByTestId('cell-admissionNumber').textContent).toBe('0042');
+    expect(screen.queryByTestId('row-number')).toBeNull();
     cleanup();
     await renderRow(base);
-    expect(screen.queryByTestId('row-number')).toBeNull();
+    expect(screen.getByTestId('cell-admissionNumber').textContent).toBe('—');
   });
 
   it('a number change re-renders the memoised row', async () => {
@@ -66,7 +68,7 @@ describe('the row', () => {
     const view = (student) => <LazyMotion features={domAnimation}><table><tbody><StudentRow student={student} {...props} /></tbody></table></LazyMotion>;
     const { rerender } = render(view({ ...base, admissionNumber: '0042' }));
     rerender(view({ ...base, admissionNumber: '7319' }));
-    expect(screen.getByTestId('row-number').textContent).toBe('#7319');
+    expect(screen.getByTestId('cell-admissionNumber').textContent).toBe('7319');
   });
 });
 
