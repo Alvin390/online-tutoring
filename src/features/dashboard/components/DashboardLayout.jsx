@@ -324,6 +324,7 @@ export default function DashboardLayout() {
                 <ApprovalsTab
                   pending={pendingApprovals}
                   rosters={studentsBySession}
+                  onOpenStudent={notesEnabled ? setDrawerStudent : undefined}
                   onApprove={approveStudents}
                   onReject={rejectStudents}
                   loading={loading}
