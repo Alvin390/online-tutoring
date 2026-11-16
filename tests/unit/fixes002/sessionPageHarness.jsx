@@ -48,7 +48,7 @@ export function deferred() {
  * @param {string[]} [opts.real]          screens to render for real, e.g. ['PendingApprovalScreen']
  * @returns the render utils, plus `api`, `toast` and `nextPhone` (what "Check in" submits)
  */
-export async function renderSessionPage({ api: overrides = {}, requireApproval = true, real = [], schedule = null, checkinCard = null } = {}) {
+export async function renderSessionPage({ api: overrides = {}, requireApproval = true, real = [], schedule = null, checkinCard = null, flags = {}, classes } = {}) {
   const stub = (name, factory) => {
     const id = `@/features/registration/components/${name}`;
     if (real.includes(name)) vi.doUnmock(id);
@@ -65,6 +65,9 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.ticket', next: 'chooseNumber', numberKind: 'student' }),
     checkNumber: vi.fn().mockResolvedValue({ status: 'free', message: 'Available' }),
     chooseNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '4071', display: '4071' }),
+    // 009Fixes / 03: fix my number.
+    fixNumberRequest: vi.fn().mockResolvedValue({ ok: true, deliveryChannel: 'sms', retryAfterSeconds: 60 }),
+    fixNumberConfirm: vi.fn().mockResolvedValue({ ok: true, phone: '+254733000007', ticket: 'v1.fix', next: 'chooseNumber', numberKind: 'student' }),
     ...overrides,
   };
   const toast = { showError: vi.fn(), showSuccess: vi.fn() };
@@ -82,11 +85,14 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     verifyCode: (...a) => api.verifyCode(...a),
     checkNumber: (...a) => api.checkNumber(...a),
     chooseNumber: (...a) => api.chooseNumber(...a),
+    fixNumberRequest: (...a) => api.fixNumberRequest(...a),
+    fixNumberConfirm: (...a) => api.fixNumberConfirm(...a),
   }));
   vi.doMock('@services/api/public', () => ({ registerStudentApi: (...a) => api.registerStudentApi(...a) }));
   vi.doMock('@/context/ToastContext', () => ({ useToast: () => toast, useOptionalToast: () => null }));
   vi.doMock('@utils/analytics', () => ({ trackRegistration: vi.fn(), trackZoomRedirect: vi.fn() }));
-  vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (key) => (key === 'registration.requireApproval' ? requireApproval : false) }));
+  // 009Fixes: `flags` turns on others (e.g. checkin.admissionNumbers, student.fixNumber).
+  vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (key) => (key === 'registration.requireApproval' ? requireApproval : flags[key] === true) }));
   // 007Fixes / 01: a test may supply its own card to see the props it is given.
   vi.doMock('@/features/registration/components/CheckinCard', () => ({
     default: checkinCard
@@ -130,7 +136,7 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
   vi.doMock('@/features/registration/components/SuccessScreen', () => ({ default: () => <div data-testid="to-class">Opening class</div> }));
 
   const { default: SessionPage } = await import('@/features/registration/components/SessionPage.jsx');
-  const utils = render(<MemoryRouter><SessionPage session="evening" label="Evening" icon="bi-moon" gradient="#000" schedule={schedule} /></MemoryRouter>);
+  const utils = render(<MemoryRouter><SessionPage session="evening" label="Evening" icon="bi-moon" gradient="#000" schedule={schedule} classes={classes} /></MemoryRouter>);
   return { ...utils, api, toast, typed };
 }
 

@@ -28,6 +28,10 @@ const RegistrationForm = lazy(loadRegistrationForm);
 // form when a number is submitted, so normally ready before the reply.
 const loadAdmissionSteps = () => import('./AdmissionSteps');
 const AdmissionFlow = lazy(loadAdmissionSteps);
+// 009Fixes / 01 and 03: the code before registering, and "registered before
+// with a different number" — the same lazy chunk.
+const RegisterCodeStep = lazy(() => loadAdmissionSteps().then((mod) => ({ default: mod.RegisterCodeStep })));
+const FixNumberByName = lazy(() => loadAdmissionSteps().then((mod) => ({ default: mod.FixNumberByName })));
 const stepFallback = (
   <div className="text-center py-4">
     <span className="spinner-border spinner-border-sm text-primary" role="status">
@@ -77,6 +81,13 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const numbersFlag = useFlag('checkin.admissionNumbers');
   const [numbersSeen, setNumbersSeen] = useState(false);
   const numbers = numbersFlag || numbersSeen;
+  // 009Fixes: code-first registration and the one-time number fix.
+  const fixFlag = useFlag('student.fixNumber');
+  const fixOn = numbers && fixFlag;
+  // The form waiting for its code (kept, so a failed save keeps the typing),
+  // and the confirmed phone's ticket (valid 30 minutes: a retry needs no new code).
+  const [pendingForm, setPendingForm] = useState(null);
+  const [regTicket, setRegTicket] = useState(null);
   // What the check-in card shows next time: a notice, the phone refilled, the
   // number field focused. `key` remounts the card so the refill takes.
   const [cardView, setCardView] = useState({ key: 0, notice: null, initialPhone: '', focusNumber: false });
@@ -135,14 +146,22 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     resetFlow();
     setJoinTried(false);
     setAdmissionNumber(null);
+    setPendingForm(null);
+    setRegTicket(null);
     setCardView((v) => ({ key: v.key + 1, notice: null, initialPhone: '', focusNumber: false }));
     setStep('checkin');
   }, [resetFlow]);
 
   /** Back to the check-in card with something to say, the phone refilled. */
-  const backToCard = (notice) => {
-    setCardView((v) => ({ key: v.key + 1, notice, initialPhone: phoneNumber, focusNumber: true }));
+  const backToCard = (notice, phone = phoneNumber) => {
+    setCardView((v) => ({ key: v.key + 1, notice, initialPhone: phone, focusNumber: true }));
     setStep('checkin');
+  };
+
+  /** 009Fixes / 03: the record moved to the real number — check in with it. */
+  const numberFixed = (newPhone, notice) => {
+    setNumbersSeen(true);
+    backToCard(notice, newPhone);
   };
 
   /**
@@ -213,9 +232,30 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   };
 
   const handleRegistration = async (formData) => {
+    // 009Fixes / 01: code-first — confirm the phone before anything is saved.
+    if (fixOn && !formData.ticket) {
+      setPendingForm(formData);
+      if (regTicket) return handleRegistration({ ...formData, ticket: regTicket });
+      setStep('registerCode');
+      return undefined;
+    }
     addFlowBreadcrumb('action', { action: 'register', ...numberShape(phoneNumber) });
     const result = settle(await register(phoneNumber, formData));
-    if (!result?.success) return;
+    if (!result?.success) {
+      if (fixOn) {
+        // Back to the form, typing kept; a refused ticket asks for a new code.
+        if (result?.error?.code === 'verify_first') setRegTicket(null);
+        if (result) setStep(GATE.REGISTER);
+      }
+      return undefined;
+    }
+    setPendingForm(null);
+    setRegTicket(null);
+    // 009Fixes / 01: saved already confirmed — check in with the chosen number.
+    if (result.next === 'checkin') {
+      await handleCheckin(phoneNumber, formData.number ?? '');
+      return undefined;
+    }
     // 008Fixes / 04: confirm the phone, then check in with the chosen number.
     if (result.next === 'verify') {
       setAdmissionNumber(formData.number ?? null);
@@ -400,6 +440,9 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                     session={session}
                     phone={phoneNumber}
                     number={admissionNumber}
+                    fixOn={fixOn}
+                    classes={classes}
+                    onFixed={numberFixed}
                     onDone={backToCard}
                     onCheckin={(number) => handled('checkin', handleCheckin)(phoneNumber, number)}
                     onBack={handleBack}
@@ -407,17 +450,49 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                 </Suspense>
               )}
 
-              {step === GATE.REGISTER && (
+              {(step === GATE.REGISTER || step === 'registerCode') && (
                 <Suspense key="register" fallback={stepFallback}>
-                  <RegistrationForm
+                  {/* 009Fixes / 03: registered before with a number that never worked. */}
+                  {fixOn && step === GATE.REGISTER && (
+                    <p className="text-center small mb-3">
+                      <button type="button" className="btn btn-link text-white p-0" onClick={() => setStep('fixByName')}>
+                        Registered before with a different phone number? Find your registration
+                      </button>
+                    </p>
+                  )}
+                  {/* 009Fixes / 01: the form stays mounted (hidden) under its code step. */}
+                  <div hidden={step === 'registerCode'}>
+                    <RegistrationForm
+                      session={session}
+                      numbers={numbers}
+                      classes={classes}
+                      subjectsByClass={subjectsByClass}
+                      phoneNumber={phoneNumber}
+                      onSubmit={handled('register', handleRegistration)}
+                      onBack={handleBack}
+                      loading={loading}
+                    />
+                  </div>
+                  {step === 'registerCode' && (
+                    <RegisterCodeStep
+                      session={session}
+                      phone={phoneNumber}
+                      onVerified={(ticket) => { setRegTicket(ticket); handled('register', handleRegistration)({ ...pendingForm, ticket }); }}
+                      onRefused={(message) => backToCard({ tone: 'error', text: message })}
+                      onBack={() => setStep(GATE.REGISTER)}
+                    />
+                  )}
+                </Suspense>
+              )}
+
+              {step === 'fixByName' && (
+                <Suspense key="fixByName" fallback={stepFallback}>
+                  <FixNumberByName
                     session={session}
-                    numbers={numbers}
+                    phone={phoneNumber}
                     classes={classes}
-                    subjectsByClass={subjectsByClass}
-                    phoneNumber={phoneNumber}
-                    onSubmit={handled('register', handleRegistration)}
-                    onBack={handleBack}
-                    loading={loading}
+                    onFixed={numberFixed}
+                    onBack={() => setStep(GATE.REGISTER)}
                   />
                 </Suspense>
               )}

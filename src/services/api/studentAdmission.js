@@ -16,11 +16,25 @@ export const CLASS_TIME_TIMEOUT_MS = 20_000;
  * Its own module so only the lazy first-time steps load it, never the
  * check-in form every student opens (the /:slug budget).
  */
-export const requestCode = (session, phone) =>
-  apiPost('/api/student/requestCode', { session, phone }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
+// 009Fixes / 01: `purpose: 'register'` for code-first registration (a number with no record yet).
+export const requestCode = (session, phone, purpose) =>
+  apiPost('/api/student/requestCode', { session, phone, ...(purpose ? { purpose } : {}) }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
 
-export const verifyCode = (session, phone, code) =>
-  apiPost('/api/student/verifyCode', { session, phone, code }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
+export const verifyCode = (session, phone, code, purpose) =>
+  apiPost('/api/student/verifyCode', { session, phone, code, ...(purpose ? { purpose } : {}) }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
+
+/**
+ * 009Fixes / 02-03: fix my number, once, for a record never confirmed.
+ * `who` is { oldPhone } or { studentName, class }; confirm adds { code }, or
+ * { ticket } alone to finish a move that stopped half-way.
+ */
+export const fixNumberRequest = (session, newPhone, who) =>
+  apiPost('/api/student/fixNumber', { action: 'request', session, newPhone, ...who }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
+
+export const fixNumberConfirm = (session, newPhone, who, { code, ticket } = {}) =>
+  apiPost('/api/student/fixNumber', {
+    action: 'confirm', session, newPhone, ...(ticket ? {} : who), ...(code ? { code } : {}), ...(ticket ? { ticket } : {}),
+  }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
 
 /** Live check: { status: 'free' | 'taken' | 'easy' | 'format', message }. */
 export const checkNumber = (session, number, kind, { signal } = {}) =>
