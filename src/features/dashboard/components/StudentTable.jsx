@@ -18,6 +18,8 @@ import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
 import { visibleColumns } from './table/studentColumns';
 import { useTableLayout } from './table/useTableLayout';
+import { useIsWide } from './table/useIsWide';
+import ColumnResizer from './table/ColumnResizer';
 
 // 007Fixes / 05: true once the table has been shown in this visit (see `paged`).
 let tableShownBefore = false;
@@ -110,9 +112,14 @@ export default function StudentTable({
    */
   // 011Fixes / 01: the columns, from one list and this device's layout.
   const numbersOn = useFlag('checkin.admissionNumbers');
-  const { layout } = useTableLayout();
+  const { layout, setWidth, resetWidth } = useTableLayout();
   const columns = useMemo(() => visibleColumns(layout, { numbersOn }), [layout, numbersOn]);
-  const columnIds = useMemo(() => columns.map((c) => c.id), [columns]);
+  // The same array while only widths change, so a resize never re-renders the rows.
+  const idsKey = columns.map((c) => c.id).join(',');
+  const columnIds = useMemo(() => idsKey.split(','), [idsKey]);
+  // 011Fixes / 02: fixed, resizable widths on laptop and tablet; phones as before.
+  const wide = useIsWide();
+  const tableWidth = useMemo(() => columns.reduce((n, c) => n + c.currentWidth, 0), [columns]);
 
   const feesFlag = useFlag('fees.enabled');
   const { tierRank, isSuperadmin } = useAuthState();
@@ -478,10 +485,18 @@ export default function StudentTable({
       {/* Fetch the selection bar's chunk the moment the teacher reaches for
           the table, if the idle prefetch has not already (first tick ≈ 0 ms). */}
       <div className="table-responsive" ref={tableRef} onPointerEnter={prefetchBar} onFocus={prefetchBar}>
-        <table className="table table-hover align-middle mb-0">
+        <table
+          className={`table table-hover align-middle mb-0${wide ? ' student-table-fixed' : ''}`}
+          style={wide ? { width: `${tableWidth}px` } : undefined}
+        >
+          {wide && (
+            <colgroup>
+              {columns.map((c) => <col key={c.id} data-col={c.id} style={{ width: `${c.currentWidth}px` }} />)}
+            </colgroup>
+          )}
           <thead className="table-dark">
             <tr>
-              <th className="select-col-head" style={{ width: '120px' }}>
+              <th className="select-col-head" style={wide ? undefined : { width: '120px' }}>
                 {/* A visible "Select" label (owner request), so the teacher can
                     see what the column of boxes is for. */}
                 <label className="select-head mb-0" title="Tick students to block, unblock, schedule or approve them together">
@@ -498,7 +513,12 @@ export default function StudentTable({
                 <span className="select-head-num">#</span>
               </th>
               {columns.filter((c) => c.id !== 'select').map((c) => (
-                <th key={c.id} data-col={c.id}>{c.label}</th>
+                <th key={c.id} data-col={c.id} title={wide ? c.label : undefined}>
+                  {c.label}
+                  {wide && c.resizable !== false && (
+                    <ColumnResizer column={c} width={c.currentWidth} onResize={setWidth} onReset={resetWidth} />
+                  )}
+                </th>
               ))}
             </tr>
           </thead>

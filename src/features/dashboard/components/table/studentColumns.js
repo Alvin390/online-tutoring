@@ -18,15 +18,16 @@ const LAYOUT_VERSION = 1;
 export const MAX_WIDTH = 600;
 
 export const STUDENT_COLUMNS = Object.freeze([
-  { id: 'select', label: 'Select', width: 120, minWidth: 96, fixed: true, resizable: false, pdf: { label: '#', mm: 10 } },
-  { id: 'name', label: 'Student Name', width: 260, minWidth: 140, fixed: true, pdf: { label: 'Student Name', mm: 34 } },
-  { id: 'admissionNumber', label: 'Admission No.', width: 120, minWidth: 80, needsNumbers: true, pdf: { label: 'Adm No.', mm: 16 } },
-  { id: 'phone', label: 'Parent Phone', width: 160, minWidth: 110, pdf: { label: 'Parent Phone', mm: 28 } },
-  { id: 'class', label: 'Class', width: 110, minWidth: 70, pdf: { label: 'Class', mm: 15 } },
-  { id: 'subjects', label: 'Subjects', width: 220, minWidth: 100, pdf: { label: 'Subjects', mm: 30 } },
-  { id: 'receipt', label: 'Payment Receipt', width: 200, minWidth: 100, pdf: { label: 'Payment Receipt', mm: 45 } },
-  { id: 'registered', label: 'Registered', width: 140, minWidth: 100, pdf: { label: 'Registered', mm: 25 } },
-  { id: 'action', label: 'Action', width: 200, minWidth: 120, fixed: true, resizable: false },
+  // Defaults sum to 1290 px: the table area on a 1366 px laptop.
+  { id: 'select', label: 'Select', width: 120, minWidth: 110, fixed: true, resizable: false, pdf: { label: '#', mm: 10 } },
+  { id: 'name', label: 'Student Name', width: 210, minWidth: 140, fixed: true, pdf: { label: 'Student Name', mm: 34 } },
+  { id: 'admissionNumber', label: 'Admission No.', width: 110, minWidth: 80, needsNumbers: true, pdf: { label: 'Adm No.', mm: 16 } },
+  { id: 'phone', label: 'Parent Phone', width: 140, minWidth: 110, pdf: { label: 'Parent Phone', mm: 28 } },
+  { id: 'class', label: 'Class', width: 90, minWidth: 70, pdf: { label: 'Class', mm: 15 } },
+  { id: 'subjects', label: 'Subjects', width: 160, minWidth: 100, pdf: { label: 'Subjects', mm: 30 } },
+  { id: 'receipt', label: 'Payment Receipt', width: 170, minWidth: 100, pdf: { label: 'Payment Receipt', mm: 45 } },
+  { id: 'registered', label: 'Registered', width: 160, minWidth: 110, pdf: { label: 'Registered', mm: 25 } },
+  { id: 'action', label: 'Action', width: 130, minWidth: 120, fixed: true, resizable: false },
 ].map(Object.freeze));
 
 const BY_ID = new Map(STUDENT_COLUMNS.map((c) => [c.id, c]));

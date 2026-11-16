@@ -203,35 +203,35 @@ function StudentRow({
       </td>
       {/* 011Fixes / 01: the admission number the student checks in with (008Fixes / 05), in its own column. */}
       {show('admissionNumber') && (
-        <td data-testid="cell-admissionNumber" className="font-monospace">
+        <td data-testid="cell-admissionNumber" className="font-monospace cell-clip" title={student.admissionNumber ?? undefined}>
           {student.admissionNumber ? highlightMatches(student.admissionNumber, terms) : '—'}
         </td>
       )}
       {show('phone') && (
-      <td>
+      <td className="cell-clip" title={student.parentPhone ?? undefined}>
         <code className="bg-light px-2 py-1 rounded">
           {highlightMatches(student.parentPhone, terms)}
         </code>
       </td>
       )}
       {show('class') && (
-      <td>
+      <td className="cell-clip" title={student.class ?? undefined}>
         <span className="badge bg-primary">
           {highlightMatches(student.class, terms)}
         </span>
       </td>
       )}
       {show('subjects') && (
-      <td>
+      <td className="cell-clip" title={student.subjects ?? undefined}>
         <small className="text-muted">
           {highlightMatches(student.subjects, terms)}
         </small>
       </td>
       )}
       {show('receipt') && (
-      <td>
+      <td className="cell-clip">
         <small
-          className="text-muted"
+          className="text-muted receipt-text"
           style={{
             display: 'block',
             maxWidth: '200px',
@@ -246,7 +246,7 @@ function StudentRow({
       </td>
       )}
       {show('registered') && (
-      <td>
+      <td className="cell-clip" title={regDate}>
         <small className="text-muted">{regDate}</small>
       </td>
       )}
