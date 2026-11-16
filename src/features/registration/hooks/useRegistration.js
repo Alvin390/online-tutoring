@@ -232,7 +232,8 @@ export const useRegistration = (session) => {
     }
   }, [session, showError, refuseUnusable, startSlowTimer, stopSlowTimer]);
 
-  const register = useCallback(async (phone, formData) => {
+  // 010Fixes / 01: `quiet` codes are handled by the page itself (no toast).
+  const register = useCallback(async (phone, formData, { quiet = [] } = {}) => {
     if (!isUsablePhone(phone)) return refuseUnusable('register', '/api/student/register');
     const flow = flowRef.current;
     setLoading(true);
@@ -258,6 +259,7 @@ export const useRegistration = (session) => {
       return { success: true, student, ...(next ? { next } : {}) };
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
+      if (quiet.includes(error.code)) return { success: false, error };
       logger.error('Registration failed', error);
 
       if (error.code === 'retired_number' || error.code === 'number_taken' || error.code === 'easy_number' || error.code === 'refresh_needed'

@@ -55,6 +55,8 @@ export function CodeStep({ session, phone, purpose, onVerified, onBack, onRefuse
   const [resendAt, setResendAt] = useState(0);
   const wait = useCountdown(resendAt);
   const asked = useRef(false);
+  // 010Fixes / 03: this number reached its codes for the hour.
+  const [capped, setCapped] = useState(false);
 
   const send = useCallback(async () => {
     setSending(true);
@@ -75,7 +77,13 @@ export function CodeStep({ session, phone, purpose, onVerified, onBack, onRefuse
         onVerified({ next: 'checkin' });
         return;
       }
-      if (err?.status === 429) {
+      if (err?.code === 'too_many_codes') {
+        // 010Fixes / 03: the hourly cap — the teacher can read the code.
+        setChannel((c) => c ?? 'sms');
+        setResendAt(0);
+        setCapped(true);
+        setError(err.message || 'Too many codes for this number this hour. Ask your teacher to read you your code.');
+      } else if (err?.status === 429) {
         // A code was sent a moment ago: it still works.
         setChannel((c) => c ?? 'sms');
         setResendAt(Date.now() + (err.retryAfter ?? 60) * 1000);
@@ -106,6 +114,7 @@ export function CodeStep({ session, phone, purpose, onVerified, onBack, onRefuse
       onVerified({ ticket: res.ticket ?? null, next: res.next ?? 'checkin', numberKind: res.numberKind ?? 'student' });
     } catch (err) {
       if (!mounted.current) return;
+      if (err?.code === 'too_many_tries') setCode('');
       setError(err?.code === 'invalid_code'
         ? 'That code is not right, or it has expired. Check it, or tap Send again.'
         : (err?.message || 'Could not check the code. Please try again.'));
@@ -121,7 +130,9 @@ export function CodeStep({ session, phone, purpose, onVerified, onBack, onRefuse
         <p className="text-muted mb-0">
           {channel === 'teacher'
             ? <>We couldn&apos;t send an SMS right now. <strong>Ask your teacher for your code.</strong></>
-            : <>We sent a 6-digit code by SMS to the number ending in <strong>{ending(phone)}</strong>.</>}
+            : purpose === 'register'
+              ? <>We sent a 6-digit code by SMS to the number you entered, ending in <strong>{ending(phone)}</strong>.</>
+              : <>We sent a 6-digit code by SMS to the phone number you registered with, ending in <strong>{ending(phone)}</strong>.</>}
         </p>
       </div>
       <form onSubmit={submit} noValidate>
@@ -144,17 +155,22 @@ export function CodeStep({ session, phone, purpose, onVerified, onBack, onRefuse
         <button type="submit" className="btn btn-primary btn-lg w-100 mb-2" disabled={busy || code.length !== 6}>
           {busy ? <><span className="spinner-border spinner-border-sm me-2" />Checking…</> : 'Confirm'}
         </button>
-        <button type="button" className="btn btn-light w-100 mb-2" onClick={send} disabled={sending || wait > 0}>
-          {sending ? 'Sending…' : wait > 0 ? `Send again in ${wait} s` : 'Send again'}
+        <button type="button" className="btn btn-light w-100 mb-2" onClick={send} disabled={sending || wait > 0 || capped}>
+          {sending ? 'Sending…' : capped ? 'Send again later' : wait > 0 ? `Send again in ${wait} s` : 'Send again'}
         </button>
-        <p id="ot-code-help" className="form-text text-center mb-3">
-          Each new code replaces the last one. No SMS? Ask your teacher for your code.
-        </p>
-        {onWrongNumber && (
-          <button type="button" className="btn btn-link w-100 mb-2" onClick={onWrongNumber}>
-            Didn&apos;t get the code? Your number may be wrong.
-          </button>
-        )}
+        {/* 010Fixes / 04: where to turn, in plain sight. */}
+        <div id="ot-code-help" className="alert alert-info small text-start mb-3" data-testid="code-help">
+          <strong>Didn&apos;t get it?</strong> Ask your teacher for your code. Send again sends the same code.
+          {onWrongNumber && (
+            <div className="mt-2">
+              Registered with a number that doesn&apos;t work (switched off, not yours, or made up)? You can change to your
+              real number, the one you&apos;ll use from now on.
+              <button type="button" className="btn btn-sm btn-outline-primary w-100 mt-2" onClick={onWrongNumber}>
+                Use my real number
+              </button>
+            </div>
+          )}
+        </div>
         <button type="button" className="btn btn-outline-secondary w-100" onClick={onBack}>
           <i className="bi bi-arrow-left me-2" aria-hidden="true" />
           Use a different phone number

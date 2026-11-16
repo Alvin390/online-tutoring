@@ -83,7 +83,10 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const numbers = numbersFlag || numbersSeen;
   // 009Fixes: code-first registration and the one-time number fix.
   const fixFlag = useFlag('student.fixNumber');
-  const fixOn = numbers && fixFlag;
+  // 010Fixes / 01: the server asked for the code first though this page's
+  // switches said otherwise (they were a few minutes old): code-first from now on.
+  const [codeFirstSeen, setCodeFirstSeen] = useState(false);
+  const fixOn = numbers && (fixFlag || codeFirstSeen);
   // The form waiting for its code (kept, so a failed save keeps the typing),
   // and the confirmed phone's ticket (valid 30 minutes: a retry needs no new code).
   const [pendingForm, setPendingForm] = useState(null);
@@ -240,7 +243,21 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
       return undefined;
     }
     addFlowBreadcrumb('action', { action: 'register', ...numberShape(phoneNumber) });
-    const result = settle(await register(phoneNumber, formData));
+    const result = settle(await register(phoneNumber, formData, { quiet: formData.ticket ? [] : ['refresh_needed', 'verify_first'] }));
+    const refusedFor = result?.error?.code;
+    if (!result?.success && !formData.ticket && (refusedFor === 'refresh_needed' || refusedFor === 'verify_first')) {
+      // 010Fixes / 01: this page's switches were out of date — the server
+      // wants an admission number and the code first. No "refresh": go on.
+      setNumbersSeen(true);
+      setCodeFirstSeen(true);
+      if (formData.number) {
+        setPendingForm(formData);
+        setStep('registerCode');
+      } else {
+        setStep(GATE.REGISTER); // the form now asks for an admission number
+      }
+      return undefined;
+    }
     if (!result?.success) {
       if (fixOn) {
         // Back to the form, typing kept; a refused ticket asks for a new code.
