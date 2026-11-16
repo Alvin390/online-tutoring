@@ -49,6 +49,9 @@ describe('locked until set up', () => {
     await type('School name', 'Focus School');
     await click('Save');
     expect(api.saveSchoolName).toHaveBeenCalledWith('Focus School');
+    // 009Fixes / 00: no price on the test step (the school pays, not the teacher).
+    expect(document.body.textContent).toMatch(/Test from Focus School: SMS is working\./);
+    expect(document.body.textContent).not.toMatch(/KES/);
     await act(async () => { fireEvent.change(document.querySelector('input[type="tel"]'), { target: { value: '0712345678' } }); });
     await click('Send test');
     expect(api.sendSmsTest).toHaveBeenCalledWith('+254712345678');

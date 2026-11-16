@@ -101,9 +101,10 @@ export async function assertAboveReserve(db, cost, log) {
   if (balance == null) return null; // never seen: HashBack refuses on its own if empty
   if (balance - cost >= SMS_RESERVE_KES) return balance;
   await alertReserve(db, balance, log);
+  // 009Fixes / 00: no amounts for teachers (the school pays); the owner's
+  // email below carries the figures.
   const err = new ApiError(402, 'low_credit',
-    `SMS credit is low (KES ${balance.toFixed(2)}). Messages are paused so check-in codes keep working (KES ${SMS_RESERVE_KES} is kept for them). The owner has been told.`);
-  err.detail = { balance, needed: cost, reserve: SMS_RESERVE_KES };
+    'SMS credit is low right now. Sending is paused so check-in codes keep working. The owner has been told.');
   throw err;
 }
 
@@ -392,8 +393,7 @@ export function campaignView(id, data) {
     filter: data.filter ?? null,
     recipientCount: data.recipientCount ?? 0,
     units: data.units ?? 0,
-    cost: data.cost ?? 0,
-    sentCost: data.sentCost ?? 0,
+    // 009Fixes / 00: cost stays stored (the owner's tracking) but is not sent to teachers.
     status: data.status,
     counts: data.counts ?? {},
     createdAt: iso(data.createdAt),

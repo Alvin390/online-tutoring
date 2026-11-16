@@ -5,6 +5,8 @@ import { useFlag } from '@shared/config/FlagsContext';
 // 008Fixes / 05: with approvals off there is no Approvals tab, so the waiting
 // codes sit here (lazy; read when opened).
 const WaitingCodesPanel = lazy(() => import('../components/admission/WaitingCodesPanel'));
+// 009Fixes / 04: numbers students changed themselves (here when approvals are off).
+const NumberFixesPanel = lazy(() => import('../components/admission/NumberFixesPanel'));
 import StudentSearchPanel from '../components/StudentSearchPanel';
 
 /**
@@ -30,11 +32,21 @@ export default function StudentsTab({
 }) {
   const numbers = useFlag('checkin.admissionNumbers');
   const approvals = useFlag('registration.requireApproval');
+  const fixes = useFlag('student.fixNumber');
   return (
     <>
       {numbers && !approvals && (
         <Suspense fallback={null}>
           <WaitingCodesPanel sessionNames={Object.fromEntries(sessions.map((s) => [s.id, s.name ?? s.id]))} />
+        </Suspense>
+      )}
+      {numbers && fixes && !approvals && (
+        <Suspense fallback={null}>
+          <NumberFixesPanel
+            rosters={studentsBySession}
+            sessionNames={Object.fromEntries(sessions.map((s) => [s.id, s.name ?? s.id]))}
+            onOpen={actions?.onView}
+          />
         </Suspense>
       )}
       {/* Owner review of Release A (2026-11-12): the stats cards stay. */}

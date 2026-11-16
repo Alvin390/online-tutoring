@@ -260,7 +260,8 @@ export const useRegistration = (session) => {
       if (flow !== flowRef.current) return STALE;
       logger.error('Registration failed', error);
 
-      if (error.code === 'retired_number' || error.code === 'number_taken' || error.code === 'easy_number' || error.code === 'refresh_needed') {
+      if (error.code === 'retired_number' || error.code === 'number_taken' || error.code === 'easy_number' || error.code === 'refresh_needed'
+        || error.code === 'verify_first') { // 009Fixes / 01: code-first registration
         showError(error.message);
       } else if (error.code === 'already_registered' || error.code === 'permission-denied') {
         showError('Registration failed. You may already be registered.');

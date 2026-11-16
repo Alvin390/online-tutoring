@@ -67,6 +67,14 @@ export const DEFAULT_FLAGS = {
    * Off: messaging is the WhatsApp composer as before.
    */
   'sms.enabled': false,
+  /**
+   * 009Fixes (owner, 2026-11-16), with admission numbers on: a new student
+   * confirms the phone BEFORE the registration is saved (code-first), and a
+   * student whose phone was never confirmed can move their record ONCE to
+   * their real number (found by the number they registered with, or by name
+   * and class). Off: registration saves first and confirms after, as before.
+   */
+  'student.fixNumber': false,
 };
 
 export const FLAG_KEYS = Object.freeze(Object.keys(DEFAULT_FLAGS));

@@ -95,7 +95,9 @@ service cloud.firestore {
         'staff', 'staffAt', 'staffBy',
         // 008Fixes / 01-02: a confirmed phone, and the admission / staff
         // number, are set only by the server (their reservations must match).
-        'phoneVerifiedAt', 'admissionNumber', 'staffNumber', 'numberChosenAt'
+        'phoneVerifiedAt', 'admissionNumber', 'staffNumber', 'numberChosenAt',
+        // 009Fixes / 02: a student's one-time number fix (POST /api/student/fixNumber).
+        'numberFixedAt', 'numberFixedFrom'
       ];
     }
 

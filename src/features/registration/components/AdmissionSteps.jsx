@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { requestCode, verifyCode, chooseNumber } from '@services/api/studentAdmission';
 import { formatNumber } from '@utils/admissionNumber';
@@ -16,6 +16,8 @@ import AdmissionNumberField from './AdmissionNumberField';
  */
 
 const ending = (phone) => String(phone ?? '').slice(-3);
+// 009Fixes / 03: "your number may be wrong" — its own chunk, loaded on tap.
+const FixNumberFlow = lazy(() => import('./FixNumberSteps'));
 
 /** Seconds left until `untilMs`, ticking once a second. */
 function useCountdown(untilMs) {
@@ -37,7 +39,13 @@ function useMounted() {
   return mounted;
 }
 
-export function CodeStep({ session, phone, onVerified, onBack }) {
+/**
+ * `purpose` 'register' (009Fixes / 01): a code-first registration's code, for
+ * a number with no record yet; `onRefused(message)` when that number can't
+ * register (already registered, retired). `onWrongNumber` (009Fixes / 03)
+ * shows "Didn't get the code? Your number may be wrong."
+ */
+export function CodeStep({ session, phone, purpose, onVerified, onBack, onRefused, onWrongNumber }) {
   const mounted = useMounted();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,12 +60,16 @@ export function CodeStep({ session, phone, onVerified, onBack }) {
     setSending(true);
     setError('');
     try {
-      const res = await requestCode(session, phone);
+      const res = purpose ? await requestCode(session, phone, purpose) : await requestCode(session, phone);
       if (!mounted.current) return;
       setChannel(res.deliveryChannel === 'sms' ? 'sms' : 'teacher');
       setResendAt(Date.now() + (res.retryAfterSeconds ?? 60) * 1000);
     } catch (err) {
       if (!mounted.current) return;
+      if (onRefused && (err?.code === 'already_registered' || err?.code === 'retired_number')) {
+        onRefused(err.message);
+        return;
+      }
       if (err?.code === 'already_verified') {
         // Confirmed already, with a number: straight on to check in.
         onVerified({ next: 'checkin' });
@@ -74,7 +86,7 @@ export function CodeStep({ session, phone, onVerified, onBack }) {
     } finally {
       if (mounted.current) setSending(false);
     }
-  }, [session, phone, onVerified, mounted]);
+  }, [session, phone, purpose, onVerified, onRefused, mounted]);
 
   // One code when the step opens (a ref, so a re-render never sends twice).
   useEffect(() => {
@@ -89,7 +101,7 @@ export function CodeStep({ session, phone, onVerified, onBack }) {
     setBusy(true);
     setError('');
     try {
-      const res = await verifyCode(session, phone, code);
+      const res = purpose ? await verifyCode(session, phone, code, purpose) : await verifyCode(session, phone, code);
       if (!mounted.current) return;
       onVerified({ ticket: res.ticket ?? null, next: res.next ?? 'checkin', numberKind: res.numberKind ?? 'student' });
     } catch (err) {
@@ -138,6 +150,11 @@ export function CodeStep({ session, phone, onVerified, onBack }) {
         <p id="ot-code-help" className="form-text text-center mb-3">
           Each new code replaces the last one. No SMS? Ask your teacher for your code.
         </p>
+        {onWrongNumber && (
+          <button type="button" className="btn btn-link w-100 mb-2" onClick={onWrongNumber}>
+            Didn&apos;t get the code? Your number may be wrong.
+          </button>
+        )}
         <button type="button" className="btn btn-outline-secondary w-100" onClick={onBack}>
           <i className="bi bi-arrow-left me-2" aria-hidden="true" />
           Use a different phone number
@@ -221,7 +238,22 @@ export function ChooseNumberStep({ session, phone, ticket, kind = 'student', onC
  * `onDone(notice)` returns to the check-in card with `notice` shown;
  * `onCheckin(number)` checks in straight away.
  */
-export default function AdmissionFlow({ session, phone, number = null, onDone, onCheckin, onBack }) {
+/** 009Fixes / 01: the code before a registration is saved; `onVerified(ticket)`. */
+export function RegisterCodeStep({ session, phone, onVerified, onRefused, onBack }) {
+  const verified = useCallback(({ ticket }) => onVerified(ticket), [onVerified]);
+  return <CodeStep session={session} phone={phone} purpose="register" onVerified={verified} onRefused={onRefused} onBack={onBack} />;
+}
+
+/** 009Fixes / 03: fix my number, from the registration screen (by name and class). */
+export function FixNumberByName({ session, phone, classes, onFixed, onBack }) {
+  return (
+    <Suspense fallback={<div className="text-center py-4"><span className="spinner-border spinner-border-sm text-primary" /></div>}>
+      <FixNumberFlow session={session} mode="name" newPhone={phone} classes={classes} onFixed={onFixed} onBack={onBack} />
+    </Suspense>
+  );
+}
+
+export default function AdmissionFlow({ session, phone, number = null, onDone, onCheckin, onBack, fixOn = false, classes = [], onFixed }) {
   const [stage, setStage] = useState({ name: 'code', ticket: null, kind: 'student' });
 
   const verified = useCallback(({ ticket = null, next, numberKind = 'student' }) => {
@@ -237,6 +269,14 @@ export default function AdmissionFlow({ session, phone, number = null, onDone, o
       : `Your number is ${display}. Don't forget it! Now check in with your number and phone.`,
   });
 
+  if (stage.name === 'fix') {
+    return (
+      <Suspense fallback={<div className="text-center py-4"><span className="spinner-border spinner-border-sm text-primary" /></div>}>
+        <FixNumberFlow session={session} mode="number" oldPhone={phone} classes={classes} onFixed={onFixed}
+          onBack={() => setStage({ name: 'code', ticket: null, kind: 'student' })} />
+      </Suspense>
+    );
+  }
   if (stage.name === 'choose') {
     return (
       <ChooseNumberStep
@@ -250,5 +290,8 @@ export default function AdmissionFlow({ session, phone, number = null, onDone, o
       />
     );
   }
-  return <CodeStep key={stage.name} session={session} phone={phone} onVerified={verified} onBack={onBack} />;
+  return (
+    <CodeStep key={stage.name} session={session} phone={phone} onVerified={verified} onBack={onBack}
+      onWrongNumber={fixOn && onFixed ? () => setStage({ name: 'fix', ticket: null, kind: 'student' }) : undefined} />
+  );
 }

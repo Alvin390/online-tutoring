@@ -124,7 +124,7 @@ export default function SmsSetup({ setup, onChange, onUnlocked, editNameOnly = f
           <form onSubmit={sendTest} noValidate>
             <h3 className="h6 fw-semibold">2. Send a test to your phone</h3>
             <p className="small text-muted mb-2">
-              We&apos;ll send &quot;Test from {nameState.saved ? normalizeSmsText(name).trim() : 'your school'}: SMS is working.&quot; (about KES 0.35).
+              We&apos;ll send &quot;Test from {nameState.saved ? normalizeSmsText(name).trim() : 'your school'}: SMS is working.&quot;
             </p>
             <div className="mb-3" style={{ maxWidth: 360 }}>
               <label className="form-label fw-semibold" htmlFor="sms-test-phone">Your phone number</label>

@@ -133,7 +133,9 @@ describe('sending', () => {
     await click('Review and send');
     expect(sms.previewSms).toHaveBeenCalledWith('Hi {{studentName}}', { type: 'all' });
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toMatch(/3 people · 3 SMS · KES 1\.05/);
+    expect(dialog.textContent).toMatch(/3 people · 3 SMS/);
+    // 009Fixes / 00: teachers don't pay, so no prices or credit figures.
+    expect(dialog.textContent).not.toMatch(/KES/);
     expect(dialog.textContent).toMatch(/Sent from HASHBACKSMS/);
     await click('Send to 3');
     expect(await screen.findByText(/SMS is busy, carrying on in 2 s/)).toBeTruthy();
@@ -179,7 +181,8 @@ describe('sending', () => {
     await typeMessage('Hi');
     await click('Review and send');
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toMatch(/not enough: KES 100 is kept for check-in codes/);
+    expect(dialog.textContent).toMatch(/SMS credit is low right now\. Sending is paused so check-in codes keep working\. The owner has been told\./);
+    expect(dialog.textContent).not.toMatch(/KES|100\.50/);
     expect(within(dialog).queryByRole('button', { name: /^Send to/ })).toBeNull();
     expect(sms.startSms).not.toHaveBeenCalled();
   });
@@ -269,6 +272,21 @@ describe('SMS switched off (the old WhatsApp panel is removed)', () => {
     expect((await screen.findAllByTestId('sms-person'))).toHaveLength(1);
     expect(sms.getSms).toHaveBeenCalledWith('s1');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('no prices for teachers (009Fixes / 00)', () => {
+  it('the composer, its audience line and the delivery view show no KES', async () => {
+    sms.listSms.mockResolvedValue({ campaigns: [{ id: 's1', template: 'Hi', createdAt: '2026-11-15T10:00:00Z', counts: { delivered: 1 } }] });
+    sms.refreshSms.mockResolvedValue({ campaign: { id: 's1', template: 'Hi', recipientCount: 1, counts: { delivered: 1 }, createdAt: '2026-11-15T10:00:00Z' }, recipients: [{ id: 'a', studentName: 'Ann', phoneEnding: '001', status: 'delivered' }] });
+    await renderComposer();
+    await typeMessage('Hello [Student name]');
+    expect(screen.getByTestId('sms-audience').textContent).toMatch(/^3 people · about 3 SMS/);
+    expect(screen.getByTestId('sms-composer').textContent).not.toMatch(/KES/);
+    await click('Sent messages');
+    await click('Delivery');
+    await screen.findAllByTestId('sms-person');
+    expect(screen.getByTestId('sms-detail').textContent).not.toMatch(/KES/);
   });
 });
 

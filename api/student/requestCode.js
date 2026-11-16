@@ -1,12 +1,13 @@
 import { createHandler } from '../_lib/handler.js';
-import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
+import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
-import { randomNumericCode, sha256, encrypt } from '../_lib/crypto.js';
-import { enforceRateLimit } from '../_lib/rateLimit.js';
-import { ApiError, notFound, tooManyRequests } from '../_lib/errors.js';
-import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
+import { sha256 } from '../_lib/crypto.js';
+import { enforceRateLimit, clientIp } from '../_lib/rateLimit.js';
+import { ApiError, notFound } from '../_lib/errors.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
-import { sendSms, smsAvailable, recordSmsBalance } from '../_lib/sms.js';
+import { issueCode, CODE_TTL_SECONDS, RESEND_WAIT_SECONDS, CODES_PER_HOUR, codeMessage } from '../_lib/otpIssue.js';
+import { getFlags } from '../_lib/flags.js';
+import { retiredMessage } from '../_lib/duplicates.js';
 
 /**
  * Student phone verification, step 1 — Phase 02 D4, delivered by SMS since
@@ -27,19 +28,23 @@ import { sendSms, smsAvailable, recordSmsBalance } from '../_lib/sms.js';
  * The code is stored as a salted SHA-256 hash, plus ONE copy encrypted with
  * APP_ENCRYPTION_KEY that only the teacher's endpoint decrypts. Both expire in
  * 10 minutes; the student endpoints never return either.
+ *
+ * 009Fixes / 01 - code-first registration (owner, 2026-11-16): with admission
+ * numbers and `student.fixNumber` on, `purpose: 'register'` asks for a code
+ * for a number with NO record yet, so the phone is confirmed before the
+ * registration is saved. A number already registered (or retired by the
+ * teacher) is refused before any SMS. With the flag off that kind does not
+ * exist: the answer is the usual "No registration found".
  */
 
-export const CODE_TTL_SECONDS = 10 * 60;
-export const RESEND_WAIT_SECONDS = 60;
-export const CODES_PER_HOUR = 6;
-const MAX_VERIFY_ATTEMPTS = 5;
-
-export const codeMessage = (code) => `Your code is ${code}. It expires in 10 minutes. Do not share it.`;
+// 009Fixes / 02: issuing moved to api/_lib/otpIssue.js (shared with fixNumber).
+export { CODE_TTL_SECONDS, RESEND_WAIT_SECONDS, CODES_PER_HOUR, codeMessage };
 
 const schema = z
   .object({
     session: sessionSchema,
     phone: phoneSchema,
+    purpose: z.enum(['register']).optional(),
   })
   .strict();
 
@@ -50,87 +55,50 @@ export default createHandler({
   schema,
   // 008Fixes / 01: 10 → 120 an hour. A class behind one carrier address.
   rateLimit: { bucket: 'otp_request_ip', limit: 120, windowSeconds: 3600, keyBy: 'ip' },
-  handle: async ({ body, log, waitUntil }) => {
+  handle: async ({ body, req, log, waitUntil }) => {
     const { session, phone } = body;
     const db = getDb();
     const otpRef = db.collection('otp').doc(sha256(phone));
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
+    const flags = body.purpose ? await getFlags() : null;
+    const forRegistration = body.purpose === 'register'
+      && flags['checkin.admissionNumbers'] === true && flags['student.fixNumber'] === true;
 
     // The record and the live code in one round trip, beside the limiter.
-    const [[studentSnap, otpSnap]] = await Promise.all([
-      db.getAll(studentRef, otpRef),
+    const [[studentSnap, otpSnap, retiredSnap]] = await Promise.all([
+      db.getAll(studentRef, otpRef, ...(forRegistration ? [db.doc(`sessions/${session}/retiredNumbers/${phone}`)] : [])),
       // Second limiter on the phone itself: the SMS cost bound, whatever the
       // address. Rotating addresses cannot pump codes at one number.
       enforceRateLimit({ key: phone, bucket: 'otp_request_phone', limit: CODES_PER_HOUR, windowSeconds: 3600 }),
     ]);
 
-    if (!studentSnap.exists) {
-      // Same shape as before — this must not become a registration oracle.
-      throw notFound('No registration found for that number.');
-    }
-    // Confirmed once is enough: no repeated SMS cost. A confirmed record that
-    // has not chosen its number yet (the page was closed in between) may ask
-    // again — choosing needs the ticket a confirmed code gives.
-    const record = studentSnap.data();
-    if (record.phoneVerifiedAt && recordNumber(record)) {
-      throw new ApiError(409, 'already_verified', 'Your phone is already confirmed. Check in with your admission number and phone.');
-    }
-
-    const now = Date.now();
-    const previous = otpSnap.exists ? otpSnap.data() : null;
-    const lastMs = previous?.sentAt?.toMillis?.() ?? previous?.createdAt?.toMillis?.() ?? 0;
-    if (previous && !previous.consumedAt && now - lastMs < RESEND_WAIT_SECONDS * 1000) {
-      const wait = Math.max(1, Math.ceil((lastMs + RESEND_WAIT_SECONDS * 1000 - now) / 1000));
-      throw tooManyRequests(`Please wait ${wait} seconds before asking for another code.`, wait);
-    }
-
-    const code = randomNumericCode(6);
-    await otpRef.set({
-      // Salted with the phone so two students who draw the same code do not
-      // produce the same hash.
-      codeHash: sha256(`${phone}:${code}`),
-      // 008Fixes / 01: the teacher's copy (answer 3). Only her endpoint decrypts it.
-      codeForStaff: encrypt(code),
-      phone,
-      session,
-      attempts: 0,
-      maxAttempts: MAX_VERIFY_ATTEMPTS,
-      createdAt: FieldValue.serverTimestamp(),
-      sentAt: new Date(now),
-      expiresAt: new Date(now + CODE_TTL_SECONDS * 1000),
-      consumedAt: null,
-    });
-
-    // Delivery. A failure never loses the code: the teacher can read it.
-    let deliveryChannel = 'teacher';
-    if (smsAvailable()) {
-      try {
-        const sent = await sendSms({ to: phone, message: codeMessage(code) });
-        deliveryChannel = 'sms';
-        // Off the response path: the cost tracker's figure, never the student's wait.
-        waitUntil(recordSmsBalance(sent.balance, { log }));
-      } catch (err) {
-        log.warn('Code SMS not sent; the teacher can read it', { code: err?.code, status: err?.status });
+    if (forRegistration) {
+      // 009Fixes / 01: a register-kind code goes to a number with no record,
+      // so it gets registration's own address limit (30 an hour), not the
+      // 120 a class at check-in time needs: SMS can't be pumped at strangers.
+      // Its own bucket, so the code and the save don't share registration's 30.
+      await enforceRateLimit({ key: clientIp(req), bucket: 'otp_register_ip', limit: 30, windowSeconds: 3600 });
+      // 009Fixes / 01: registering - the number must be new here. The same
+      // answers registration itself gives, so nothing new is revealed.
+      if (studentSnap.exists) throw new ApiError(409, 'already_registered', 'That number is already registered for this class. Check in instead.');
+      if (retiredSnap?.exists) {
+        const retired = retiredSnap.data();
+        throw new ApiError(409, 'retired_number', retiredMessage(retired.reason, retired.keptSuffix));
+      }
+    } else {
+      if (!studentSnap.exists) {
+        // Same shape as before — this must not become a registration oracle.
+        throw notFound('No registration found for that number.');
+      }
+      // Confirmed once is enough: no repeated SMS cost. A confirmed record that
+      // has not chosen its number yet (the page was closed in between) may ask
+      // again — choosing needs the ticket a confirmed code gives.
+      const record = studentSnap.data();
+      if (record.phoneVerifiedAt && recordNumber(record)) {
+        throw new ApiError(409, 'already_verified', 'Your phone is already confirmed. Check in with your admission number and phone.');
       }
     }
-    waitUntil(tryWriteAudit(
-      { action: AuditAction.OTP_ISSUED, actor: 'student', target: `${session}/${phone}`,
-        after: { channel: deliveryChannel }, context: { requestId: log.requestId } },
-      log
-    ));
-    log.info('OTP issued', { session, ttlSeconds: CODE_TTL_SECONDS, channel: deliveryChannel });
 
-    // FAIL CLOSED — Phase 12: the code comes back only with an explicit
-    // opt-in, for local end-to-end tests. An unset or misspelt variable
-    // withholds it.
-    const exposeCode = process.env.EXPOSE_DEV_OTP === 'true';
-
-    return {
-      ok: true,
-      expiresInSeconds: CODE_TTL_SECONDS,
-      retryAfterSeconds: RESEND_WAIT_SECONDS,
-      deliveryChannel,
-      ...(exposeCode ? { devCode: code } : {}),
-    };
+    return issueCode({ otpRef, otpSnap, session, phone, purpose: forRegistration ? 'register' : null, log, waitUntil });
   },
 });

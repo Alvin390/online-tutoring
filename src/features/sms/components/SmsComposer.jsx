@@ -16,7 +16,8 @@ import SmsHistory, { SmsDetail } from './SmsHistory';
  *   SMS (default): to everyone, a session, a class, chosen students or staff
  *     (choosing is Gold, as for WhatsApp). A live counter on the LONGEST
  *     parent's version (at most two SMS, naming whose); Review shows who, how
- *     many SMS and the cost; Send goes chunk by chunk with a progress bar;
+ *     many SMS (no prices: the school pays, 009Fixes / 00); Send goes chunk by
+ *     chunk with a progress bar;
  *     then delivery per person and totals.
  *   WhatsApp (one person): pick one student or staff member, write, Open
  *     WhatsApp (free, wa.me). No campaign, no queue.
@@ -224,7 +225,7 @@ export default function SmsComposer({ setup, preset = null, smsOff = false }) {
               )}
               <div className="small text-muted mt-2" data-testid="sms-audience">
                 {people ? `${audience.length} ${audience.length === 1 ? 'person' : 'people'}` : 'Loading…'}
-                {audience.length > 0 && counter.cost ? ` · about ${counter.totalUnits} SMS · KES ${counter.cost.toFixed(2)}` : ''}
+                {audience.length > 0 && counter.totalUnits ? ` · about ${counter.totalUnits} SMS` : ''}
                 {' '}(people who asked not to get messages are left out)
               </div>
             </div>
@@ -293,8 +294,7 @@ export default function SmsComposer({ setup, preset = null, smsOff = false }) {
             : undefined}
         >
           <p className="mb-2">
-            <strong>{review.data.recipients}</strong> {review.data.recipients === 1 ? 'person' : 'people'} · <strong>{review.data.units}</strong> SMS ·
-            {' '}<strong>KES {Number(review.data.cost).toFixed(2)}</strong>
+            <strong>{review.data.recipients}</strong> {review.data.recipients === 1 ? 'person' : 'people'} · <strong>{review.data.units}</strong> SMS
           </p>
           {review.data.longest && (
             <>
@@ -302,10 +302,10 @@ export default function SmsComposer({ setup, preset = null, smsOff = false }) {
               <p className="border rounded p-2 small bg-light" style={{ whiteSpace: 'pre-wrap' }}>{review.data.longest.text}</p>
             </>
           )}
-          {review.data.balance != null && (
-            <p className={`small mb-0 ${review.data.enoughCredit === false ? 'text-danger' : 'text-muted'}`}>
-              SMS credit: KES {Number(review.data.balance).toFixed(2)}
-              {review.data.enoughCredit === false ? ` — not enough: KES ${review.data.reserve} is kept for check-in codes.` : ''}
+          {/* 009Fixes / 00: no prices or credit figures for teachers (the school pays). */}
+          {review.data.enoughCredit === false && (
+            <p className="small mb-0 text-danger" role="alert">
+              SMS credit is low right now. Sending is paused so check-in codes keep working. The owner has been told.
             </p>
           )}
           <p className="small text-muted mb-0 mt-1">Sent from {setup?.sender || 'HASHBACKSMS'}.</p>

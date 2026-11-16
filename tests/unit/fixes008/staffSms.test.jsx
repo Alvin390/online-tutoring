@@ -68,7 +68,7 @@ describe('the pop-up', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Student name' })); });
     expect(screen.getByLabelText('Message').value).toBe('Hello [Student name]');
     // "Hello Mwalimu Juma" = 18 characters.
-    expect(screen.getByTestId('staff-sms-counter').textContent).toBe('18 / 336 characters · 1 SMS · KES 0.35');
+    expect(screen.getByTestId('staff-sms-counter').textContent).toBe('18 / 336 characters · 1 SMS'); // 009Fixes / 00: no price
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send SMS' })); });
     expect(sms.sendSmsToOne).toHaveBeenCalledWith('evening', '+254711000009', 'Hello {{studentName}}');
     expect((await screen.findByTestId('staff-sms-status')).textContent).toMatch(/^Sent/);
