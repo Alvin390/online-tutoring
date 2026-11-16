@@ -69,7 +69,8 @@ async function findRecord(db, session, body) {
   const snap = await db.collection(`sessions/${session}/students`).where('class', '==', body.class).get();
   const matches = snap.docs.filter((d) => {
     const data = d.data();
-    return !data.phoneVerifiedAt && data.moveInProgress !== true && sameStudentName(body.studentName, data.studentName);
+    return !data.phoneVerifiedAt && !data.numberFixedAt && data.moveInProgress !== true
+      && sameStudentName(body.studentName, data.studentName);
   });
   if (matches.length !== 1) throw notFoundError();
   return { phone: matches[0].id, data: matches[0].data() };
@@ -79,6 +80,11 @@ async function findRecord(db, session, body) {
 async function checkMove(db, session, found, newPhone) {
   if (found.data.phoneVerifiedAt) {
     throw new ApiError(409, 'already_confirmed', 'This number is already confirmed. To change it, ask your teacher.');
+  }
+  // Once only (owner): the teacher's own phone edit clears "confirmed" but
+  // keeps this marker, so a record she later moved can't be moved again here.
+  if (found.data.numberFixedAt) {
+    throw new ApiError(409, 'already_fixed', 'Your number has already been changed once. To change it again, ask your teacher.');
   }
   if (found.data.moveInProgress === true) {
     throw new ApiError(409, 'move_in_progress', 'Your record is being moved. Please try again in a minute.');

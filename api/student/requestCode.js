@@ -2,7 +2,7 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { sha256 } from '../_lib/crypto.js';
-import { enforceRateLimit } from '../_lib/rateLimit.js';
+import { enforceRateLimit, clientIp } from '../_lib/rateLimit.js';
 import { ApiError, notFound } from '../_lib/errors.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
 import { issueCode, CODE_TTL_SECONDS, RESEND_WAIT_SECONDS, CODES_PER_HOUR, codeMessage } from '../_lib/otpIssue.js';
@@ -55,7 +55,7 @@ export default createHandler({
   schema,
   // 008Fixes / 01: 10 → 120 an hour. A class behind one carrier address.
   rateLimit: { bucket: 'otp_request_ip', limit: 120, windowSeconds: 3600, keyBy: 'ip' },
-  handle: async ({ body, log, waitUntil }) => {
+  handle: async ({ body, req, log, waitUntil }) => {
     const { session, phone } = body;
     const db = getDb();
     const otpRef = db.collection('otp').doc(sha256(phone));
@@ -73,6 +73,11 @@ export default createHandler({
     ]);
 
     if (forRegistration) {
+      // 009Fixes / 01: a register-kind code goes to a number with no record,
+      // so it gets registration's own address limit (30 an hour), not the
+      // 120 a class at check-in time needs: SMS can't be pumped at strangers.
+      // Its own bucket, so the code and the save don't share registration's 30.
+      await enforceRateLimit({ key: clientIp(req), bucket: 'otp_register_ip', limit: 30, windowSeconds: 3600 });
       // 009Fixes / 01: registering - the number must be new here. The same
       // answers registration itself gives, so nothing new is revealed.
       if (studentSnap.exists) throw new ApiError(409, 'already_registered', 'That number is already registered for this class. Check in instead.');

@@ -133,6 +133,23 @@ describe('refusals', () => {
     expect(again.body.error.code).toBe('already_confirmed');
   });
 
+  it('once only, even after the teacher changes the number (her edit clears "confirmed" but keeps the fix marker)', async () => {
+    await seed(P(25));
+    expect((await moveByNumber(P(25), P(26))).status).toBe(200);
+    // The teacher moves the student to another number: the record is no longer confirmed.
+    const res = await call('/api/student/update', { token: teacher, body: { session: 'evening', phone: P(26), newPhone: P(27) } });
+    expect(res.status).toBe(200);
+    expect((await record(P(27))).phoneVerifiedAt).toBeUndefined();
+    expect((await record(P(27))).numberFixedAt).toBeTruthy();
+    const sentBefore = fakes.hashback.sent.length;
+    const again = await fix({ action: 'request', oldPhone: P(27), newPhone: P(28) });
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('already_fixed');
+    const byName = await fix({ action: 'request', studentName: 'Wanjiru Akinyi Moraa', class: 'Form 3', newPhone: P(28) });
+    expect(byName.status).toBe(404);
+    expect(fakes.hashback.sent.length).toBe(sentBefore);
+  });
+
   it('the real number belongs to another student here, or is retired, or is the same: refused, no SMS', async () => {
     await seed(P(15));
     await seed(P(16), { studentName: 'Other Student Name' });

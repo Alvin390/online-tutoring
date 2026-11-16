@@ -112,6 +112,16 @@ describe('code first', () => {
     expect((await verifyCode(P(6), recCode, 'register')).body.error.code).toBe('invalid_code');
   });
 
+  it('register-kind codes from one address: 30 an hour, like registration itself', async () => {
+    const statuses = [];
+    for (let i = 0; i < 31; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      statuses.push((await call('/api/student/requestCode', { ip: '196.0.0.77', body: { session: 'evening', phone: P(100 + i), purpose: 'register' } })).status);
+    }
+    expect(statuses.slice(0, 30).every((st) => st === 200)).toBe(true);
+    expect(statuses[30]).toBe(429);
+  });
+
   it('flag off: registration as before (saved first, then the code)', async () => {
     await setFlags(db, { 'auth.legacyStudentRead': true, 'checkin.admissionNumbers': true, 'student.fixNumber': false });
     const res = await register(form(P(7)));
