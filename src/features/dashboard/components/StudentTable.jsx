@@ -20,6 +20,7 @@ import { visibleColumns } from './table/studentColumns';
 import { useTableLayout } from './table/useTableLayout';
 import { useIsWide } from './table/useIsWide';
 import ColumnResizer from './table/ColumnResizer';
+import ColumnChooser from './table/ColumnChooser';
 
 // 007Fixes / 05: true once the table has been shown in this visit (see `paged`).
 let tableShownBefore = false;
@@ -112,7 +113,7 @@ export default function StudentTable({
    */
   // 011Fixes / 01: the columns, from one list and this device's layout.
   const numbersOn = useFlag('checkin.admissionNumbers');
-  const { layout, setWidth, resetWidth } = useTableLayout();
+  const { layout, setWidth, resetWidth, setHidden, reset } = useTableLayout();
   const columns = useMemo(() => visibleColumns(layout, { numbersOn }), [layout, numbersOn]);
   // The same array while only widths change, so a resize never re-renders the rows.
   const idsKey = columns.map((c) => c.id).join(',');
@@ -496,7 +497,7 @@ export default function StudentTable({
           )}
           <thead className="table-dark">
             <tr>
-              <th className="select-col-head" style={wide ? undefined : { width: '120px' }}>
+              <th className="select-col-head" style={wide ? undefined : { width: '140px' }}>
                 {/* A visible "Select" label (owner request), so the teacher can
                     see what the column of boxes is for. */}
                 <label className="select-head mb-0" title="Tick students to block, unblock, schedule or approve them together">
@@ -511,6 +512,8 @@ export default function StudentTable({
                   <span className="select-head-text">Select</span>
                 </label>
                 <span className="select-head-num">#</span>
+                {/* 011Fixes / 03: choose the columns (here, so it is on screen on phones too). */}
+                <ColumnChooser layout={layout} numbersOn={numbersOn} onToggle={setHidden} onReset={reset} />
               </th>
               {columns.filter((c) => c.id !== 'select').map((c) => (
                 <th key={c.id} data-col={c.id} title={wide ? c.label : undefined}>

@@ -19,8 +19,8 @@ export const MAX_WIDTH = 600;
 
 export const STUDENT_COLUMNS = Object.freeze([
   // Defaults sum to 1290 px: the table area on a 1366 px laptop.
-  { id: 'select', label: 'Select', width: 120, minWidth: 110, fixed: true, resizable: false, pdf: { label: '#', mm: 10 } },
-  { id: 'name', label: 'Student Name', width: 210, minWidth: 140, fixed: true, pdf: { label: 'Student Name', mm: 34 } },
+  { id: 'select', label: 'Select', width: 140, minWidth: 130, fixed: true, resizable: false, pdf: { label: '#', mm: 10 } },
+  { id: 'name', label: 'Student Name', width: 190, minWidth: 140, fixed: true, pdf: { label: 'Student Name', mm: 34 } },
   { id: 'admissionNumber', label: 'Admission No.', width: 110, minWidth: 80, needsNumbers: true, pdf: { label: 'Adm No.', mm: 16 } },
   { id: 'phone', label: 'Parent Phone', width: 140, minWidth: 110, pdf: { label: 'Parent Phone', mm: 28 } },
   { id: 'class', label: 'Class', width: 90, minWidth: 70, pdf: { label: 'Class', mm: 15 } },
