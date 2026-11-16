@@ -65,6 +65,7 @@ export default function FixNumberFlow({ session, mode = 'number', oldPhone = '',
       setStage({ name: 'code', channel: res.deliveryChannel === 'sms' ? 'sms' : 'teacher' });
     } catch (err) {
       if (!mounted.current) return;
+      // 010Fixes / 03: the server's words (e.g. "Too many codes … ask your teacher").
       if (err?.status === 429 && err?.retryAfter) setResendAt(Date.now() + err.retryAfter * 1000);
       setError(err?.message || 'Something went wrong. Please try again.');
     } finally {
@@ -207,7 +208,7 @@ export default function FixNumberFlow({ session, mode = 'number', oldPhone = '',
             {busy ? <><span className="spinner-border spinner-border-sm me-2" />Checking…</> : 'Confirm'}
           </button>
           <button type="button" className="btn btn-light w-100 mb-2" onClick={() => send(newPhone)} disabled={busy || wait > 0}>
-            {wait > 0 ? `Send again in ${wait} s` : 'Send again'}
+            {wait > 90 ? 'Send again later' : wait > 0 ? `Send again in ${wait} s` : 'Send again'}
           </button>
           <p className="form-text text-center mb-3">No SMS? Ask your teacher for your code.</p>
           <button type="button" className="btn btn-outline-secondary w-100" onClick={() => { setStage({ name: 'details' }); setCode(''); setError(''); }}>

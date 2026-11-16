@@ -66,7 +66,7 @@ describe('requesting a code', () => {
     expect(balance.balance).toBeCloseTo(119.65, 2);
   });
 
-  it('"Send again" within 60 s waits; after it, a NEW code replaces the old one', async () => {
+  it('"Send again" within 60 s waits; after it, the SAME code is sent again (010Fixes / 02)', async () => {
     await seed('evening', P(3));
     await call('/api/student/requestCode', { body: { session: 'evening', phone: P(3) } });
     const first = lastCode();
@@ -75,17 +75,13 @@ describe('requesting a code', () => {
     expect(Number(again.headers.get('retry-after'))).toBeGreaterThan(0);
     expect(fakes.hashback.sent).toHaveLength(1);
 
-    // 61 seconds later.
+    // 61 seconds later: the same code again, so every SMS the student has works.
     await (await otpRef(P(3))).set({ sentAt: new Date(Date.now() - 61_000) }, { merge: true });
     const later = await call('/api/student/requestCode', { body: { session: 'evening', phone: P(3) } });
     expect(later.status).toBe(200);
     const second = lastCode();
     expect(fakes.hashback.sent).toHaveLength(2);
-
-    if (first !== second) {
-      const old = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(3), code: first } });
-      expect(old.status).toBe(400);
-    }
+    expect(second).toBe(first);
     const ok = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(3), code: second } });
     expect(ok.status).toBe(200);
   });

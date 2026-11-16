@@ -6,7 +6,7 @@ import { renderSessionPage, unmockSessionPage, PHONE } from '../fixes002/session
  * 009Fixes / 03 — the student pages:
  *   code-first registration (form → code → saved → check in), the typing
  *   kept when a save fails after the code;
- *   "Didn't get the code? Your number may be wrong" (by the number they
+ *   "Use my real number" on the code step (010Fixes / 04; by the number they
  *   registered with) and "Registered before with a different phone number?"
  *   (by name and class) → code to the real number → choose a number → back to
  *   check in with the real number filled in.
@@ -101,7 +101,7 @@ describe('fix my number', () => {
       api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.')) },
     });
     await click('Check in');
-    await click("Didn't get the code? Your number may be wrong.");
+    await click('Use my real number');
     const fix = await screen.findByTestId('fix-number');
     expect(fix.textContent).toMatch(/uses the number ending in 009/);
     await waitFor(() => expect(fix.querySelector('input[type="tel"]').disabled).toBe(false));
@@ -171,7 +171,7 @@ describe('fix my number', () => {
       api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm.')), fixNumberConfirm: confirm },
     });
     await click('Check in');
-    await click("Didn't get the code? Your number may be wrong.");
+    await click('Use my real number');
     const fix = await screen.findByTestId('fix-number');
     await waitFor(() => expect(fix.querySelector('input[type="tel"]').disabled).toBe(false));
     await act(async () => { fireEvent.change(fix.querySelector('input[type="tel"]'), { target: { value: '733000007' } }); });
@@ -199,6 +199,6 @@ describe('flag off', () => {
     expect(api.registerStudentApi).toHaveBeenCalledTimes(1);
     expect(await screen.findByTestId('code-step')).toBeTruthy();
     expect(api.requestCode).toHaveBeenCalledWith('evening', PHONE);
-    expect(screen.queryByRole('button', { name: /Your number may be wrong/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Use my real number' })).toBeNull();
   });
 });

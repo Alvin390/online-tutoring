@@ -57,7 +57,7 @@ describe('the outcomes, in order', () => {
     const res = await call('/api/student/checkin', { body: { session: 'evening', phone: P(2) } });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('refresh_needed');
-    expect(res.body.error.message).toMatch(/refresh the page/);
+    expect(res.body.error.message).toMatch(/out of date. Close it, then open the class link again/); // 010Fixes / 05
   });
 
   it('not confirmed yet → verify (no student data, no pass)', async () => {

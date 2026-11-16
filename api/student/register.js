@@ -71,7 +71,7 @@ export default createHandler({
     const codeFirst = numbersOn && flags['student.fixNumber'] === true;
     if (numbersOn) {
       if (!body.number || (codeFirst && !body.ticket)) {
-        throw new ApiError(400, 'refresh_needed', 'This page has been updated. Please refresh the page, then register again.');
+        throw new ApiError(400, 'refresh_needed', 'This page is out of date. Close it, then open the class link again and register.');
       }
       const problem = numberProblem(body.number);
       if (problem) throw new ApiError(400, problem === 'easy' ? 'easy_number' : 'invalid_number', numberProblemMessage(problem));
