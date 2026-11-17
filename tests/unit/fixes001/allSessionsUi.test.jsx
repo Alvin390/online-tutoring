@@ -197,7 +197,10 @@ describe('Export PDF follows the view', () => {
   it('no filter: exactly today\'s whole-session export', () => {
     const fns = renderPanel();
     fireEvent.click(exportButton());
-    expect(fns.onExport).toHaveBeenCalledWith('morning');
+    const [session, view] = fns.onExport.mock.calls[0];
+    expect(session).toBe('morning');
+    // 011Fixes / 04: the table's columns go along; no students list, no subtitle.
+    expect(Object.keys(view)).toEqual(['columns']);
   });
 
   it('filtered: the students shown, and a subtitle naming the filter', async () => {

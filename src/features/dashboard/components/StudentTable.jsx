@@ -16,6 +16,11 @@ import { useAuthState } from '@features/auth/context/AuthContext';
 import { TIER_RANK } from '@shared/constants/tiers';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
+import { visibleColumns } from './table/studentColumns';
+import { useTableLayout } from './table/useTableLayout';
+import { useIsWide } from './table/useIsWide';
+import ColumnResizer from './table/ColumnResizer';
+import ColumnChooser from './table/ColumnChooser';
 
 // 007Fixes / 05: true once the table has been shown in this visit (see `paged`).
 let tableShownBefore = false;
@@ -106,6 +111,17 @@ export default function StudentTable({
    * fees off a charge was still posted silently. Now the fee option is the
    * default only when it can actually work; otherwise it is shown disabled.
    */
+  // 011Fixes / 01: the columns, from one list and this device's layout.
+  const numbersOn = useFlag('checkin.admissionNumbers');
+  const { layout, setWidth, resetWidth, setHidden, reset } = useTableLayout();
+  const columns = useMemo(() => visibleColumns(layout, { numbersOn }), [layout, numbersOn]);
+  // The same array while only widths change, so a resize never re-renders the rows.
+  const idsKey = columns.map((c) => c.id).join(',');
+  const columnIds = useMemo(() => idsKey.split(','), [idsKey]);
+  // 011Fixes / 02: fixed, resizable widths on laptop and tablet; phones as before.
+  const wide = useIsWide();
+  const tableWidth = useMemo(() => columns.reduce((n, c) => n + c.currentWidth, 0), [columns]);
+
   const feesFlag = useFlag('fees.enabled');
   const { tierRank, isSuperadmin } = useAuthState();
   const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
@@ -470,10 +486,18 @@ export default function StudentTable({
       {/* Fetch the selection bar's chunk the moment the teacher reaches for
           the table, if the idle prefetch has not already (first tick ≈ 0 ms). */}
       <div className="table-responsive" ref={tableRef} onPointerEnter={prefetchBar} onFocus={prefetchBar}>
-        <table className="table table-hover align-middle mb-0">
+        <table
+          className={`table table-hover align-middle mb-0${wide ? ' student-table-fixed' : ''}`}
+          style={wide ? { width: `${tableWidth}px` } : undefined}
+        >
+          {wide && (
+            <colgroup>
+              {columns.map((c) => <col key={c.id} data-col={c.id} style={{ width: `${c.currentWidth}px` }} />)}
+            </colgroup>
+          )}
           <thead className="table-dark">
             <tr>
-              <th className="select-col-head" style={{ width: '120px' }}>
+              <th className="select-col-head" style={wide ? undefined : { width: '140px' }}>
                 {/* A visible "Select" label (owner request), so the teacher can
                     see what the column of boxes is for. */}
                 <label className="select-head mb-0" title="Tick students to block, unblock, schedule or approve them together">
@@ -488,14 +512,17 @@ export default function StudentTable({
                   <span className="select-head-text">Select</span>
                 </label>
                 <span className="select-head-num">#</span>
+                {/* 011Fixes / 03: choose the columns (here, so it is on screen on phones too). */}
+                <ColumnChooser layout={layout} numbersOn={numbersOn} onToggle={setHidden} onReset={reset} />
               </th>
-              <th>Student Name</th>
-              <th>Parent Phone</th>
-              <th>Class</th>
-              <th>Subjects</th>
-              <th style={{ width: '200px' }}>Payment Receipt</th>
-              <th style={{ width: '150px' }}>Registered</th>
-              <th style={{ width: '100px' }}>Action</th>
+              {columns.filter((c) => c.id !== 'select').map((c) => (
+                <th key={c.id} data-col={c.id} title={wide ? c.label : undefined}>
+                  {c.label}
+                  {wide && c.resizable !== false && (
+                    <ColumnResizer column={c} width={c.currentWidth} onResize={setWidth} onReset={resetWidth} />
+                  )}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -525,6 +552,7 @@ export default function StudentTable({
                   onApprove={onApprove}
                   onDecline={onDecline}
                   terms={terms}
+                  columns={columnIds}
                 />
               ))}
             </AnimatePresence>
@@ -550,7 +578,8 @@ export default function StudentTable({
         </span>
         <button
           className="btn btn-outline-primary btn-sm"
-          onClick={() => onExport(session)}
+          // 011Fixes / 04: the PDF prints the columns shown here.
+          onClick={() => onExport(session, { columns })}
         >
           <i className="bi bi-file-earmark-pdf me-1" />
           Export to PDF

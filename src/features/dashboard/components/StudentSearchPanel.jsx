@@ -297,12 +297,13 @@ export default function StudentSearchPanel({
   }, []);
 
   // With nothing filtered in the open session this is exactly the old export.
-  const handleExport = useCallback(() => {
+  // 011Fixes / 04: the table's shown columns go along either way.
+  const handleExport = useCallback((_session, { columns } = {}) => {
     if (!allMode && !hasCriteria(deferred)) {
-      onExport?.(session);
+      onExport?.(session, { columns });
       return;
     }
-    onExport?.(session, { students: results, subtitle: describeFilters(deferred), allSessions: allMode });
+    onExport?.(session, { students: results, subtitle: describeFilters(deferred), allSessions: allMode, columns });
   }, [allMode, deferred, onExport, session, results]);
 
   // No students, or still loading: the table's own skeleton / "share the

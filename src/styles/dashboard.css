@@ -1206,3 +1206,55 @@ body.is-typing .dashboard-bottom-nav {
   align-items: center;
   min-height: 48px;
 }
+
+/* 011Fixes / 02 — resizable columns (laptop and tablet). The widths come from
+   <colgroup>; text that doesn't fit ends in "…" (the full text is the title). */
+.student-table-fixed {
+  table-layout: fixed;
+  max-width: none;
+}
+.student-table-fixed th {
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.student-table-fixed td.cell-clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.student-table-fixed .receipt-text {
+  max-width: none !important;
+}
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 2;
+}
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  right: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.3);
+}
+.col-resizer:hover::after,
+.col-resizer:focus-visible::after,
+.col-resizer.is-dragging::after {
+  background: #fff;
+  top: 10%;
+  bottom: 10%;
+}
+.col-resizer:focus-visible {
+  outline: none;
+}
