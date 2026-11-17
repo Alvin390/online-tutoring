@@ -578,7 +578,8 @@ export default function StudentTable({
         </span>
         <button
           className="btn btn-outline-primary btn-sm"
-          onClick={() => onExport(session)}
+          // 011Fixes / 04: the PDF prints the columns shown here.
+          onClick={() => onExport(session, { columns })}
         >
           <i className="bi bi-file-earmark-pdf me-1" />
           Export to PDF

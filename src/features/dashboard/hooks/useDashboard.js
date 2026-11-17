@@ -345,6 +345,8 @@ export const useDashboard = () => {
       subtitle: view?.subtitle ?? '',
       includeSession: Boolean(view?.allSessions),
       sessionNames,
+      // 011Fixes / 04: the columns shown in the table (none: today's columns).
+      ...(view?.columns ? { columns: view.columns } : {}),
     });
     // 008Fixes / 08: the page is reloading onto a new version.
     if (!doc) return;
