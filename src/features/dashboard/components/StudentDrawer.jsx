@@ -251,7 +251,7 @@ export default function StudentDrawer({ open, student, session, onClose }) {
                       dashboard KPI card above is gated, so without this a Bronze
                       teacher still walks into a 403 from api/fees/post.js. */}
                   <TierGate
-                    tier="silver"
+                    requires="fees"
                     feature="Fee ledger"
                     description="Record payments and see this student's balance"
                   >

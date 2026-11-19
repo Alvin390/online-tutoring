@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore,
+  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, seedPlan,
 } from '../_worker.js';
 
 /**
@@ -21,6 +21,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearFirestore();
+  // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
+  await seedPlan(db, 'gold');
 });
 
 // Monday 5 Oct 2026, 08:00–09:00 Nairobi (05:00Z), weekly on Mondays.

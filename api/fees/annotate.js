@@ -51,7 +51,7 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
-  tier: 'silver',
+  feature: 'fees',
   schema,
   rateLimit: { bucket: 'fees_annotate', limit: 120, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {

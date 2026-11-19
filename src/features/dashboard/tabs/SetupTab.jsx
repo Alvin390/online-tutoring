@@ -10,10 +10,10 @@ import TierGate from '@shared/components/TierGate';
 export default function SetupTab({ sessions, classLinks, onUpdateLink, loading }) {
   return (
     <>
-      {/* Sessions (Phase 05; always shown since Phase 13 / 02). Bronze,
-          matching api/sessions/manage.js. */}
+      {/* Sessions (Phase 05; always shown since Phase 13 / 02). The plan's
+          `sessions` feature, matching api/sessions/manage.js. */}
       <TierGate
-        tier="bronze"
+        requires="sessions"
         feature="Sessions"
         description="Edit your class times and run more than one session"
       >

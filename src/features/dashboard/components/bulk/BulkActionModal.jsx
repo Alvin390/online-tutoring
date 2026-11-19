@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import Modal from '@components/ui/Modal';
 import BlockForm from '../block/BlockForm';
 import { useFlag } from '@shared/config/FlagsContext';
-import { useAuthState } from '@features/auth/context/AuthContext';
-import { TIER_RANK } from '@shared/constants/tiers';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import { effectiveApprovalStatus } from '@/shared/utils/studentState';
 import { formatKes } from '@utils/blockReason';
 import { runBulk, runSchedule, removeFromSchedule, BulkInterrupted } from '@services/api/students';
@@ -68,8 +67,11 @@ export function planBulk(action, rows, { noCharge = false } = {}) {
 export default function BulkActionModal({ action, rows, sessionOf, onClose, onDone, schedule = null }) {
   const text = BULK_TEXT[action] ?? BULK_TEXT.block;
   const feesFlag = useFlag('fees.enabled');
-  const { tierRank, isSuperadmin } = useAuthState();
-  const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
+  // 013Fixes / 00: the SCHOOL's plan. Fee blocks and recording a payment on
+  // approval are separate plan features (fee blocks / fee payments).
+  const schoolPlan = usePlan();
+  const feesUsable = feesFlag && schoolPlan.has('feeBlocks');
+  const paymentsUsable = feesFlag && schoolPlan.has('feePayments');
 
   const [step, setStep] = useState(action === 'block' ? 'form' : 'confirm');
   const [kind, setKind] = useState(feesUsable ? 'fees' : 'other');
@@ -111,7 +113,7 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
   const isFees = action === 'block' && kind === 'fees' && feesUsable && !noCharge;
   const feeKind = action === 'block' && kind === 'fees' && feesUsable;
   // 006Fixes / 07: the partial step's lines and sums.
-  const approving = action === 'approveReceipts' && feesUsable;
+  const approving = action === 'approveReceipts' && paymentsUsable;
   const owingRows = useMemo(() => (approving ? plan.eligible.filter((r) => owedOf(r) > 0) : []), [approving, plan]);
   const owingTotal = owingRows.reduce((sum, r) => sum + owedOf(r), 0);
   const choosePartial = () => {

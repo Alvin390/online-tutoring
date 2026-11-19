@@ -12,8 +12,7 @@ import { SkeletonTable } from '@components/ui/Skeleton';
 import { postLedgerEntry } from '@services/api/fees';
 import logger from '@utils/logger';
 import { useFlag } from '@shared/config/FlagsContext';
-import { useAuthState } from '@features/auth/context/AuthContext';
-import { TIER_RANK } from '@shared/constants/tiers';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
 import { visibleColumns } from './table/studentColumns';
@@ -123,8 +122,9 @@ export default function StudentTable({
   const tableWidth = useMemo(() => columns.reduce((n, c) => n + c.currentWidth, 0), [columns]);
 
   const feesFlag = useFlag('fees.enabled');
-  const { tierRank, isSuperadmin } = useAuthState();
-  const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
+  // 013Fixes / 00: fee blocks are the SCHOOL plan's `feeBlocks` feature.
+  const plan = usePlan();
+  const feesUsable = feesFlag && plan.has('feeBlocks');
   const defaultBlockKind = feesUsable ? 'fees' : 'other';
 
   // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;

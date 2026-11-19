@@ -5,6 +5,7 @@ import { badRequest, notFound, forbidden } from '../_lib/errors.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { isEnabled } from '../_lib/flags.js';
 import { resolveRecipients } from '../_lib/messageRecipients.js';
+import { hasFeature } from '../_lib/schoolPlan.js';
 
 /**
  * WhatsApp campaigns — Phase 08 D2/D4/D6.
@@ -68,7 +69,7 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
-  tier: 'silver',
+  feature: 'whatsappCampaigns',
   schema,
   rateLimit: { bucket: 'whatsapp_campaign', limit: 300, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {
@@ -76,7 +77,7 @@ export default createHandler({
     const { action } = body;
 
     const advanced = await isEnabled('whatsapp.advanced');
-    const isGold = user.role === 'superadmin' || (user.tierRank ?? 0) >= 3;
+    const isGold = await hasFeature(user, 'whatsappAdvanced');
 
     // ------------------------------------------------------------- create
     if (action === 'create') {

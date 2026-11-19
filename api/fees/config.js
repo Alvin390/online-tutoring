@@ -6,9 +6,10 @@ import { tryWriteAudit } from '../_lib/audit.js';
 /**
  * Fee configuration — Phase 06 D1.
  *
- * Silver tier and above. `requireTier` is applied by the middleware chain, so a
- * Bronze token calling this gets a 403 from the handler rather than from the UI
- * — the UI hiding a button is not a control.
+ * Plans with the `fees` feature (Silver and above). `requireFeature` is applied
+ * by the middleware chain against the SCHOOL's plan (013Fixes / 00), so a
+ * Bronze school calling this gets a 403 from the handler rather than from the
+ * UI — the UI hiding a button is not a control.
  */
 
 const schema = z
@@ -40,7 +41,7 @@ export default createHandler({
   method: ['GET', 'POST'],
   auth: true,
   role: 'teacher',
-  tier: 'silver',
+  feature: 'fees',
   schema,
   rateLimit: { bucket: 'fees_config', limit: 60, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ req, body, user, log }) => {

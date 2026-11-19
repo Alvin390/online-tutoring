@@ -13,6 +13,7 @@ import { isEnabled } from '../_lib/flags.js';
 import { ensureDefaultSessions } from '../_lib/sessions.js';
 import { getAdminAuth } from '../_lib/firebaseAdmin.js';
 import { setUserClaims } from '../_lib/claims.js';
+import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 
 /**
  * Claims self-heal — Phase 13 / 05 D4.
@@ -130,6 +131,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, skipped: 'no_subscription' });
     }
 
+    // 013Fixes / 00: a projection written before it carried `comp` and the
+    // period start is refreshed once — before the comp skip below, since a
+    // comped school (the pilot) is exactly the one no other writer touches.
+    const pub = await db.doc('subscription/public').get();
+    if (!pub.exists || !Object.prototype.hasOwnProperty.call(pub.data() ?? {}, 'comp')) {
+      await db.doc('subscription/public').set(publicProjection(sub) ?? {}, { merge: false });
+      result.reprojected = true;
+      log.info('Subscription projection refreshed');
+    }
+
     // Q12: a comped tier is never swept. resolveSubscriptionState already
     // short-circuits on it; checking here too keeps reminders and purge off it.
     if (sub.grantedBySuperadmin === true) {
@@ -145,6 +156,7 @@ export default async function handler(req, res) {
       if (resolved.deleteDataAt) patch.dataRetentionDeleteAt = new Date(resolved.deleteDataAt);
 
       await ref.set(patch, { merge: true });
+      invalidatePlanCache();
       await db
         .doc('subscription/public')
         .set(publicProjection({ ...sub, ...patch }) ?? {}, { merge: false });

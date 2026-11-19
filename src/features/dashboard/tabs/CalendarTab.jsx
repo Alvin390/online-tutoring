@@ -9,7 +9,7 @@ import TierGate from '@shared/components/TierGate';
 export default function CalendarTab() {
   return (
     <TierGate
-      tier="silver"
+      requires="calendar"
       feature="Class calendar"
       description="Plan the term with weekly recurrence and an .ics feed"
     >

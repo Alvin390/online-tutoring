@@ -258,6 +258,10 @@ export function publicProjection(sub) {
   return {
     tier: sub.tier ?? null,
     status: sub.status ?? null,
+    // 013Fixes / 00: a comp plan and the period start, for the plan's window
+    // (capacity and SMS allowances count from it; comp uses the calendar month).
+    comp: sub.grantedBySuperadmin === true,
+    currentPeriodStart: sub.currentPeriodStart ?? null,
     currentPeriodEnd: sub.currentPeriodEnd ?? null,
     graceEndsAt: sub.graceEndsAt ?? null,
     renewalMode: sub.renewalMode ?? null,

@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, userWithClaims, teacherClaims,
+  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, userWithClaims, teacherClaims, seedPlan,
 } from '../_worker.js';
 
 /**
@@ -110,6 +110,8 @@ const backupPath = () => join(mkdtempSync(join(tmpdir(), 'fees-mig-')), 'backup.
 
 beforeEach(async () => {
   await clearFirestore();
+  // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
+  await seedPlan(db, 'gold');
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   await setFlags(db, { 'auth.legacyStudentRead': true, 'fees.enabled': true });
   await fixture();

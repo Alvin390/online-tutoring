@@ -6,6 +6,7 @@ import { badRequest, notFound, forbidden } from '../_lib/errors.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
+import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 
 /**
  * User administration — superadmin only.
@@ -175,6 +176,7 @@ export default createHandler({
       const ref = db.doc('subscription/current');
       const subscriptionBefore = (await ref.get()).data() ?? null;
       await ref.set(patch, { merge: true });
+      invalidatePlanCache();
 
       // Keep the public projection in step, because the teacher's dashboard
       // listens to that document rather than to this one.
@@ -266,6 +268,8 @@ export default createHandler({
           },
           { merge: true }
         );
+        invalidatePlanCache();
+        await refreshPublicProjection(db);
       }
 
       log.info('Tier changed by superadmin', { tier: body.tier });
@@ -306,6 +310,8 @@ export default createHandler({
         },
         { merge: true }
       );
+      invalidatePlanCache();
+      await refreshPublicProjection(db);
 
       log.info('Trial started', { tier, days });
 
@@ -383,3 +389,15 @@ export default createHandler({
     throw badRequest('Unknown action.');
   },
 });
+
+/**
+ * 013Fixes / 00: setTier and startTrial wrote `subscription/current` but never
+ * the projection the teacher screens listen to, so a plan the superadmin set
+ * showed on the dashboard only after the next unrelated write. Re-project from
+ * the stored document, exactly as the other subscription writers do.
+ */
+async function refreshPublicProjection(db) {
+  const snap = await db.doc('subscription/current').get();
+  if (!snap.exists) return;
+  await db.doc('subscription/public').set(publicProjection(snap.data()) ?? {}, { merge: false });
+}

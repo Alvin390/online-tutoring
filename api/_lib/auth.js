@@ -96,29 +96,11 @@ export function requireSuperadmin(user) {
   return user;
 }
 
-/**
- * Tier gate, claim-based fast path.
- *
- * Phase 03 adds a second check against `subscription/current` for money-critical
- * paths — claims can be up to an hour stale, so they are the fast path and the
- * document is the authority. For feature gating, an hour of stale generosity
- * after a downgrade is an acceptable trade against a Firestore read on every
- * request.
+/*
+ * 013Fixes / 00: the claim-based `requireTier` is gone. Plan gates use the
+ * SCHOOL's plan (`requireFeature` in ./schoolPlan.js), never the login's own
+ * `tier` claim, which drifted between a school's logins.
  */
-export function requireTier(user, minimumTier) {
-  if (user?.role === 'superadmin') return user;
-
-  const need = TIER_RANK[minimumTier] ?? Infinity;
-  const have = user?.tierRank ?? 0;
-
-  if (have < need) {
-    throw forbidden(
-      `This feature requires the ${minimumTier} plan.`,
-      'tier_required'
-    );
-  }
-  return user;
-}
 
 /** Object-level check: this token is bound to exactly this phone number. */
 export function requireOwnPhone(user, phone) {

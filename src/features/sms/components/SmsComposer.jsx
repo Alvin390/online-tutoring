@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '@components/ui/Modal';
-import { useAuthState } from '@features/auth/context/AuthContext';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import { useFlag } from '@shared/config/FlagsContext';
 import { listSmsPeople, previewSms, startSms, sendSmsChunk, cancelSms } from '@services/api/sms';
 import { buildWaLink } from '@utils/waLink';
@@ -35,10 +35,11 @@ const SEND_TO = [
 const wait = (s) => new Promise((resolve) => { setTimeout(resolve, s * 1000); });
 
 export default function SmsComposer({ setup, preset = null, smsOff = false }) {
-  const { tierRank, isSuperadmin } = useAuthState();
+  const plan = usePlan();
   const advanced = useFlag('whatsapp.advanced');
   const feesOn = useFlag('fees.enabled');
-  const canChoose = (isSuperadmin || (tierRank ?? 0) >= 3) && advanced;
+  // Choosing recipients is the school plan's `targetedSms` (Gold; 013Fixes / 00).
+  const canChoose = plan.has('targetedSms') && advanced;
 
   const [view, setView] = useState('compose'); // compose | history | campaign
   // With SMS switched off (008Fixes / 11) only WhatsApp to one person is offered.

@@ -5,181 +5,227 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import TierGate from '@shared/components/TierGate';
+import { BillingContext } from '@features/billing/context/BillingContext';
+import { DEFAULT_PLANS, PLAN_IDS } from '@shared/constants/plans';
 
 /**
- * The client tier gate — Phase 12 follow-up.
+ * The client plan gate — Phase 12 follow-up; 013Fixes / 00.
  *
- * Two separate things are pinned here, and the second matters more than the
- * first.
+ * Pinned here:
  *
- * 1. The gate behaves like `requireTier` in api/_lib/auth.js: superadmin passes
- *    everything, otherwise tierRank must reach the required rank.
+ * 1. The gate behaves like `requireFeature` in api/_lib/schoolPlan.js: the
+ *    superadmin passes everything; otherwise the SCHOOL's plan must include
+ *    the feature. The school's plan (from /api/billing/status) wins over the
+ *    login's own claims; claims only stand in until it arrives.
  *
- * 2. Every endpoint that declares a `tier:` has a client-side counterpart. A
- *    handler gaining a tier requirement with no matching gate is exactly how a
- *    Bronze teacher ends up back at "You do not have permission to do that." —
- *    the failure this component exists to prevent. The scanner below reads the
- *    handlers rather than a hardcoded list, so it notices.
+ * 2. Every plan feature a server endpoint checks has a client-side gate. A
+ *    handler gaining a feature requirement with no matching gate is how a
+ *    teacher ends up at "You do not have permission to do that." The scanner
+ *    reads the handlers rather than a hardcoded list, so it notices.
  */
 
-let authState = { tierRank: 0, isSuperadmin: false };
+let authState = { tier: null, tierRank: 0, isSuperadmin: false };
 
 vi.mock('@features/auth/context/AuthContext', () => ({
   useAuthState: () => authState,
 }));
 
 beforeEach(() => {
-  authState = { tierRank: 0, isSuperadmin: false };
+  authState = { tier: null, tierRank: 0, isSuperadmin: false };
 });
 
-const renderGate = (props) =>
-  render(
+const schoolPlan = (tier) => ({ tier, features: DEFAULT_PLANS[tier].features, limits: DEFAULT_PLANS[tier].limits });
+
+const renderGate = (props, billing) => {
+  const gate = (
     <MemoryRouter>
       <TierGate {...props}>
         <div data-testid="feature">the real panel</div>
       </TierGate>
     </MemoryRouter>
   );
+  return render(billing ? <BillingContext.Provider value={billing}>{gate}</BillingContext.Provider> : gate);
+};
 
-describe('TierGate', () => {
-  it('renders the feature when the tier is high enough', () => {
-    authState = { tierRank: 2, isSuperadmin: false };
-    renderGate({ tier: 'silver', feature: 'Fee ledger' });
+describe('TierGate with the school plan', () => {
+  it('renders the feature when the school plan includes it', () => {
+    renderGate({ requires: 'fees', feature: 'Fee ledger' }, { loading: false, plan: schoolPlan('silver') });
     expect(screen.getByTestId('feature')).toBeInTheDocument();
   });
 
-  it('renders the feature when the tier is above what is required', () => {
-    authState = { tierRank: 3, isSuperadmin: false };
-    renderGate({ tier: 'silver', feature: 'Fee ledger' });
-    expect(screen.getByTestId('feature')).toBeInTheDocument();
-  });
-
-  it('replaces the feature with an upgrade prompt below the tier', () => {
-    authState = { tierRank: 1, isSuperadmin: false };
-    renderGate({ tier: 'silver', feature: 'Fee ledger' });
-
+  it('the school plan wins over a login\'s higher claim (a crafted or stale Gold claim on a Bronze school)', () => {
+    authState = { tier: 'gold', tierRank: 3, isSuperadmin: false };
+    renderGate({ requires: 'fees', feature: 'Fee ledger' }, { loading: false, plan: schoolPlan('bronze') });
     expect(screen.queryByTestId('feature')).not.toBeInTheDocument();
     expect(screen.getByText(/Upgrade to Silver/)).toBeInTheDocument();
   });
 
-  it('names the feature and the plan price, so the prompt is actionable', () => {
-    authState = { tierRank: 1, isSuperadmin: false };
-    renderGate({ tier: 'gold', feature: 'M-Pesa payments' });
+  it('the school plan wins over a login with no claim at all (a new login on a Gold school)', () => {
+    renderGate({ requires: 'targetedSms', feature: 'Choose recipients' }, { loading: false, plan: schoolPlan('gold') });
+    expect(screen.getByTestId('feature')).toBeInTheDocument();
+  });
 
+  it('uses the superadmin\'s plan settings the server returned', () => {
+    const plan = schoolPlan('bronze');
+    renderGate({ requires: 'calendar', feature: 'Class calendar' }, {
+      loading: false, plan: { ...plan, features: { ...plan.features, calendar: true } },
+    });
+    expect(screen.getByTestId('feature')).toBeInTheDocument();
+  });
+
+  it('while the plan loads, a login with no claim sees nothing (never a wrong upgrade card)', () => {
+    const { container } = renderGate({ requires: 'fees', feature: 'Fee ledger' }, { loading: true, plan: null });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('while the plan loads, the owner\'s claim stands in (no flash)', () => {
+    authState = { tier: 'silver', tierRank: 2, isSuperadmin: false };
+    renderGate({ requires: 'fees', feature: 'Fee ledger' }, { loading: true, plan: null });
+    expect(screen.getByTestId('feature')).toBeInTheDocument();
+  });
+
+  it('a failed status check falls back to the claim', () => {
+    authState = { tier: 'bronze', tierRank: 1, isSuperadmin: false };
+    renderGate({ requires: 'fees', feature: 'Fee ledger' }, { loading: false, plan: null });
+    expect(screen.getByText(/Upgrade to Silver/)).toBeInTheDocument();
+  });
+});
+
+describe('TierGate wording and the superadmin', () => {
+  it('names the feature and the cheapest plan with its price', () => {
+    authState = { tier: 'bronze', tierRank: 1, isSuperadmin: false };
+    renderGate({ requires: 'mpesaStk', feature: 'M-Pesa payments' });
     expect(screen.getByText(/M-Pesa payments/)).toBeInTheDocument();
     expect(screen.getByText(/KES 9,999/)).toBeInTheDocument();
   });
 
-  it('links to the billing page carrying the tier to upgrade to', () => {
-    authState = { tierRank: 1, isSuperadmin: false };
-    renderGate({ tier: 'silver', feature: 'Fee ledger' });
-
-    expect(screen.getByRole('link', { name: /Upgrade to Silver/ }))
-      .toHaveAttribute('href', '/billing');
+  it('links to the billing page carrying the plan to upgrade to', () => {
+    authState = { tier: 'bronze', tierRank: 1, isSuperadmin: false };
+    renderGate({ requires: 'fees', feature: 'Fee ledger' });
+    expect(screen.getByRole('link', { name: /Upgrade to Silver/ })).toHaveAttribute('href', '/billing');
   });
 
-  it('lets a superadmin through regardless of tierRank', () => {
-    // Mirrors api/_lib/auth.js:109 — there is no support scenario where the
-    // owner should be locked out of their customer's dashboard.
-    authState = { tierRank: 0, isSuperadmin: true };
-    renderGate({ tier: 'gold', feature: 'M-Pesa payments' });
+  it('lets a superadmin through regardless of any plan', () => {
+    authState = { tier: null, tierRank: 0, isSuperadmin: true };
+    renderGate({ requires: 'mpesaStk', feature: 'M-Pesa payments' }, { loading: false, plan: schoolPlan('bronze') });
     expect(screen.getByTestId('feature')).toBeInTheDocument();
   });
 
-  it('treats a missing tierRank as no tier rather than as unlimited', () => {
-    authState = { tierRank: undefined, isSuperadmin: false };
-    renderGate({ tier: 'bronze', feature: 'Custom sessions' });
+  it('treats no plan as no plan, never as unlimited', () => {
+    renderGate({ requires: 'sessions', feature: 'Custom sessions' });
     expect(screen.queryByTestId('feature')).not.toBeInTheDocument();
   });
 
-  it('refuses to render a prompt for a tier that does not exist', () => {
-    authState = { tierRank: 1, isSuperadmin: false };
-    const { container } = renderGate({ tier: 'platinum', feature: 'Nonsense' });
+  it('renders nothing for a feature no plan has', () => {
+    authState = { tier: 'bronze', tierRank: 1, isSuperadmin: false };
+    const { container } = renderGate({ requires: 'nonsense', feature: 'Nonsense' });
     expect(container).toBeEmptyDOMElement();
   });
 });
 
 // ---------------------------------------------------------------------------
 
-/** Every `tier: '<x>'` declared by a handler under api/. */
-function handlerTiers(dir, found = new Map()) {
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/** Every plan feature the server checks: `feature: 'x'` and requireFeature/hasFeature(user, 'x'). */
+function serverFeatures(dir, found = new Map()) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      handlerTiers(full, found);
+      serverFeatures(full, found);
       continue;
     }
     if (!entry.name.endsWith('.js')) continue;
-    const match = readFileSync(full, 'utf8').match(/^\s*tier:\s*'(\w+)'/m);
-    if (match) found.set(full.replace(/\\/g, '/').split('/api/')[1], match[1]);
+    const text = readFileSync(full, 'utf8');
+    const file = full.replace(/\\/g, '/').split('/api/')[1];
+    for (const m of text.matchAll(/^\s*feature:\s*'(\w+)'/gm)) found.set(`${file}#${m[1]}`, m[1]);
+    for (const m of text.matchAll(/(?:requireFeature|hasFeature)\(\w+,\s*'(\w+)'/g)) found.set(`${file}#${m[1]}`, m[1]);
   }
   return found;
 }
 
-describe('server tier requirements have a client gate', () => {
-  const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+describe('server plan features have a client gate', () => {
+  /** Endpoints with no panel: the WhatsApp campaign screens were removed in 008Fixes / 11 (routes retired in 013Fixes / 06). */
+  const NO_PANEL = new Set([
+    'whatsapp/campaign.js#whatsappCampaigns',
+    'whatsapp/campaign.js#whatsappAdvanced',
+    'whatsapp/upload.js#whatsappAdvanced',
+  ]);
 
   /**
-   * Handlers a teacher never reaches from a gated panel. Empty.
-   * (`daraja/credentials.js` is no longer a teacher endpoint at all: M-Pesa
-   * credentials are operator-supplied environment variables, and the
-   * endpoint is superadmin-only diagnostics that refuses saves.)
+   * Features reached only from inside another feature's panel. The panel's gate
+   * covers them, which is right only while both are in exactly the same plans
+   * (checked below).
    */
-  const NO_PANEL_YET = new Set();
+  const COVERED_BY = { invoices: 'fees' };
 
-  it('finds the expected set of tier-gated endpoints', () => {
-    const tiers = handlerTiers(join(ROOT, 'api'));
-    expect([...tiers.keys()].sort()).toEqual([
-      'calendar/feedToken.js',
-      'calendar/manage.js',
-      'fees/annotate.js',
-      'fees/config.js',
-      'fees/generateInvoices.js',
-      'fees/post.js',
-      // 008Fixes / 07: SMS, Silver like WhatsApp (gated by WhatsAppTab).
-      'messages/sms.js',
-      'sessions/manage.js',
-      'whatsapp/campaign.js',
-      'whatsapp/upload.js',
+  it('finds the expected set of server checks', () => {
+    expect([...serverFeatures(join(ROOT, 'api')).keys()].sort()).toEqual([
+      'calendar/feedToken.js#calendar',
+      'calendar/manage.js#calendar',
+      'fees/annotate.js#fees',
+      'fees/config.js#fees',
+      'fees/generateInvoices.js#invoices',
+      'fees/post.js#feePayments',
+      'messages/sms.js#bulkSms',
+      'messages/sms.js#targetedSms',
+      'sessions/manage.js#sessions',
+      'students/bulk.js#feeBlocks',
+      'students/scheduled.js#feeBlocks',
+      'whatsapp/campaign.js#whatsappAdvanced',
+      'whatsapp/campaign.js#whatsappCampaigns',
+      'whatsapp/upload.js#whatsappAdvanced',
     ]);
   });
 
-  it('has a TierGate at the matching tier for every gated area', () => {
-    const tiers = handlerTiers(join(ROOT, 'api'));
-
+  it('has a gate for every checked feature', () => {
     // What the UI actually declares, read from the components rather than
     // restated here — restating it would make this test agree with itself.
     const sources = [
-      'src/features/dashboard/components/DashboardLayout.jsx',
-      // 007Fixes / 03: the panels' gates moved into their tabs.
       'src/features/dashboard/tabs/FeesOverviewTab.jsx',
       'src/features/dashboard/tabs/WhatsAppTab.jsx',
       'src/features/dashboard/tabs/CalendarTab.jsx',
       'src/features/dashboard/tabs/SetupTab.jsx',
+      'src/features/dashboard/tabs/StaffTab.jsx',
       'src/features/dashboard/components/StudentDrawer.jsx',
+      'src/features/dashboard/components/StudentTable.jsx',
+      'src/features/dashboard/components/bulk/BulkActionModal.jsx',
+      'src/features/dashboard/components/bulk/RecentActionsPanel.jsx',
       'src/features/sms/components/SmsComposer.jsx',
-      'src/pages/BillingPage.jsx',
     ].map((p) => readFileSync(join(ROOT, p), 'utf8')).join('\n');
 
-    // Two spellings count. `<TierGate>` is the general one; SmsComposer (like
-    // the WhatsApp panel before it, 008Fixes / 11) gates its Gold controls inline with a rank comparison,
-    // because it disables individual controls rather than replacing a whole
-    // panel. Both are real gates, so both are accepted.
-    const RANK_TO_TIER = { 1: 'bronze', 2: 'silver', 3: 'gold' };
-
     const gated = new Set([
-      ...[...sources.matchAll(/<TierGate\s+tier="(\w+)"/g)].map((m) => m[1]),
-      ...[...sources.matchAll(/tierRank\s*\?\?\s*0\)\s*>=\s*(\d)/g)]
-        .map((m) => RANK_TO_TIER[m[1]])
-        .filter(Boolean),
+      ...[...sources.matchAll(/<TierGate\s+requires="(\w+)"/g)].map((m) => m[1]),
+      ...[...sources.matchAll(/\.has\('(\w+)'\)/g)].map((m) => m[1]),
     ]);
 
-    const needed = new Set(
-      [...tiers.entries()].filter(([file]) => !NO_PANEL_YET.has(file)).map(([, tier]) => tier)
-    );
-
-    for (const tier of needed) {
-      expect(gated, `no <TierGate tier="${tier}"> in the dashboard`).toContain(tier);
+    for (const [where, feature] of serverFeatures(join(ROOT, 'api'))) {
+      if (NO_PANEL.has(where)) continue;
+      const gate = COVERED_BY[feature] ?? feature;
+      expect(gated, `no client gate for "${feature}" (${where})`).toContain(gate);
     }
+  });
+
+  it('a covering gate is in exactly the same plans as what it covers', () => {
+    for (const [covered, by] of Object.entries(COVERED_BY)) {
+      for (const id of PLAN_IDS) {
+        expect(DEFAULT_PLANS[id].features[covered], `${covered} vs ${by} on ${id}`).toBe(DEFAULT_PLANS[id].features[by]);
+      }
+    }
+  });
+
+  it('no screen gates on the login\'s own claims any more', () => {
+    const offenders = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); continue; }
+        if (!/\.(js|jsx)$/.test(entry.name)) continue;
+        if (/auth[\\/]context[\\/]AuthContext\.jsx$/.test(full) || /billing[\\/]hooks[\\/]usePlan\.js$/.test(full)) continue;
+        if (/tierRank/.test(readFileSync(full, 'utf8'))) offenders.push(full);
+      }
+    };
+    walk(join(ROOT, 'src'));
+    expect(offenders).toEqual([]);
   });
 });

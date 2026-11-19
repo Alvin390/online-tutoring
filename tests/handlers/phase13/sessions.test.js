@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve as resolvePath } from 'node:path';
 import {
   pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb,
-  clearFirestore, setFlags, phoneN,
+  clearFirestore, setFlags, phoneN, seedPlan,
 } from '../_worker.js';
 
 /**
@@ -30,6 +30,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearFirestore();
+  // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
+  await seedPlan(db, 'gold');
   const sessions = await import('../../../api/_lib/sessions.js');
   sessions.__resetSessionCache();
 });

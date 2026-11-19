@@ -19,7 +19,7 @@ const spinner = <div className="text-center py-4"><span className="spinner-borde
 export default function WhatsAppTab({ preset }) {
   const smsOn = useFlag('sms.enabled');
   return (
-    <TierGate tier="silver" feature="Messages" description="Message parents by SMS, or one person on WhatsApp">
+    <TierGate requires="whatsappOneToOne" feature="Messages" description="Message parents by SMS, or one person on WhatsApp">
       <Suspense fallback={spinner}>
         {smsOn ? (
           // 003Fixes / 09: remounted with a prepared message from Recent actions.

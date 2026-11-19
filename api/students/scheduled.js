@@ -1,7 +1,7 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
-import { requireTier } from '../_lib/auth.js';
+import { requireFeature } from '../_lib/schoolPlan.js';
 import { badRequest, forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
@@ -82,7 +82,7 @@ export default createHandler({
       }
       default: {
         if (body.kind === 'fees') {
-          requireTier(user, 'silver');
+          await requireFeature(user, 'feeBlocks');
           if (!(await isEnabled('fees.enabled'))) throw forbidden('Fees are not enabled.', 'feature_disabled');
           if (body.charge !== false && !body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
         }

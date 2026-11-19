@@ -14,6 +14,7 @@ import { clientIp } from '../_lib/rateLimit.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
 import { setUserClaims } from '../_lib/claims.js';
+import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 
 /**
  * Paystack webhook — Phase 03 D4. The most security-sensitive endpoint here.
@@ -418,6 +419,7 @@ async function processEvent({ db, event, log, requestId }) {
   if (!patch) return;
 
   await subRef.set(patch, { merge: true });
+  invalidatePlanCache();
 
   const after = (await subRef.get()).data();
 

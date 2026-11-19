@@ -1,7 +1,7 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
-import { requireTier } from '../_lib/auth.js';
+import { requireFeature } from '../_lib/schoolPlan.js';
 import { badRequest, forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
@@ -120,8 +120,8 @@ export default createHandler({
     // 006Fixes / 09: a fee block charges unless the teacher chose "for what they owe".
     const charge = isFees && body.charge !== false;
     if (isFees) {
-      // The same gates as /api/fees/post: Silver, and fees switched on.
-      requireTier(user, 'silver');
+      // The plan's fee blocks (Silver and up), and fees switched on.
+      await requireFeature(user, 'feeBlocks');
       if (!(await isEnabled('fees.enabled'))) throw forbidden('Fees are not enabled.', 'feature_disabled');
       if (charge && !body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
     }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Modal from '@components/ui/Modal';
 import { listBulkActions, undoBulk, listBulkItems } from '@services/api/students';
 import { useAuthState } from '@features/auth/context/AuthContext';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import { useFlag } from '@shared/config/FlagsContext';
 import { setWhatsappPreset, blockedParentsDraft } from '@features/whatsapp/whatsappPreset';
 import { formatKes } from '@utils/blockReason';
@@ -39,10 +40,11 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
   const [now, setNow] = useState(() => Date.now());
   // 003Fixes / 09: messaging chosen students is Gold + whatsapp.advanced.
   // 008Fixes / 11: by SMS (several parents at once), so only with SMS on.
-  const { tierRank, isSuperadmin, user } = useAuthState();
+  const { user } = useAuthState();
+  const plan = usePlan();
   const smsOn = useFlag('sms.enabled');
   const advanced = useFlag('whatsapp.advanced');
-  const canMessage = smsOn && advanced && (isSuperadmin || (tierRank ?? 0) >= 3);
+  const canMessage = smsOn && advanced && plan.has('targetedSms');
   const [preparing, setPreparing] = useState(null);
 
   const messageParents = async (action) => {

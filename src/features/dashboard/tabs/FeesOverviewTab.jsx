@@ -19,7 +19,7 @@ const studentsWith = (status) => `${tabPath('students')}?status=${status}&scope=
 export default function FeesOverviewTab({ sessions, partial }) {
   return (
     <TierGate
-      tier="silver"
+      requires="fees"
       feature="Fee ledger and invoicing"
       description="Record payments, issue invoices and see who is behind"
     >

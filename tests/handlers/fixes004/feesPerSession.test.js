@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, userWithClaims, teacherClaims,
+  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, userWithClaims, teacherClaims, seedPlan,
 } from '../_worker.js';
 
 /**
@@ -25,6 +25,8 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   await clearFirestore();
+  // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
+  await seedPlan(db, 'gold');
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   await setFlags(db, { 'auth.legacyStudentRead': true, 'fees.enabled': true });
   for (const s of ['morning', 'evening']) {

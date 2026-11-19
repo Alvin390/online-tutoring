@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import {
-  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, phoneN, userWithClaims, teacherClaims,
+  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, phoneN, userWithClaims, teacherClaims, seedPlan,
 } from '../_worker.js';
 
 /**
@@ -24,6 +24,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearFirestore();
+  // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
+  await seedPlan(db, 'gold');
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   await setFlags(db, { 'auth.legacyStudentRead': true, 'fees.enabled': true });
   await db.doc('sessions/morning').set({ slug: 'morning', name: 'Morning', active: true });
@@ -213,7 +215,11 @@ describe('list, reschedule, cancel, remove one', () => {
     const res = await sched({ action: 'create', items: items(phoneN(50)), atMs: Date.now() + 86_400_000, kind: 'other' });
     expect((await sched({ action: 'cancel', batchId: res.body.batchId }, other)).status).toBe(200);
     const bronze = await userWithClaims('fx003-sched-bronze', teacherClaims.bronze);
+    // 013Fixes / 00: a Bronze SCHOOL is refused fee schedules, whatever the login's claim.
+    await seedPlan(db, 'bronze');
     expect((await sched({ action: 'create', items: items(phoneN(50)), atMs: Date.now() + 86_400_000, kind: 'fees', amount: 10 }, bronze)).status).toBe(403);
+    expect((await sched({ action: 'create', items: items(phoneN(50)), atMs: Date.now() + 86_400_000, kind: 'fees', amount: 10 })).status).toBe(403);
+    await seedPlan(db, 'gold');
     expect((await sched({ action: 'create', items: items(phoneN(50)), atMs: Date.now() + 86_400_000, kind: 'fees' })).status).toBe(400);
   });
 });
