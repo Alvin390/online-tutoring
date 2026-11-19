@@ -78,7 +78,7 @@ describe('each feature starts at the plan the owner\'s matrix gives it (so far)'
     mpesaStk: 'gold', // mpesaAvailability
     notes: 'bronze',
     basicBlocks: 'bronze',
-    scheduledBlocks: 'bronze',
+    scheduledBlocks: 'silver', // 03: Silver and up (was every plan)
   };
 
   it('starts every feature at the plan that had it', () => {

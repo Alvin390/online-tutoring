@@ -45,6 +45,10 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
+  // 013Fixes / 03: every action — create, list, reschedule, cancel, remove —
+  // is the plan's scheduled blocks (Silver and up). A fee schedule also needs
+  // the plan's fee blocks (below).
+  feature: 'scheduledBlocks',
   schema,
   rateLimit: { bucket: 'students_scheduled', limit: 600, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ req, body, user: signedIn, log }) => {

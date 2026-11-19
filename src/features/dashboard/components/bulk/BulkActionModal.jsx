@@ -101,9 +101,11 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
 
   const timing = useBlockWhen(schedule);
   const [showWhenProblem, setShowWhenProblem] = useState(false);
+  // 013Fixes / 03: scheduling is the school plan's `scheduledBlocks` (Silver and up).
+  const schedulesUsable = schoolPlan.has('scheduledBlocks');
   // A scheduled block takes every selected student: the skip rules apply at
   // the time it starts, not now (someone may be approved meanwhile).
-  const scheduling = action === 'block' && timing.scheduled;
+  const scheduling = action === 'block' && schedulesUsable && timing.scheduled;
   const noCharge = action === 'block' && kind === 'fees' && feesUsable && owing?.count > 0 && !charge;
   const plan = useMemo(() => {
     const p = planBulk(action, rows, { noCharge });
@@ -222,7 +224,8 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
           feesUsable={feesUsable}
           feesFlag={feesFlag}
           count={rows.length}
-          timing={{ ...timing, showProblem: showWhenProblem }}
+          timing={schedulesUsable ? { ...timing, showProblem: showWhenProblem } : null}
+          scheduleLocked={!schedulesUsable}
           owing={owing}
           charge={charge}
           onCharge={setCharge}

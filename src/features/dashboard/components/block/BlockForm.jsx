@@ -18,6 +18,8 @@ export default function BlockForm({
   count = 1,
   // 003Fixes / 08: the "When?" choice (from useBlockWhen). Absent: no choice.
   timing = null,
+  // 013Fixes / 03: scheduling isn't in the school's plan: a note, no choice.
+  scheduleLocked = false,
   // 006Fixes / 09 (owner): when someone selected already owes —
   // owing = { count, total, nothing }, charge true = "Add a new charge".
   owing = null,
@@ -132,6 +134,12 @@ export default function BlockForm({
         )}
       </div>
 
+      {!timing && scheduleLocked && (
+        <div className="form-text mb-3 text-start" data-testid="schedule-locked">
+          <i className="bi bi-lock me-1" aria-hidden="true" />
+          The block starts now. Scheduling a block for later is on the Silver plan and up.
+        </div>
+      )}
       {timing && (
         <div className="mb-3 text-start block-when">
           <span className="form-label fw-bold d-block" id={`${idPrefix}-when-label`}>

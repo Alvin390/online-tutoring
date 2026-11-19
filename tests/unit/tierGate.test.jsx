@@ -173,6 +173,7 @@ describe('server plan features have a client gate', () => {
       'sessions/manage.js#sessions',
       'students/bulk.js#feeBlocks',
       'students/scheduled.js#feeBlocks',
+      'students/scheduled.js#scheduledBlocks',
       'whatsapp/campaign.js#whatsappAdvanced',
       'whatsapp/campaign.js#whatsappCampaigns',
       'whatsapp/upload.js#whatsappAdvanced',

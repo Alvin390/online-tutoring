@@ -161,13 +161,36 @@ export async function rescheduleSchedule({ db, user, batchId, atMs, nowMs }) {
   return { batchId, atMs };
 }
 
-export async function cancelSchedule({ db, user, batchId }) {
+export async function cancelSchedule({ db, user, batchId, because = null }) {
   const { ref } = await waitingSchedule(db, batchId);
   const visited = await forEachMember(db, batchId, (writes, sRef) => {
     writes.set(sRef, { scheduledBlock: FieldValue.delete() }, { merge: true });
   }, { status: 'removed', removedBecause: 'cancelled' });
-  await ref.update({ status: 'cancelled', dueAtMs: FieldValue.delete(), count: 0, lastChangedBy: who(user) });
+  await ref.update({
+    status: 'cancelled', dueAtMs: FieldValue.delete(), count: 0, lastChangedBy: who(user),
+    ...(because ? { cancelledBecause: because } : {}),
+  });
   return { batchId, cancelled: visited };
+}
+
+/**
+ * 013Fixes / 03: cancel every schedule that is still waiting — used by the
+ * per-minute sweep when the school's plan no longer includes scheduled blocks
+ * (a downgrade, a superadmin plan change, an expiry to no plan). Check-in and
+ * the class link enforce `scheduledBlock` by themselves from the minute it is
+ * due, so leaving them would still block students on a plan without the
+ * feature. A few a run, while the budget lasts; the next run continues.
+ * @returns {Promise<string[]>} the ids cancelled
+ */
+export async function cancelWaitingSchedules({ db, user, because, limit = 3 }) {
+  const waiting = await db.collection('scheduledBlocks').where('dueAtMs', '>=', 0).limit(limit).get();
+  const ids = [];
+  for (const doc of waiting.docs) {
+    if (subrequestsRemaining() < 12) break;
+    await cancelSchedule({ db, user, batchId: doc.id, because });
+    ids.push(doc.id);
+  }
+  return ids;
 }
 
 export async function removeMember({ db, user, batchId, session, phone }) {

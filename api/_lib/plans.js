@@ -53,13 +53,14 @@ const GOLD_ONLY = { bronze: false, silver: false, gold: true };
  * Feature → which plans include it. Phase 00 copied the gates as they were on
  * 2026-11-19; phases 02–06 move them to the owner's matrix (spec §2):
  *   02  calendar and one-to-one WhatsApp on every plan.
+ *   03  scheduled blocks Silver and up (was every plan).
  */
 const FEATURE_PLANS = {
   sessions: ALL(true),
   calendar: ALL(true), // 013Fixes / 02: every plan (owner)
   notes: ALL(true),
   basicBlocks: ALL(true),
-  scheduledBlocks: ALL(true),
+  scheduledBlocks: SILVER_UP, // 013Fixes / 03: Silver and up (owner; was every plan)
   fees: SILVER_UP,
   feePayments: SILVER_UP,
   feeBlocks: SILVER_UP,

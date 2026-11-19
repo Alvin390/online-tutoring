@@ -201,3 +201,50 @@ describe('the Scheduled panel', () => {
     expect(api.removeFromSchedule).toHaveBeenCalledWith([{ session: 'morning', phone: roster[3].id }]);
   });
 });
+
+// 013Fixes / 03: scheduling is Silver and up. On a Bronze school the block
+// forms say the block starts now, and the Scheduled button and panel are gone.
+describe('a Bronze school: no scheduling', () => {
+  async function renderBronze() {
+    const { BillingContext } = await import('@features/billing/context/billingContextValue');
+    const { DEFAULT_PLANS } = await import('@shared/constants/plans');
+    const noop = vi.fn();
+    return render(
+      <BillingContext.Provider value={{ loading: false, plan: { tier: 'bronze', ...DEFAULT_PLANS.bronze } }}>
+        <ToastProvider>
+          <MemoryRouter>
+            <StudentSearchPanel
+              session="morning" sessionDoc={{ id: 'morning', name: 'Morning', classes: ['Form 3'] }}
+              students={roster} loading={false}
+              onDelete={noop} onEdit={noop} onExport={noop} onBlock={noop} onUnblock={noop} onApprove={noop} onDecline={noop}
+            />
+          </MemoryRouter>
+        </ToastProvider>
+      </BillingContext.Provider>
+    );
+  }
+
+  it('one student: no Now/Schedule choice, a note instead', async () => {
+    await renderBronze();
+    fireEvent.click(within(row('Amina Wanjiru')).getByTitle('Block student'));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByRole('radio', { name: 'Schedule' })).toBeNull();
+    expect(within(dialog).getByTestId('schedule-locked').textContent).toMatch(/starts now.*Silver plan/);
+  });
+
+  it('a selection: the same note, and the block runs now', async () => {
+    await renderBronze();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Amina Wanjiru' }));
+    fireEvent.click(within(await screen.findByRole('region', { name: 'Selected students' })).getByRole('button', { name: 'Block selected' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('radio', { name: 'Schedule' })).toBeNull();
+    expect(within(dialog).getByTestId('schedule-locked')).toBeTruthy();
+  });
+
+  it('no Scheduled button, so the waiting list is never asked for', async () => {
+    await renderBronze();
+    expect(screen.queryByRole('button', { name: /Scheduled blocks/ })).toBeNull();
+    expect(api.listSchedules).not.toHaveBeenCalled();
+  });
+});
+

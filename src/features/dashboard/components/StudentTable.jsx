@@ -125,6 +125,8 @@ export default function StudentTable({
   // 013Fixes / 00: fee blocks are the SCHOOL plan's `feeBlocks` feature.
   const plan = usePlan();
   const feesUsable = feesFlag && plan.has('feeBlocks');
+  // 013Fixes / 03: scheduling a block is the plan's `scheduledBlocks` (Silver and up).
+  const schedulesUsable = plan.has('scheduledBlocks');
   const defaultBlockKind = feesUsable ? 'fees' : 'other';
 
   // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;
@@ -337,7 +339,7 @@ export default function StudentTable({
 
     // 003Fixes / 08: a scheduled block is recorded on the server now and
     // applied at that minute (the fee is charged then, not now).
-    if (timing.scheduled) {
+    if (schedulesUsable && timing.scheduled) {
       if (timing.problem) { setShowWhenProblem(true); return; }
       const feeKind = blockKind === 'fees' && feesUsable;
       const isFees = feeKind && !noCharge;
@@ -773,7 +775,8 @@ export default function StudentTable({
               error={blockError}
               feesUsable={feesUsable}
               feesFlag={feesFlag}
-              timing={{ ...timing, showProblem: showWhenProblem }}
+              timing={schedulesUsable ? { ...timing, showProblem: showWhenProblem } : null}
+              scheduleLocked={!schedulesUsable}
               owing={(Number(selectedStudent.feeBalance) || 0) > 0
                 ? { count: 1, total: Number(selectedStudent.feeBalance), nothing: 0 }
                 : null}
