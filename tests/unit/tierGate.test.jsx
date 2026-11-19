@@ -164,6 +164,7 @@ describe('server plan features have a client gate', () => {
       'calendar/feedToken.js#calendar',
       'calendar/manage.js#calendar',
       'fees/annotate.js#fees',
+      'fees/approveReceipt.js#feePayments',
       'fees/config.js#fees',
       'fees/generateInvoices.js#invoices',
       'fees/post.js#feePayments',
@@ -172,6 +173,7 @@ describe('server plan features have a client gate', () => {
       'messages/sms.js#whatsappOneToOne',
       'sessions/manage.js#sessions',
       'students/bulk.js#feeBlocks',
+      'students/bulk.js#feePayments',
       'students/scheduled.js#feeBlocks',
       'students/scheduled.js#scheduledBlocks',
       'whatsapp/campaign.js#whatsappAdvanced',
@@ -185,6 +187,7 @@ describe('server plan features have a client gate', () => {
     // restated here — restating it would make this test agree with itself.
     const sources = [
       'src/features/dashboard/tabs/FeesOverviewTab.jsx',
+      'src/features/dashboard/components/DashboardLayout.jsx',
       'src/features/dashboard/tabs/WhatsAppTab.jsx',
       'src/features/dashboard/tabs/CalendarTab.jsx',
       'src/features/dashboard/tabs/SetupTab.jsx',

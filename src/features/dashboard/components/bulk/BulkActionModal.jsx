@@ -387,10 +387,16 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
             )}
           </div>
         )}
-        {action === 'approveReceipts' && n > 0 && !isPartial && (
+        {action === 'approveReceipts' && n > 0 && !isPartial && approving && (
           <p className="mb-2 small">
             {plan.owing > 0 && `${plural(plan.owing, 'owes', 'owe')} a balance: each balance is recorded as paid, with the M-Pesa code from their receipt, and they are let back in. `}
             {n - plan.owing > 0 && `${plural(n - plan.owing, 'owes nothing', 'owe nothing')}: they are let back in.`}
+          </p>
+        )}
+        {action === 'approveReceipts' && n > 0 && !approving && (
+          // 013Fixes / 04: no fee payments in the plan (or fees off): nothing recorded.
+          <p className="mb-2 small" data-testid="approve-no-money">
+            {`${plural(n, 'student')} will be let back in. No payment is recorded.`}
           </p>
         )}
         {!scheduling && action !== 'cancelSchedule' && (

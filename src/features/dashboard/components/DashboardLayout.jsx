@@ -16,6 +16,8 @@ import WaitingBanner from '../nav/WaitingBanner';
 import { visibleTabs, tabPath, tabFromPath, DEFAULT_TAB } from '../nav/dashboardTabs';
 import { useOptionalToast } from '@/context/ToastContext';
 import { otherRecords, markedToast } from '../staff/markStaffText';
+import { usePlan } from '@features/billing/hooks/usePlan';
+import { asksPaymentOnApprove } from '../bulk/approveChoice';
 
 // Lazy too (001Fixes / 05): the student drawer opens on a click, so it need not
 // be in the dashboard's first download. Fetched when the browser is idle after
@@ -95,6 +97,7 @@ export default function DashboardLayout() {
     staffBySession,
   } = useDashboard();
 
+  const schoolPlan = usePlan();
   const requireApproval = useFlag('registration.requireApproval');
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
@@ -119,11 +122,15 @@ export default function DashboardLayout() {
    * as before. Resolves when the pop-up is done, so the row's popup closes
    * only then.
    */
+  // 013Fixes / 04: recording money on approval is the school plan's fee
+  // payments (Silver and up). Without it (Bronze) approving lets the student
+  // back in at once, with no Complete/Partial question and nothing recorded.
+  const paymentsInPlan = schoolPlan.has('feePayments');
   const handleApprove = useCallback((session, id, name, student) => {
     const owed = Number(student?.feeBalance) || 0;
-    if (!feesEnabled || owed <= 0) return approveReceipt(session, id, name);
+    if (!asksPaymentOnApprove({ feesOn: feesEnabled, paymentsInPlan, owed })) return approveReceipt(session, id, name);
     return new Promise((resolve) => setApproving({ session, id, name, student, owed, resolve }));
-  }, [feesEnabled, approveReceipt]);
+  }, [feesEnabled, paymentsInPlan, approveReceipt]);
   const closeApproving = useCallback((result = { success: false }) => {
     setApproving((current) => {
       current?.resolve(result);
