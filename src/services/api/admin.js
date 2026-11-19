@@ -10,8 +10,17 @@ import { apiPost } from './client';
 
 export const listUsers = () => apiPost('/api/admin/users', { action: 'list' });
 
-export const createTeacher = ({ email, password, displayName, tier }) =>
-  apiPost('/api/admin/users', { action: 'createTeacher', email, password, displayName, tier });
+// 013Fixes / 01: no plan here — the plan is the school's, the same for every login.
+export const createTeacher = ({ email, password, displayName }) =>
+  apiPost('/api/admin/users', { action: 'createTeacher', email, password, displayName });
+
+/** 013Fixes / 01: make this teacher login the school's owner (one owner). */
+export const setOwner = ({ uid }) =>
+  apiPost('/api/admin/users', { action: 'setOwner', uid });
+
+/** 013Fixes / 01: the platform owner's own login, never counted against the plan. null clears it. */
+export const setDevLogin = ({ devLoginEmail }) =>
+  apiPost('/api/admin/users', { action: 'setDevLogin', devLoginEmail });
 
 export const setUserRole = ({ uid, role, tier }) =>
   apiPost('/api/admin/users', { action: 'setRole', uid, role, tier });

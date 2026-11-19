@@ -37,6 +37,9 @@ const schema = z
       'disable',
       'enable',
       'delete',
+      // 013Fixes / 01
+      'setOwner',
+      'setDevLogin',
     ]),
     uid: z.string().trim().max(128).optional(),
     email: z.string().trim().email().max(320).optional(),
@@ -47,8 +50,28 @@ const schema = z
     trialDays: z.number().int().min(1).max(90).optional(),
     // Must equal the target's email for a delete to proceed.
     confirmEmail: z.string().trim().max(320).optional(),
+    // 013Fixes / 01: the developer login's email; null clears it.
+    devLoginEmail: z.string().trim().toLowerCase().email().max(320).nullable().optional(),
   })
   .strict();
+
+/** "a***@example.com" — enough for an audit reader, never the whole address. */
+function maskEmail(email) {
+  if (!email) return null;
+  const [name, domain] = String(email).split('@');
+  return `${name.slice(0, 1)}***@${domain ?? ''}`;
+}
+
+/**
+ * 013Fixes / 01: the platform owner's own dashboard login, which never counts
+ * against the school's plan. Its address is a setting (`config/platform`),
+ * changeable here, and never written into the code.
+ */
+async function readDevLoginEmail(db) {
+  const snap = await db.doc('config/platform').get();
+  const email = snap.exists ? snap.data().devLoginEmail : null;
+  return typeof email === 'string' && email ? email.toLowerCase() : null;
+}
 
 function projectUser(user) {
   const claims = user.customClaims ?? {};
@@ -91,7 +114,15 @@ export default createHandler({
 
       const studentCount = page.users.length - staff.length;
 
-      const subSnap = await db.doc('subscription/current').get();
+      const [subSnap, devLoginEmail] = await Promise.all([
+        db.doc('subscription/current').get(),
+        readDevLoginEmail(db),
+      ]);
+      const ownerUid = subSnap.exists ? (subSnap.data().ownerUid ?? null) : null;
+      for (const u of staff) {
+        u.isOwner = u.uid === ownerUid;
+        u.isDeveloper = Boolean(devLoginEmail) && (u.email ?? '').toLowerCase() === devLoginEmail;
+      }
       const subscription = subSnap.exists
         ? {
             tier: subSnap.data().tier ?? null,
@@ -103,7 +134,7 @@ export default createHandler({
           }
         : null;
 
-      return { ok: true, users: staff, studentCount, subscription };
+      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail };
     }
 
     // --------------------------------------------------------- createTeacher
@@ -122,9 +153,10 @@ export default createHandler({
         emailVerified: true,
       });
 
+      // 013Fixes / 01: no plan claim. The plan is the SCHOOL's
+      // (subscription/current), the same for every login (013Fixes / 00).
       await setUserClaims(created.uid, {
         role: 'teacher',
-        tier: body.tier ?? 'bronze',
         phone: null,
       });
 
@@ -136,7 +168,7 @@ export default createHandler({
           actor: user.uid,
           actorRole: user.role,
           target: created.uid,
-          after: { role: 'teacher', tier: body.tier ?? 'bronze' },
+          after: { role: 'teacher' },
           context: { requestId: log.requestId, via: 'superadmin_console' },
         },
         log
@@ -205,6 +237,25 @@ export default createHandler({
       };
     }
 
+    // ------------------------------------------------------- setDevLogin
+    if (action === 'setDevLogin') {
+      if (body.devLoginEmail === undefined) throw badRequest('Which email?');
+      const before = await readDevLoginEmail(db);
+      const next = body.devLoginEmail ?? null;
+      await db.doc('config/platform').set(
+        { devLoginEmail: next, updatedAt: FieldValue.serverTimestamp(), updatedBy: user.uid },
+        { merge: true }
+      );
+      log.info('Developer login email set', { set: Boolean(next) });
+      await tryWriteAudit(
+        { action: AuditAction.DEV_LOGIN_SET, actor: user.uid, actorRole: user.role, target: 'config/platform',
+          before: { devLoginEmail: maskEmail(before) }, after: { devLoginEmail: maskEmail(next) },
+          context: { requestId: log.requestId, via: 'superadmin_console' } },
+        log
+      );
+      return { ok: true, devLoginEmail: next };
+    }
+
     // Everything below needs a target.
     if (!body.uid) throw badRequest('Which account?');
 
@@ -216,6 +267,33 @@ export default createHandler({
     }
 
     const isSelf = target.uid === user.uid;
+
+    // ---------------------------------------------------------- setOwner
+    //
+    // 013Fixes / 01: the school's owner login (`subscription/current.ownerUid`).
+    // Exactly one; moving it is a plain replace (the console confirms first).
+    // Only an enabled teacher login can own the school.
+    if (action === 'setOwner') {
+      if ((target.customClaims ?? {}).role !== 'teacher') {
+        throw badRequest('Only a teacher login can be the school owner.', 'not_teacher');
+      }
+      if (target.disabled) throw badRequest('That login is disabled. Enable it first.', 'disabled');
+      const ref = db.doc('subscription/current');
+      const snap = await ref.get();
+      const before = snap.exists ? (snap.data().ownerUid ?? null) : null;
+      if (before !== target.uid) {
+        await ref.set({ ownerUid: target.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        invalidatePlanCache();
+      }
+      log.info('School owner set', { changed: before !== target.uid });
+      await tryWriteAudit(
+        { action: AuditAction.OWNER_SET, actor: user.uid, actorRole: user.role, target: 'subscription/current',
+          before: { ownerUid: before }, after: { ownerUid: target.uid },
+          context: { requestId: log.requestId, via: 'superadmin_console' } },
+        log
+      );
+      return { ok: true, ownerUid: target.uid, previousOwnerUid: before };
+    }
 
     // ------------------------------------------------------------- setRole
     if (action === 'setRole') {
