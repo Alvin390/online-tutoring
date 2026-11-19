@@ -5,6 +5,7 @@ import { authenticate } from '../_lib/auth.js';
 import { forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { accountRef, ledgerRef } from '../_lib/ledger.js';
+import { schoolPlan } from '../_lib/schoolPlan.js';
 
 /**
  * Student-facing fee summary — Phase 06 D9.
@@ -36,6 +37,13 @@ export default createHandler({
     const { session, phone } = body;
 
     if (!(await isEnabled('fees.enabled'))) {
+      return { feesEnabled: false, summary: null };
+    }
+    // 013Fixes / 05: fees are a plan feature (Silver and up). On a plan
+    // without them (Bronze, or after a downgrade) the answer is the same as
+    // with fees off: no money, to teachers and students alike. The ledger is
+    // kept and comes back on an upgrade.
+    if ((await schoolPlan()).features.fees !== true) {
       return { feesEnabled: false, summary: null };
     }
 

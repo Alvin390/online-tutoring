@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  schoolPlan, requireFeature, hasFeature, resolvePlan, invalidatePlanCache,
+  schoolPlan, requireFeature, hasFeature, resolvePlan, invalidatePlanCache, cachedPlan, planRefs, rememberPlan,
 } from '../../../api/_lib/schoolPlan.js';
 
 /**
@@ -126,3 +126,29 @@ describe('resolvePlan (pure)', () => {
     expect(resolvePlan({ tier: 'gold' }, { gold: { features: { mpesaStk: false } } }).features.mpesaStk).toBe(false);
   });
 });
+
+describe('a hot path reading the plan in its own batch (013Fixes / 05: check-in)', () => {
+  const snap = (data) => ({ exists: data !== undefined, data: () => data });
+
+  it('cachedPlan is null until a plan is known, with no read', () => {
+    expect(cachedPlan()).toBeNull();
+  });
+
+  it('planRefs names the two documents; rememberPlan builds and caches from them', async () => {
+    const db = fakeDb({});
+    expect(planRefs({ doc: (p) => p })).toEqual(['subscription/current', 'config/plans']);
+    const plan = rememberPlan(snap({ tier: 'silver', status: 'active' }), snap(undefined));
+    expect(plan.features.fees).toBe(true);
+    expect(cachedPlan()).toBe(plan);
+    expect(await schoolPlan(db)).toBe(plan); // served from the cache, no read
+    expect(db.reads.count).toBe(0);
+  });
+
+  it('the cached plan goes stale after a minute', () => {
+    const t = Date.now();
+    rememberPlan(snap({ tier: 'bronze' }), snap(undefined), t);
+    expect(cachedPlan(t + 59_000)).not.toBeNull();
+    expect(cachedPlan(t + 61_000)).toBeNull();
+  });
+});
+

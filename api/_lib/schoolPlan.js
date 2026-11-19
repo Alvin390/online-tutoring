@@ -78,8 +78,26 @@ export async function schoolPlan(db = getDb()) {
     throw new ApiError(503, 'plan_unavailable', 'Could not check your plan just now. Please try again.', { cause });
   }
 
-  const overrides = plansSnap.exists ? plansSnap.data() : null;
-  const plan = { ...resolvePlan(subSnap.exists ? subSnap.data() : null, overrides), overrides };
+  return rememberPlan(subSnap, plansSnap, now);
+}
+
+/**
+ * 013Fixes / 05: for a hot path that already makes one batched read (student
+ * check-in): the fresh cached plan, or null — with no read.
+ */
+export function cachedPlan(now = Date.now()) {
+  return cache && now - cachedAt < TTL_MS ? cache : null;
+}
+
+/** The two documents the plan is made of, for a caller's own batchGet. */
+export function planRefs(db) {
+  return [db.doc('subscription/current'), db.doc('config/plans')];
+}
+
+/** The plan from snapshots of `planRefs` the caller read itself; cached like schoolPlan's. */
+export function rememberPlan(subSnap, plansSnap, now = Date.now()) {
+  const overrides = plansSnap?.exists ? plansSnap.data() : null;
+  const plan = { ...resolvePlan(subSnap?.exists ? subSnap.data() : null, overrides), overrides };
   cache = plan;
   cachedAt = now;
   return plan;

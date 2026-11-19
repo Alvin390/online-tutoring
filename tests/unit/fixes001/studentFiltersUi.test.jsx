@@ -11,7 +11,8 @@ import StudentSearchPanel from '@features/dashboard/components/StudentSearchPane
 vi.mock('@features/auth/context/AuthContext', () => ({
   useAuthState: () => ({ tierRank: 3, isSuperadmin: false }),
 }));
-vi.mock('@shared/config/FlagsContext', () => ({ useFlag: () => false }));
+// 013Fixes / 05: the money chips and the balance sort need fees switched on (and in the plan).
+vi.mock('@shared/config/FlagsContext', () => ({ useFlag: (k) => k === 'fees.enabled' }));
 
 beforeEach(() => sessionStorage.clear());
 afterEach(() => cleanup());

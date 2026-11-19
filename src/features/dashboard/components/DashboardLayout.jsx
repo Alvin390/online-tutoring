@@ -138,12 +138,13 @@ export default function DashboardLayout() {
     });
   }, []);
   useEffect(() => {
-    if (!feesEnabled) return undefined;
+    // 013Fixes / 04-05: the Complete/Partial pop-up is only used with fee payments.
+    if (!feesEnabled || !paymentsInPlan) return undefined;
     const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 2500));
     const cancel = window.cancelIdleCallback ?? clearTimeout;
     const handle = idle(() => { loadApprovePaymentModal().catch(() => {}); });
     return () => cancel(handle);
-  }, [feesEnabled]);
+  }, [feesEnabled, paymentsInPlan]);
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
@@ -239,7 +240,9 @@ export default function DashboardLayout() {
   const currentStudents = activeSession ? (studentsBySession[activeSession] ?? []) : [];
   // 006Fixes / 08: who is on a partial payment, from the rosters already loaded
   // (once per roster update; no extra read).
-  const partial = useMemo(() => (feesEnabled ? partialSummary(studentsBySession) : null), [feesEnabled, studentsBySession]);
+  // 013Fixes / 05: only with fees in the plan (the Fees tab is an upgrade card otherwise).
+  const feesInPlan = schoolPlan.has('fees');
+  const partial = useMemo(() => (feesEnabled && feesInPlan ? partialSummary(studentsBySession) : null), [feesEnabled, feesInPlan, studentsBySession]);
 
   const actions = {
     deleteStudent,

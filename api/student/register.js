@@ -12,6 +12,7 @@ import { accountRef } from '../_lib/ledger.js';
 import { getFlags } from '../_lib/flags.js';
 import { verifyTicket } from '../_lib/verifyTicket.js';
 import { numberProblem, numberProblemMessage, reservationId } from '../_lib/admissionNumber.js';
+import { schoolPlan } from '../_lib/schoolPlan.js';
 
 /**
  * Student registration — Phase 13 / 08 A1.
@@ -181,7 +182,11 @@ export default createHandler({
       // 009Fixes / 01: code-first records are already confirmed - check in next.
       ...(numbersOn ? { next: codeFirst ? 'checkin' : 'verify' } : {}),
       ...(original ? { held: 'duplicate' } : {}),
-      student: projectStudent({ ...student, registeredAt: { toDate: () => new Date() } }),
+      student: projectStudent(
+        { ...student, registeredAt: { toDate: () => new Date() } },
+        // 013Fixes / 05: fee status only on a plan with fees.
+        { fees: await schoolPlan(db).then((p) => p.features.fees === true, () => false) }
+      ),
       ...(pass ? { pass } : {}),
     };
   },

@@ -17,6 +17,7 @@ import { rememberBulk, markUndone, useUndoableCount } from '../bulk/recentBulk';
 
 // 003Fixes / 05: both load on first use.
 import { pairsAcross } from '../duplicates/duplicatePairs';
+import { useMoneyShown } from '@features/billing/hooks/useMoneyShown';
 const BulkActionModal = lazy(() => import('./bulk/BulkActionModal'));
 // 006Fixes / 02: loaded on the first Delete, prefetched when the browser is idle.
 const loadBulkDeleteModal = () => import('./bulk/BulkDeleteModal');
@@ -139,7 +140,14 @@ export default function StudentSearchPanel({
   }, []);
 
   // 013Fixes / 03: scheduled blocks are the school plan's (Silver and up).
-  const schedulesUsable = usePlan().has('scheduledBlocks');
+  const schoolPlan = usePlan();
+  const schedulesUsable = schoolPlan.has('scheduledBlocks');
+  // 013Fixes / 05: money filters only with fees on and in the plan.
+  const moneyShown = useMoneyShown();
+  const hiddenStatuses = useMemo(() => [
+    ...(moneyShown ? [] : ['owes', 'partial']),
+    ...(schedulesUsable ? [] : ['scheduled']),
+  ], [moneyShown, schedulesUsable]);
   const scheduledCount = useMemo(() => {
     const ids = new Set();
     for (const list of Object.values(rosters)) for (const s of list ?? []) if (s?.scheduledBlock?.batchId) ids.add(s.scheduledBlock.batchId);
@@ -394,6 +402,8 @@ export default function StudentSearchPanel({
           subjectOptions={subjects}
           subjectCounts={out.facets.subject}
           onToggleStatus={toggleStatus}
+          hiddenStatuses={hiddenStatuses}
+          moneyShown={moneyShown}
           onToggleSubject={toggleSubject}
           onRange={setRange}
           onSort={setSort}

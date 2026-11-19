@@ -8,6 +8,7 @@ import { DEFAULT_FEE_CONFIG } from '../fees/config.js';
 import { runInvoiceGeneration } from '../fees/generateInvoices.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { purgeDeletedNotes } from '../_lib/notesPurge.js';
+import { schoolPlan } from '../_lib/schoolPlan.js';
 
 /**
  * Nightly fee sweep — Phase 06 D8.
@@ -72,6 +73,22 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: 'fees_disabled', notesPurged });
   }
 
+  // 013Fixes / 05: fees (and invoices) are plan features, Silver and up. A
+  // cron passes no HTTP gate, so the sweep checks the school's plan itself.
+  // Without fees: nothing is flagged, blocked or invoiced (the data stays).
+  // Can't read the plan: do nothing this run.
+  let plan;
+  try {
+    plan = await schoolPlan(db);
+  } catch (err) {
+    log.warn('Fee sweep skipped: the plan could not be read', { code: err?.code });
+    return res.status(200).json({ ok: true, skipped: 'plan_unavailable', notesPurged });
+  }
+  if (plan.features.fees !== true) {
+    log.info('Fee sweep skipped: fees are not in the plan', { tier: plan.tier });
+    return res.status(200).json({ ok: true, skipped: 'plan_without_fees', notesPurged });
+  }
+
   const now = new Date();
   const result = { overdueFlagged: 0, autoBlocked: 0, invoiceRun: null, notesPurged };
 
@@ -86,7 +103,7 @@ export default async function handler(req, res) {
     // spans several nights — `complete: false` says so explicitly and the
     // cursor picks up where this left off. Invoicing is idempotent per
     // (phone, period), so a resumed run can never double-charge.
-    if (now.getUTCDate() === Math.min(feeConfig.billingDayOfMonth ?? 1, 28)) {
+    if (plan.features.invoices === true && now.getUTCDate() === Math.min(feeConfig.billingDayOfMonth ?? 1, 28)) {
       result.invoiceRun = await runInvoiceGeneration({ actor: 'system:cron', log });
       log.info(
         result.invoiceRun.complete

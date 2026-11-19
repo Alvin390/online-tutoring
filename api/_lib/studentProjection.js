@@ -11,8 +11,14 @@ function blockState(data) {
   return { blocked: false, blockReason: '' };
 }
 
-/** Only these fields ever cross the wire. Everything else stays server-side. */
-export function projectStudent(data) {
+/**
+ * Only these fields ever cross the wire. Everything else stays server-side.
+ *
+ * 013Fixes / 05: `fees` is whether the school's plan includes fees. Without it
+ * the balance is not sent (0) and `feesShown: false` tells the student screens
+ * to show no fee status or amount at all.
+ */
+export function projectStudent(data, { fees = true } = {}) {
   const block = blockState(data);
   return {
     studentName: data.studentName ?? null,
@@ -30,7 +36,8 @@ export function projectStudent(data) {
     rejectionReason: data.approvalStatus === 'rejected' ? (data.rejectionReason ?? '') : null,
     receiptStatus: data.receiptStatus ?? 'pending',
     hasPendingReceipt: Boolean(data.pendingReceipt),
-    feeBalance: typeof data.feeBalance === 'number' ? data.feeBalance : 0,
+    feeBalance: fees && typeof data.feeBalance === 'number' ? data.feeBalance : 0,
+    feesShown: fees === true,
     // 003Fixes / 11: held as a possible duplicate (who it matched stays server-side).
     duplicateHold: data.duplicateHold === true,
     registeredAt: data.registeredAt?.toDate?.()?.toISOString() ?? null,

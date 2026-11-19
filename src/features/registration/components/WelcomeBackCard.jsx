@@ -19,7 +19,8 @@ export default function WelcomeBackCard({
   waitSeconds = 0,
 }) {
   const [countdown, setCountdown] = useState(3);
-  const feesEnabled = useFlag('fees.enabled');
+  // 013Fixes / 05: and only where the school's plan includes fees (`feesShown`).
+  const feesEnabled = useFlag('fees.enabled') && studentData?.feesShown !== false;
 
   const balance = Number(studentData?.feeBalance) || 0;
 

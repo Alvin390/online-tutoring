@@ -127,6 +127,8 @@ export default function StudentTable({
   const feesUsable = feesFlag && plan.has('feeBlocks');
   // 013Fixes / 03: scheduling a block is the plan's `scheduledBlocks` (Silver and up).
   const schedulesUsable = plan.has('scheduledBlocks');
+  // 013Fixes / 05: money in the rows only with fees on and in the plan.
+  const moneyShown = feesFlag && plan.has('fees');
   const defaultBlockKind = feesUsable ? 'fees' : 'other';
 
   // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;
@@ -543,6 +545,7 @@ export default function StudentTable({
                   selected={sel.all || sel.keys.has(rowKey(student))}
                   onSelect={toggleRow}
                   onCancelSchedule={onCancelSchedule ? cancelScheduleFor : undefined}
+                  moneyShown={moneyShown}
                   session={rowSession(student)}
                   sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
                   animated={!paged}

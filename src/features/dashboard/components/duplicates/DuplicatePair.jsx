@@ -3,6 +3,7 @@ import { declineDuplicate, mergeDuplicates, keepBothDuplicates } from '@services
 import { mpesaCode, retiredMessage } from '@utils/duplicates';
 import { formatKes } from '@utils/blockReason';
 import { suffixOf, reasonLabels } from '../../duplicates/duplicatePairs';
+import { useMoneyShown } from '@features/billing/hooks/useMoneyShown';
 
 /**
  * One possible-duplicate pair, side by side (stacked on a phone) — 003Fixes / 13.
@@ -29,6 +30,8 @@ export function defaultKeep(a, b) {
 }
 
 function Side({ student, code }) {
+  // 013Fixes / 05: the balance only with fees on and in the school's plan.
+  const moneyShown = useMoneyShown();
   const receipt = String(student.receiptMessage ?? '');
   const parts = code && receipt.includes(code) ? receipt.split(code) : null;
   return (
@@ -52,7 +55,7 @@ function Side({ student, code }) {
           {student.blocked === true ? <span className="badge text-bg-danger ms-1">Blocked</span> : null}
           {student.duplicateHold ? <span className="badge text-bg-warning ms-1">Held</span> : null}
         </dd>
-        <dt>Fee balance</dt><dd>{formatKes(Number(student.feeBalance) || 0)}</dd>
+        {moneyShown && <><dt>Fee balance</dt><dd>{formatKes(Number(student.feeBalance) || 0)}</dd></>}
       </dl>
     </div>
   );
