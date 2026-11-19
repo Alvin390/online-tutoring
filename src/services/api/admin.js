@@ -34,6 +34,11 @@ export const startTrial = ({ uid, tier, trialDays }) =>
 export const setUserDisabled = ({ uid, disabled }) =>
   apiPost('/api/admin/users', { action: disabled ? 'disable' : 'enable', uid });
 
+/** 013Fixes / 07: plan settings (features, limits, card words). */
+export const getPlanSettings = () => apiPost('/api/admin/plans', { action: 'get' });
+export const savePlanSettings = (plans) => apiPost('/api/admin/plans', { action: 'save', plans });
+export const resetPlanSettings = (plan) => apiPost('/api/admin/plans', { action: 'reset', plan });
+
 /** Irreversible. `confirmEmail` must match the target exactly. */
 export const deleteUser = ({ uid, confirmEmail }) =>
   apiPost('/api/admin/users', { action: 'delete', uid, confirmEmail });

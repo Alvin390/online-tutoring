@@ -3,7 +3,7 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { resolveSubscriptionState, publicProjection } from '../_lib/subscription.js';
 import { isEnabled } from '../_lib/flags.js';
 import { invalidatePlanCache, schoolPlan } from '../_lib/schoolPlan.js';
-import { TRIAL_SMS_UNITS } from '../_lib/plans.js';
+import { TRIAL_SMS_UNITS, PLAN_IDS, mergePlans } from '../_lib/plans.js';
 
 /**
  * Subscription status, with the lazy on-read check — Phase 03 D5.
@@ -77,5 +77,11 @@ export default createHandler({
  */
 async function planView() {
   const plan = await schoolPlan();
-  return { tier: plan.tier, comp: plan.comp, features: plan.features, limits: plan.limits, trialSmsUnits: TRIAL_SMS_UNITS };
+  // 013Fixes / 07: every plan's limits and card words (superadmin settings
+  // included), so the billing page's three cards match what each plan holds.
+  const all = mergePlans(plan.overrides);
+  const catalog = Object.fromEntries(PLAN_IDS.map((id) => [id, { limits: all[id].limits, card: all[id].card }]));
+  return {
+    tier: plan.tier, comp: plan.comp, features: plan.features, limits: plan.limits, trialSmsUnits: TRIAL_SMS_UNITS, catalog,
+  };
 }

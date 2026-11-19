@@ -10,7 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 beforeEach(() => vi.resetModules());
 
-async function renderBilling({ scheduled }) {
+async function renderBilling({ scheduled, plan = null }) {
   const cancelDowngrade = vi.fn().mockResolvedValue({ ok: true, manualRenewalNeeded: false });
   const showSuccess = vi.fn();
   vi.doMock('@features/billing/context/BillingContext', () => ({
@@ -20,7 +20,7 @@ async function renderBilling({ scheduled }) {
         currentPeriodEnd: '2026-11-14T00:00:00.000Z',
         scheduledTierChange: scheduled,
       },
-      status: 'active', tier: 'gold', isLocked: false, loading: false, refresh: vi.fn(),
+      status: 'active', tier: 'gold', isLocked: false, loading: false, refresh: vi.fn(), plan,
     }),
   }));
   vi.doMock('@services/api/billing', () => ({
@@ -56,3 +56,23 @@ describe('scheduled downgrade banner', () => {
     expect(screen.queryByTestId('scheduled-change')).toBeNull();
   });
 });
+
+// 013Fixes / 07: the cards use the superadmin's plan settings from the status call.
+describe('plan cards', () => {
+  it('show each plan words and limits as the superadmin set them', async () => {
+    const { DEFAULT_PLANS } = await import('@shared/constants/plans');
+    const catalog = Object.fromEntries(['bronze', 'silver', 'gold'].map((id) => [id, { limits: DEFAULT_PLANS[id].limits, card: DEFAULT_PLANS[id].card }]));
+    catalog.silver = { limits: { ...DEFAULT_PLANS.silver.limits, logins: 6 }, card: { ...DEFAULT_PLANS.silver.card, tagline: 'Fees made simple' } };
+    await renderBilling({ scheduled: null, plan: { tier: 'gold', catalog } });
+    expect(screen.getByText('Fees made simple')).toBeTruthy();
+    expect(screen.getByText('Up to 300 active students, 5 sessions and 6 dashboard logins')).toBeTruthy();
+    expect(screen.getByText('Advanced management and automation')).toBeTruthy();
+  });
+
+  it('without the catalog, the shipped words (never WhatsApp campaigns)', async () => {
+    await renderBilling({ scheduled: null });
+    expect(screen.getByText('Complete tuition management')).toBeTruthy();
+    expect(screen.queryByText(/WhatsApp broadcast|documents and photos/)).toBeNull();
+  });
+});
+

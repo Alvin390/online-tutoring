@@ -84,9 +84,71 @@ function buildDefaults() {
   for (const id of PLAN_IDS) {
     const features = {};
     for (const key of FEATURE_KEYS) features[key] = FEATURE_PLANS[key][id];
-    plans[id] = { features, limits: { ...PLAN_LIMITS[id] } };
+    plans[id] = {
+      features,
+      limits: { ...PLAN_LIMITS[id] },
+      card: { ...DEFAULT_CARDS[id], bullets: [...DEFAULT_CARDS[id].bullets] },
+    };
   }
   return plans;
+}
+
+/**
+ * The plan cards' words — 013Fixes / 07, from the owner's spec (§6.8, 7.8,
+ * 8.6). The included limits are NOT written here: `limitLines` makes them from
+ * the plan's limits, so changing a limit on superadmin changes the card too.
+ * Never advertise WhatsApp campaigns, attachments or invoice PDFs.
+ */
+export const DEFAULT_CARDS = {
+  bronze: {
+    tagline: 'Essential class management',
+    description: 'Organise students, manage class access and run your tuition sessions.',
+    bullets: [
+      'Student registration and approvals',
+      'Secure Zoom and Google Meet class access',
+      'Duplicate detection and student management',
+      'Individual and bulk blocking',
+      'Sessions, classes, subjects and calendar',
+      'Private student notes',
+      'WhatsApp to one parent at a time',
+    ],
+  },
+  silver: {
+    tagline: 'Complete tuition management',
+    description: 'Manage classes, track fees and communicate with parents from one place.',
+    bullets: [
+      'Everything in Bronze',
+      'Fee ledger, payment recording and balances',
+      'Receipt approval and partial payments',
+      'Invoicing and fee-based blocking',
+      'Scheduled blocking',
+      'Bulk SMS to all students',
+    ],
+  },
+  gold: {
+    tagline: 'Advanced management and automation',
+    description: 'Automate payment collection and reach exactly the parents or classes you need to contact.',
+    bullets: [
+      'Everything in Silver',
+      'SMS to a chosen session, class, students or staff',
+      'M-Pesa payments straight to your Till or Paybill (after Safaricom Go-Live setup)',
+      'Payments recorded and reconciled automatically',
+    ],
+  },
+};
+
+/** Card text limits (the superadmin editor and the merge both enforce them). */
+export const CARD_LIMITS = { tagline: 80, description: 200, bullets: 10, bullet: 120 };
+
+const KES_NUMBER = (n) => Number(n).toLocaleString('en-KE');
+
+/** The card lines made from a plan's limits. */
+export function limitLines(limits) {
+  const lines = [
+    `Up to ${KES_NUMBER(limits.activeStudents)} active students, ${limits.sessions} sessions and ${limits.logins} dashboard logins`,
+  ];
+  if (limits.smsUnits > 0) lines.push(`${KES_NUMBER(limits.smsUnits)} SMS units a month included`);
+  return lines;
 }
 
 /** The plans as shipped in code. Frozen so no caller can edit them in place. */
@@ -96,6 +158,7 @@ export const DEFAULT_PLANS = deepFreeze(buildDefaults());
 export const NO_PLAN = deepFreeze({
   features: Object.fromEntries(FEATURE_KEYS.map((key) => [key, false])),
   limits: Object.fromEntries(LIMIT_KEYS.map((key) => [key, 0])),
+  card: { tagline: '', description: '', bullets: [] },
 });
 
 function deepFreeze(value) {
@@ -107,6 +170,7 @@ function deepFreeze(value) {
 }
 
 const isWholeNumber = (v) => Number.isInteger(v) && v >= 0 && v <= 1_000_000;
+const isText = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
 
 /**
  * The defaults with a `config/plans` override applied on top. Only known plan
@@ -122,6 +186,7 @@ export function mergePlans(overrides) {
     const over = overrides && typeof overrides === 'object' ? overrides[id] : null;
     const features = { ...base.features };
     const limits = { ...base.limits };
+    const card = { ...base.card, bullets: [...base.card.bullets] };
     if (over && typeof over === 'object') {
       for (const key of FEATURE_KEYS) {
         if (typeof over.features?.[key] === 'boolean') features[key] = over.features[key];
@@ -129,8 +194,16 @@ export function mergePlans(overrides) {
       for (const key of LIMIT_KEYS) {
         if (isWholeNumber(over.limits?.[key])) limits[key] = over.limits[key];
       }
+      // 013Fixes / 07: the card's words, each part taken only when well formed.
+      if (isText(over.card?.tagline, CARD_LIMITS.tagline)) card.tagline = over.card.tagline.trim();
+      if (isText(over.card?.description, CARD_LIMITS.description)) card.description = over.card.description.trim();
+      const bullets = over.card?.bullets;
+      if (Array.isArray(bullets) && bullets.length > 0 && bullets.length <= CARD_LIMITS.bullets
+        && bullets.every((b) => isText(b, CARD_LIMITS.bullet))) {
+        card.bullets = bullets.map((b) => b.trim());
+      }
     }
-    plans[id] = { features, limits };
+    plans[id] = { features, limits, card };
   }
   return plans;
 }
