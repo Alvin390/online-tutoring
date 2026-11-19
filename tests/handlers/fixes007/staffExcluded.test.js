@@ -184,11 +184,14 @@ describe('duplicates and approvals', () => {
   });
 });
 
-describe('WhatsApp', () => {
-  const create = (filter) => call('/api/whatsapp/campaign', { token: teacher, body: {
-    action: 'create', title: 'Notice', messageTemplate: 'Dear parent, {{studentName}}', filter,
-  } });
-  const recipients = async (id) => (await db.collection(`whatsapp/campaigns/items/${id}/recipients`).get()).docs.map((d) => d.id).sort();
+// 013Fixes / 06: WhatsApp campaigns are retired; the audience rules live on in
+// resolveRecipients, which SMS uses. Tested there directly.
+describe('message audiences (resolveRecipients, used by SMS)', () => {
+  const create = async (filter) => {
+    const { resolveRecipients } = await import('../../../api/_lib/messageRecipients.js');
+    return { status: 200, body: { list: await resolveRecipients(db, filter) } };
+  };
+  const recipients = async (list) => list.map((r) => r.phone).sort();
 
   it('"all" leaves staff out; "staff" reaches only staff, opt-out honoured, by session if chosen', async () => {
     const [kid, teachM, teachE, optedOut] = [phoneN(40), phoneN(41), phoneN(42), phoneN(43)];
@@ -198,15 +201,13 @@ describe('WhatsApp', () => {
     await seed('evening', optedOut, { ...STAFF, whatsappOptOut: true });
 
     const all = await create({ type: 'all' });
-    expect(all.status, JSON.stringify(all.body)).toBe(200);
-    expect(await recipients(all.body.campaignId)).toEqual([kid]);
+    expect(await recipients(all.body.list)).toEqual([kid]);
 
     const staff = await create({ type: 'staff' });
-    expect(staff.status, JSON.stringify(staff.body)).toBe(200);
-    expect(await recipients(staff.body.campaignId)).toEqual([teachM, teachE].sort());
+    expect(await recipients(staff.body.list)).toEqual([teachM, teachE].sort());
 
     const evening = await create({ type: 'staff', values: ['evening'] });
-    expect(await recipients(evening.body.campaignId)).toEqual([teachE]);
+    expect(await recipients(evening.body.list)).toEqual([teachE]);
   });
 
   it('"individual" and "class" leave staff out too', async () => {
@@ -214,9 +215,9 @@ describe('WhatsApp', () => {
     await seed('morning', kid);
     await seed('morning', teach, STAFF);
     const ind = await create({ type: 'individual', values: [kid, teach] });
-    expect(await recipients(ind.body.campaignId)).toEqual([kid]);
+    expect(await recipients(ind.body.list)).toEqual([kid]);
     const cls = await create({ type: 'class', values: ['Form 3'] });
-    expect(await recipients(cls.body.campaignId)).toEqual([kid]);
+    expect(await recipients(cls.body.list)).toEqual([kid]);
   });
 });
 

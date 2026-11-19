@@ -73,8 +73,7 @@ describe('each feature starts at the plan the owner\'s matrix gives it (so far)'
     bulkSms: 'silver', // messages/sms
     targetedSms: 'gold', // choosing SMS recipients
     whatsappOneToOne: 'bronze', // 02: every plan (was Silver, the whole Messages tab)
-    whatsappCampaigns: 'silver', // whatsapp/campaign
-    whatsappAdvanced: 'gold', // whatsapp/upload + campaign filters
+    whatsappCampaigns: null, // 06: retired — on no plan
     mpesaStk: 'gold', // mpesaAvailability
     notes: 'bronze',
     basicBlocks: 'bronze',

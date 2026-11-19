@@ -38,10 +38,10 @@ const wait = (s) => new Promise((resolve) => { setTimeout(resolve, s * 1000); })
 
 export default function SmsComposer({ setup, preset = null, smsOff = false, smsOffReason = 'off' }) {
   const plan = usePlan();
-  const advanced = useFlag('whatsapp.advanced');
   const feesOn = useFlag('fees.enabled');
-  // Choosing recipients is the school plan's `targetedSms` (Gold; 013Fixes / 00).
-  const canChoose = plan.has('targetedSms') && advanced;
+  // Choosing recipients is the school plan's `targetedSms` (Gold; 013Fixes / 00;
+  // the old whatsapp.advanced switch retired in 06).
+  const canChoose = plan.has('targetedSms');
 
   const [view, setView] = useState('compose'); // compose | history | campaign
   // With SMS switched off (008Fixes / 11) only WhatsApp to one person is offered.

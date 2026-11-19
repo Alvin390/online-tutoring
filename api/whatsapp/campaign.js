@@ -1,197 +1,48 @@
 import { createHandler } from '../_lib/handler.js';
-import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
-import { z, sessionSchema, phoneSchema } from '../_lib/validate.js';
-import { badRequest, notFound, forbidden } from '../_lib/errors.js';
-import { tryWriteAudit } from '../_lib/audit.js';
-import { isEnabled } from '../_lib/flags.js';
-import { resolveRecipients } from '../_lib/messageRecipients.js';
-import { hasFeature } from '../_lib/schoolPlan.js';
+import { getDb } from '../_lib/firebaseAdmin.js';
+import { z } from '../_lib/validate.js';
+import { ApiError, badRequest, notFound } from '../_lib/errors.js';
 
 /**
- * WhatsApp campaigns — Phase 08 D2/D4/D6.
+ * WhatsApp campaigns — RETIRED (013Fixes / 06).
  *
- * A campaign is created server-side with its full recipient list resolved and
- * frozen at creation. That is what makes the queue RESUMABLE: closing the tab
- * and returning later continues from the same position against the same list,
- * rather than re-deriving a list that may have changed underneath.
+ * The owner's plans have no WhatsApp campaigns on any plan: WhatsApp is one
+ * person at a time (wa.me, every plan), and messages to many parents go by
+ * SMS (Silver and up; choosing recipients Gold). The campaign screens were
+ * removed in 008Fixes / 11.
  *
- * TIER GATING IS ENFORCED HERE, not in the UI.
- *   Silver → `all` filter only
- *   Gold   → session / class / individual filters, and attachments
- *
- * A Silver teacher with devtools cannot post `filter: { type: 'class' }` and
- * get a filtered send; the handler refuses it.
+ * What is left: reading the school's OLD campaigns (`list`, `get`), which the
+ * sent-messages history still shows. Their data is kept, not deleted. Every
+ * other action — create, send, mark, complete, abandon, delete, options —
+ * answers 410 Gone.
  */
 
-const filterSchema = z
-  .object({
-    // 007Fixes / 08: 'staff' sends to staff only (values = sessions, optional).
-    type: z.enum(['all', 'session', 'class', 'individual', 'staff']),
-    // 003Fixes / 09: up to 500 (a bulk block can cover every student), and an
-    // individual value may be "<session>:<phone>" so a number registered in
-    // two sessions is messaged only for the session that was blocked.
-    values: z.array(z.string().trim().max(80)).max(500).optional(),
-    onlyOverdue: z.boolean().optional(),
-  })
-  .strict();
-
-const attachmentSchema = z
-  .object({
-    storagePath: z.string().trim().max(400),
-    downloadUrl: z.string().trim().url().max(2000),
-    filename: z.string().trim().max(200),
-    sizeBytes: z.number().int().min(0).max(10 * 1024 * 1024),
-    contentType: z.string().trim().max(100),
-  })
-  .strict();
+const RETIRED = new Set(['create', 'markRecipient', 'complete', 'abandon', 'delete', 'options']);
 
 const schema = z
   .object({
-    action: z.enum(['create', 'markRecipient', 'complete', 'abandon', 'delete', 'list', 'get', 'options']),
+    action: z.enum(['list', 'get', ...RETIRED]),
     campaignId: z.string().trim().max(64).optional(),
-    title: z.string().trim().min(1).max(140).optional(),
-    messageTemplate: z.string().trim().min(1).max(4096).optional(),
-    filter: filterSchema.optional(),
-    attachments: z.array(attachmentSchema).max(5).optional(),
-    // markRecipient
-    phone: phoneSchema.optional(),
-    status: z.enum(['sent', 'skipped', 'failed', 'opened']).optional(),
-    skipReason: z.string().trim().max(200).optional(),
-    // re-run helper
-    onlySkippedFrom: z.string().trim().max(64).optional(),
-    session: sessionSchema.optional(),
   })
-  .strict();
+  // Old clients may still send their full create/mark payloads: accepted only
+  // to be answered 410, never acted on.
+  .passthrough();
+
+export function retiredError() {
+  return new ApiError(410, 'gone', 'WhatsApp campaigns have been retired. Message one person on WhatsApp, or many parents by SMS.');
+}
 
 export default createHandler({
-  // Phase 13 / 02 D6: every session slug in the body must exist.
-  sessions: 'any',
   method: 'POST',
   auth: true,
   role: 'teacher',
-  feature: 'whatsappCampaigns',
   schema,
   rateLimit: { bucket: 'whatsapp_campaign', limit: 300, windowSeconds: 3600, keyBy: 'ip' },
-  handle: async ({ body, user, log }) => {
-    const db = getDb();
+  handle: async ({ body }) => {
     const { action } = body;
+    if (RETIRED.has(action)) throw retiredError();
 
-    const advanced = await isEnabled('whatsapp.advanced');
-    const isGold = await hasFeature(user, 'whatsappAdvanced');
-
-    // ------------------------------------------------------------- create
-    if (action === 'create') {
-      if (!body.title || !body.messageTemplate) {
-        throw badRequest('A campaign needs a title and a message.');
-      }
-
-      const filter = body.filter ?? { type: 'all' };
-
-      // The tier gate. Silver gets all-students only.
-      if (filter.type !== 'all' && !(isGold && advanced)) {
-        throw forbidden(
-          'Filtering recipients is a Gold feature. Silver sends to all students.',
-          'tier_required'
-        );
-      }
-      if ((body.attachments ?? []).length > 0 && !(isGold && advanced)) {
-        throw forbidden(
-          'Attaching documents is a Gold feature.',
-          'tier_required'
-        );
-      }
-
-      const recipients = await resolveRecipients(db, filter, body.onlySkippedFrom);
-
-      if (recipients.length === 0) {
-        throw badRequest('That filter matched no students who can receive messages.');
-      }
-
-      const campaignRef = db.collection('whatsapp/campaigns/items').doc();
-
-      await campaignRef.set({
-        title: body.title,
-        messageTemplate: body.messageTemplate,
-        attachments: body.attachments ?? [],
-        filter,
-        recipientCount: recipients.length,
-        status: 'in_progress',
-        sentCount: 0,
-        skippedCount: 0,
-        createdBy: user.uid,
-        createdAt: FieldValue.serverTimestamp(),
-        startedAt: FieldValue.serverTimestamp(),
-        completedAt: null,
-      });
-
-      // Recipients are written in batches of 400 — Firestore's limit is 500
-      // operations per batch, and leaving headroom avoids a partial write if
-      // this ever grows an extra op per recipient.
-      for (let i = 0; i < recipients.length; i += 400) {
-        const batch = db.batch();
-        recipients.slice(i, i + 400).forEach((recipient, offset) => {
-          batch.set(campaignRef.collection('recipients').doc(recipient.phone), {
-            ...recipient,
-            status: 'queued',
-            order: i + offset,
-            openedAt: null,
-            markedAt: null,
-          });
-        });
-        // eslint-disable-next-line no-await-in-loop
-        await batch.commit();
-      }
-
-      log.info('Campaign created', { recipients: recipients.length, filter: filter.type });
-
-      await tryWriteAudit(
-        { action: 'whatsapp.campaign_created', actor: user.uid, actorRole: user.role,
-          target: campaignRef.id,
-          after: { recipients: recipients.length, filter: filter.type },
-          context: { requestId: log.requestId } },
-        log
-      );
-
-      return { ok: true, campaignId: campaignRef.id, recipientCount: recipients.length };
-    }
-
-    // ------------------------------------------------------------- options
-    //
-    // What the teacher can actually pick from, for the session / class /
-    // individual filters. Built by running the SAME eligibility rules as a real
-    // send (`resolveRecipients` with no filter), so the list can never offer
-    // somebody the send would then skip — opted out, or not yet approved.
-    //
-    // Without this the filter UI had a type dropdown and no way to choose
-    // values, so every filtered campaign posted `values: []` and matched
-    // nobody.
-    if (action === 'options') {
-      const everyone = await resolveRecipients(db, { type: 'all' });
-
-      const sessions = new Map();
-      const classes = new Set();
-
-      for (const r of everyone) {
-        if (!sessions.has(r.session)) sessions.set(r.session, { id: r.session, name: r.sessionName, count: 0 });
-        sessions.get(r.session).count += 1;
-        if (r.class) classes.add(r.class);
-      }
-
-      return {
-        ok: true,
-        sessions: [...sessions.values()].sort((a, b) => a.name.localeCompare(b.name)),
-        classes: [...classes].sort((a, b) => a.localeCompare(b)),
-        students: everyone
-          .map((r) => ({
-            phone: r.phone,
-            studentName: r.studentName,
-            class: r.class,
-            session: r.session,
-            sessionName: r.sessionName,
-          }))
-          .sort((a, b) => (a.studentName ?? '').localeCompare(b.studentName ?? '')),
-      };
-    }
+    const db = getDb();
 
     if (action === 'list') {
       const snapshot = await db
@@ -211,114 +62,18 @@ export default createHandler({
       };
     }
 
+    // get
     if (!body.campaignId) throw badRequest('Which campaign?');
     const campaignRef = db.doc(`whatsapp/campaigns/items/${body.campaignId}`);
-
-    if (action === 'get') {
-      const [campaignSnap, recipientsSnap] = await Promise.all([
-        campaignRef.get(),
-        campaignRef.collection('recipients').orderBy('order').get(),
-      ]);
-
-      if (!campaignSnap.exists) throw notFound('That campaign no longer exists.');
-
-      return {
-        ok: true,
-        campaign: { id: campaignSnap.id, ...campaignSnap.data() },
-        recipients: recipientsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      };
-    }
-
-    // ------------------------------------------------- markRecipient
-    if (action === 'markRecipient') {
-      if (!body.phone || !body.status) throw badRequest('Which recipient, and what happened?');
-
-      const recipientRef = campaignRef.collection('recipients').doc(body.phone);
-
-      // Counters increment in the same transaction as the status change, so a
-      // resumed queue never double-counts a recipient marked twice.
-      await db.runTransaction(async (tx) => {
-        const snap = await tx.get(recipientRef);
-        if (!snap.exists) throw notFound('That recipient is not in this campaign.');
-
-        const previous = snap.data().status;
-        if (previous === body.status) return;
-
-        tx.set(
-          recipientRef,
-          {
-            status: body.status,
-            ...(body.status === 'opened' ? { openedAt: FieldValue.serverTimestamp() } : {}),
-            ...(body.status !== 'opened' ? { markedAt: FieldValue.serverTimestamp() } : {}),
-            ...(body.skipReason ? { skipReason: body.skipReason } : {}),
-          },
-          { merge: true }
-        );
-
-        const delta = {};
-        if (body.status === 'sent' && previous !== 'sent') delta.sentCount = FieldValue.increment(1);
-        if (body.status === 'skipped' && previous !== 'skipped') {
-          delta.skippedCount = FieldValue.increment(1);
-        }
-        if (previous === 'sent' && body.status !== 'sent') delta.sentCount = FieldValue.increment(-1);
-        if (previous === 'skipped' && body.status !== 'skipped') {
-          delta.skippedCount = FieldValue.increment(-1);
-        }
-
-        if (Object.keys(delta).length > 0) tx.set(campaignRef, delta, { merge: true });
-      });
-
-      return { ok: true };
-    }
-
-    if (action === 'complete' || action === 'abandon') {
-      await campaignRef.set(
-        {
-          status: action === 'complete' ? 'completed' : 'abandoned',
-          completedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-      log.info(`Campaign ${action}d`);
-      return { ok: true };
-    }
-
-    // ------------------------------------------------------------- delete
-    //
-    // Removes the campaign AND its recipients subcollection. Deleting the
-    // parent document alone would orphan the recipients — Firestore keeps
-    // subcollections when their parent goes, so they would linger unreachable
-    // and still counted against storage.
-    //
-    // Audited BEFORE the delete, with the counts, because afterwards there is
-    // nothing left to say who was already messaged. Those messages did go out;
-    // the record of them should not vanish silently just because the campaign
-    // did.
-    if (action === 'delete') {
-      const snap = await campaignRef.get();
-      if (!snap.exists) throw notFound('That campaign no longer exists.');
-
-      const data = snap.data();
-
-      await tryWriteAudit(
-        { action: 'whatsapp.campaign_deleted', actor: user.uid, actorRole: user.role,
-          target: body.campaignId,
-          before: {
-            title: data.title ?? null,
-            status: data.status ?? null,
-            sentCount: data.sentCount ?? 0,
-            recipientCount: data.recipientCount ?? 0,
-          },
-          context: { requestId: log.requestId } },
-        log
-      );
-
-      await db.recursiveDelete(campaignRef);
-
-      log.warn('Campaign deleted', { sentCount: data.sentCount ?? 0 });
-      return { ok: true, deleted: body.campaignId };
-    }
-
-    throw badRequest('Unknown action.');
+    const [campaignSnap, recipientsSnap] = await Promise.all([
+      campaignRef.get(),
+      campaignRef.collection('recipients').orderBy('order').get(),
+    ]);
+    if (!campaignSnap.exists) throw notFound('That campaign no longer exists.');
+    return {
+      ok: true,
+      campaign: { id: campaignSnap.id, ...campaignSnap.data() },
+      recipients: recipientsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    };
   },
 });

@@ -261,9 +261,10 @@ describe('D6 session validation (B5)', () => {
       'payments/initiate': 'active', 'fees/summary': 'any', 'calendar/events': 'any',
       'calendar/feedToken': 'any', 'calendar/manage': 'any', 'class/setLink': 'any',
       'fees/approveReceipt': 'any', 'fees/generateInvoices': 'any', 'fees/post': 'any',
-      'student/approve': 'any', 'student/remove': 'any', 'whatsapp/campaign': 'any',
+      'student/approve': 'any', 'student/remove': 'any',
+      // 013Fixes / 06: whatsapp/campaign is retired (reads old history only) and takes no session.
     };
-    expect(Object.keys(expected)).toHaveLength(18);
+    expect(Object.keys(expected)).toHaveLength(17);
     for (const [path, policy] of Object.entries(expected)) {
       const url = pathToFileURL(resolvePath(process.cwd(), 'api', `${path}.js`)).href;
       const mod = await import(/* @vite-ignore */ url);
@@ -374,7 +375,8 @@ describe('session class lists', () => {
     ['an empty list', []],
     ['a blank entry', ['Grade 7', '  ']],
     ['a duplicate (case-insensitive)', ['Grade 7', 'grade 7']],
-    ['more than 30', Array.from({ length: 31 }, (_, i) => `Class ${i + 1}`)],
+    // 013Fixes / 06: the ceiling is technical, 100 (was 30).
+    ['more than 100', Array.from({ length: 101 }, (_, i) => `Class ${i + 1}`)],
     ['a 61-character name', ['x'.repeat(61)]],
   ]) {
     it(`refuses ${label}`, async () => {

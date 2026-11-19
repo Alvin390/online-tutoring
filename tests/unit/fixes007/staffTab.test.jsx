@@ -129,7 +129,8 @@ describe('the tab', () => {
   it('Staff sits after Messages, always shown; on a phone it is under More', async () => {
     const { DASHBOARD_TABS, visibleTabs } = await import('@features/dashboard/nav/dashboardTabs');
     expect(DASHBOARD_TABS.map((t) => t.id)).toEqual(['students', 'approvals', 'fees', 'whatsapp', 'staff', 'calendar', 'setup']);
-    expect(visibleTabs(() => false).map((t) => t.id)).toEqual(['students', 'staff', 'setup']);
+    // 013Fixes / 06: Messages has no switch any more (one-to-one WhatsApp is on every plan).
+    expect(visibleTabs(() => false).map((t) => t.id)).toEqual(['students', 'whatsapp', 'staff', 'setup']);
     // The phone bar takes the first four visible tabs; with every flag on, Staff is under More.
     expect(visibleTabs(() => true).slice(4).map((t) => t.id)).toEqual(['staff', 'calendar', 'setup']);
   });

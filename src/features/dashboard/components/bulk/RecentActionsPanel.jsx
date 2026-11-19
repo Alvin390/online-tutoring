@@ -43,8 +43,8 @@ export default function RecentActionsPanel({ onClose, showSuccess, showError }) 
   const { user } = useAuthState();
   const plan = usePlan();
   const smsOn = useFlag('sms.enabled');
-  const advanced = useFlag('whatsapp.advanced');
-  const canMessage = smsOn && advanced && plan.has('targetedSms');
+  // 013Fixes / 06: the plan's targetedSms (Gold) — the old whatsapp.advanced switch is retired.
+  const canMessage = smsOn && plan.has('targetedSms');
   const [preparing, setPreparing] = useState(null);
 
   const messageParents = async (action) => {

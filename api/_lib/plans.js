@@ -35,7 +35,6 @@ export const FEATURE_KEYS = [
   'targetedSms',
   'whatsappOneToOne',
   'whatsappCampaigns',
-  'whatsappAdvanced',
   'mpesaStk',
 ];
 
@@ -54,6 +53,7 @@ const GOLD_ONLY = { bronze: false, silver: false, gold: true };
  * 2026-11-19; phases 02–06 move them to the owner's matrix (spec §2):
  *   02  calendar and one-to-one WhatsApp on every plan.
  *   03  scheduled blocks Silver and up (was every plan).
+ *   06  WhatsApp campaigns on no plan (retired; whatsappAdvanced removed).
  */
 const FEATURE_PLANS = {
   sessions: ALL(true),
@@ -68,8 +68,8 @@ const FEATURE_PLANS = {
   bulkSms: SILVER_UP,
   targetedSms: GOLD_ONLY,
   whatsappOneToOne: ALL(true), // 013Fixes / 02: every plan (owner)
-  whatsappCampaigns: SILVER_UP,
-  whatsappAdvanced: GOLD_ONLY,
+  // 013Fixes / 06: retired — on no plan (owner). WhatsApp is one person at a time.
+  whatsappCampaigns: ALL(false),
   mpesaStk: GOLD_ONLY,
 };
 

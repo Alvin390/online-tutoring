@@ -101,7 +101,6 @@ export default function DashboardLayout() {
   const requireApproval = useFlag('registration.requireApproval');
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
-  const whatsappEnabled = useFlag('whatsapp.broadcast');
   const calendarEnabled = useFlag('calendar.enabled');
   const flagsLoaded = useFlagsLoaded();
   const whatsappPreset = useWhatsappPreset();
@@ -109,9 +108,8 @@ export default function DashboardLayout() {
   const flagOn = useMemo(() => ({
     'registration.requireApproval': requireApproval,
     'fees.enabled': feesEnabled,
-    'whatsapp.broadcast': whatsappEnabled,
     'calendar.enabled': calendarEnabled,
-  }), [requireApproval, feesEnabled, whatsappEnabled, calendarEnabled]);
+  }), [requireApproval, feesEnabled, calendarEnabled]);
   const navTabs = useMemo(() => visibleTabs((flag) => flagOn[flag] === true), [flagOn]);
   const shown = useMemo(() => new Set(navTabs.map((t) => t.id)), [navTabs]);
   const currentTab = tabFromPath(location.pathname);

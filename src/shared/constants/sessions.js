@@ -118,7 +118,8 @@ export const SESSION_TZ = 'Africa/Nairobi';
  * set a list for it. Mirror of DEFAULT_CLASSES in api/_lib/sessions.js.
  */
 export const DEFAULT_CLASSES = Object.freeze(['Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
-export const MAX_CLASSES = 30;
+// 013Fixes / 06: a technical ceiling, not a plan limit (mirror of api/_lib/sessions.js).
+export const MAX_CLASSES = 100;
 export const MAX_CLASS_NAME = 60;
 
 /**

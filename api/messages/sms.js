@@ -113,8 +113,9 @@ export default createHandler({
     // which only reads (who can be messaged, and the sent history). Setting up
     // and sending SMS is the plan's `bulkSms` (Silver and up).
     if (!READ_WHEN_OFF.has(body.action)) await requireFeature(user, 'bulkSms');
-    // Choosing recipients is Gold's `targetedSms` (013Fixes / 00: the school's plan).
-    const filtersAllowed = (await hasFeature(user, 'targetedSms')) && flags['whatsapp.advanced'] === true;
+    // Choosing recipients is Gold's `targetedSms` (013Fixes / 00: the school's
+    // plan). 013Fixes / 06: the old `whatsapp.advanced` switch no longer gates it.
+    const filtersAllowed = await hasFeature(user, 'targetedSms');
 
     const setupRef = db.doc(SETUP_DOC);
     const readSetup = async () => {

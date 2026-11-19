@@ -145,12 +145,8 @@ function serverFeatures(dir, found = new Map()) {
 }
 
 describe('server plan features have a client gate', () => {
-  /** Endpoints with no panel: the WhatsApp campaign screens were removed in 008Fixes / 11 (routes retired in 013Fixes / 06). */
-  const NO_PANEL = new Set([
-    'whatsapp/campaign.js#whatsappCampaigns',
-    'whatsapp/campaign.js#whatsappAdvanced',
-    'whatsapp/upload.js#whatsappAdvanced',
-  ]);
+  /** Endpoints with no panel. (013Fixes / 06: the WhatsApp campaign routes are retired and check no plan feature.) */
+  const NO_PANEL = new Set();
 
   /**
    * Features reached only from inside another feature's panel. The panel's gate
@@ -176,9 +172,6 @@ describe('server plan features have a client gate', () => {
       'students/bulk.js#feePayments',
       'students/scheduled.js#feeBlocks',
       'students/scheduled.js#scheduledBlocks',
-      'whatsapp/campaign.js#whatsappAdvanced',
-      'whatsapp/campaign.js#whatsappCampaigns',
-      'whatsapp/upload.js#whatsappAdvanced',
     ]);
   });
 
