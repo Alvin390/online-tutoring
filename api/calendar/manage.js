@@ -1,7 +1,8 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, sessionSchema } from '../_lib/validate.js';
-import { badRequest, notFound } from '../_lib/errors.js';
+import { badRequest, notFound, forbidden } from '../_lib/errors.js';
+import { isEnabled } from '../_lib/flags.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 
 /**
@@ -58,6 +59,9 @@ export default createHandler({
   schema,
   rateLimit: { bucket: 'calendar_manage', limit: 120, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {
+    // 013Fixes / 02: the calendar is on every plan now, so the global switch
+    // is the one thing that turns it off — for every plan alike.
+    if (!(await isEnabled('calendar.enabled'))) throw forbidden('The calendar is not switched on.', 'feature_disabled');
     const db = getDb();
     const { action, scope = 'all' } = body;
 

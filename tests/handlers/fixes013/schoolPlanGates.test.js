@@ -36,7 +36,6 @@ beforeEach(async () => {
 });
 
 const feesConfig = (token) => call('/api/fees/config', { method: 'GET', token });
-const feedToken = (token) => call('/api/calendar/feedToken', { token, body: { action: 'list' } });
 
 describe('a login\'s claim no longer decides the plan', () => {
   it('a Bronze school: a login with a crafted Gold claim is refused Silver features', async () => {
@@ -72,11 +71,11 @@ describe('a login\'s claim no longer decides the plan', () => {
     expect((await feesConfig(bronzeClaim)).status).toBe(200);
   });
 
-  it('Silver calendar is refused on Bronze and allowed on Silver, whatever the claim', async () => {
+  it('a Silver feature is refused on a Bronze school and allowed on Silver, whatever the claim', async () => {
     await seedPlan(db, 'bronze');
-    expect((await feedToken(goldClaim)).status).toBe(403);
+    expect((await feesConfig(goldClaim)).status).toBe(403);
     await seedPlan(db, 'silver');
-    expect((await feedToken(bronzeClaim)).status).not.toBe(403);
+    expect((await feesConfig(bronzeClaim)).status).toBe(200);
   });
 
   it('a plan change made through superadmin applies straight away in this isolate', async () => {
@@ -114,9 +113,9 @@ describe('the billing status call returns the school\'s plan', () => {
 
   it('includes the superadmin\'s plan settings', async () => {
     await seedPlan(db, 'bronze');
-    await db.doc('config/plans').set({ bronze: { features: { calendar: true }, limits: { logins: 3 } } });
+    await db.doc('config/plans').set({ bronze: { features: { fees: true }, limits: { logins: 3 } } });
     const res = await call('/api/billing/status', { method: 'GET', token: noClaim });
-    expect(res.body.plan.features.calendar).toBe(true);
+    expect(res.body.plan.features.fees).toBe(true);
     expect(res.body.plan.limits.logins).toBe(3);
   });
 });

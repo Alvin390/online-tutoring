@@ -5,7 +5,7 @@ import { ApiError, badRequest, forbidden, notFound } from '../_lib/errors.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { getFlags } from '../_lib/flags.js';
 import { withDevice } from '../_lib/device.js';
-import { hasFeature } from '../_lib/schoolPlan.js';
+import { hasFeature, requireFeature } from '../_lib/schoolPlan.js';
 import {
   prepareMessages, smsRecipients, assertAboveReserve, createCampaign, sendChunk, checkDelivery,
   campaignsCol, campaignView, recipientView, SMS_CHUNK,
@@ -97,7 +97,7 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
-  feature: 'bulkSms',
+  feature: 'whatsappOneToOne',
   schema,
   rateLimit: { bucket: 'messages_sms', limit: 600, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ req, body, user: signedIn, log, waitUntil }) => {
@@ -109,6 +109,10 @@ export default createHandler({
     // these reads work either way. Every send, the setup and every HashBack
     // call need SMS on.
     if (flags['sms.enabled'] !== true && !READ_WHEN_OFF.has(body.action)) throw forbidden('SMS is not switched on yet.', 'sms_off');
+    // 013Fixes / 02: the Messages tab is on every plan for one-to-one WhatsApp,
+    // which only reads (who can be messaged, and the sent history). Setting up
+    // and sending SMS is the plan's `bulkSms` (Silver and up).
+    if (!READ_WHEN_OFF.has(body.action)) await requireFeature(user, 'bulkSms');
     // Choosing recipients is Gold's `targetedSms` (013Fixes / 00: the school's plan).
     const filtersAllowed = (await hasFeature(user, 'targetedSms')) && flags['whatsapp.advanced'] === true;
 

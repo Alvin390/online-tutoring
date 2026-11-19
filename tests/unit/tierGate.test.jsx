@@ -67,8 +67,8 @@ describe('TierGate with the school plan', () => {
 
   it('uses the superadmin\'s plan settings the server returned', () => {
     const plan = schoolPlan('bronze');
-    renderGate({ requires: 'calendar', feature: 'Class calendar' }, {
-      loading: false, plan: { ...plan, features: { ...plan.features, calendar: true } },
+    renderGate({ requires: 'fees', feature: 'Fee ledger' }, {
+      loading: false, plan: { ...plan, features: { ...plan.features, fees: true } },
     });
     expect(screen.getByTestId('feature')).toBeInTheDocument();
   });
@@ -169,6 +169,7 @@ describe('server plan features have a client gate', () => {
       'fees/post.js#feePayments',
       'messages/sms.js#bulkSms',
       'messages/sms.js#targetedSms',
+      'messages/sms.js#whatsappOneToOne',
       'sessions/manage.js#sessions',
       'students/bulk.js#feeBlocks',
       'students/scheduled.js#feeBlocks',

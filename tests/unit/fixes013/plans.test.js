@@ -60,18 +60,19 @@ describe('plans inherit upwards', () => {
   });
 });
 
-describe('phase 00 keeps today\'s gates exactly', () => {
-  // The gates as they were on 2026-11-19 (handlers' `tier:` and the inline checks).
+describe('each feature starts at the plan the owner\'s matrix gives it (so far)', () => {
+  // Phase 00 copied the gates as they were on 2026-11-19; each later phase
+  // moves the features it is about, and this table moves with it.
   const TODAY = {
     sessions: 'bronze', // api/sessions/manage.js tier: 'bronze'
-    calendar: 'silver', // calendar/manage + feedToken
+    calendar: 'bronze', // 02: every plan (was Silver)
     fees: 'silver', // fees/config + annotate
     feePayments: 'silver', // fees/post; payment on receipt approval (bulk UI)
     feeBlocks: 'silver', // bulk + scheduled fee blocks
     invoices: 'silver', // fees/generateInvoices
     bulkSms: 'silver', // messages/sms
     targetedSms: 'gold', // choosing SMS recipients
-    whatsappOneToOne: 'silver', // the Messages tab (TierGate silver)
+    whatsappOneToOne: 'bronze', // 02: every plan (was Silver, the whole Messages tab)
     whatsappCampaigns: 'silver', // whatsapp/campaign
     whatsappAdvanced: 'gold', // whatsapp/upload + campaign filters
     mpesaStk: 'gold', // mpesaAvailability
@@ -95,8 +96,8 @@ describe('phase 00 keeps today\'s gates exactly', () => {
 
 describe('mergePlans takes only well-formed overrides', () => {
   it('applies a boolean feature and a whole-number limit', () => {
-    const merged = server.mergePlans({ bronze: { features: { calendar: true }, limits: { logins: 3 } } });
-    expect(merged.bronze.features.calendar).toBe(true);
+    const merged = server.mergePlans({ bronze: { features: { fees: true }, limits: { logins: 3 } } });
+    expect(merged.bronze.features.fees).toBe(true);
     expect(merged.bronze.limits.logins).toBe(3);
     expect(merged.silver).toEqual(server.DEFAULT_PLANS.silver);
   });

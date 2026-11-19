@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, seedPlan,
+  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, seedPlan, setFlags,
 } from '../_worker.js';
 
 /**
@@ -23,6 +23,8 @@ beforeEach(async () => {
   await clearFirestore();
   // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
   await seedPlan(db, 'gold');
+  // 013Fixes / 02: managing the calendar now honours its global switch too.
+  await setFlags(db, { 'calendar.enabled': true });
 });
 
 // Monday 5 Oct 2026, 08:00–09:00 Nairobi (05:00Z), weekly on Mondays.

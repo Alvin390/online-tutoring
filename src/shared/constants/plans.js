@@ -50,13 +50,13 @@ const SILVER_UP = { bronze: false, silver: true, gold: true };
 const GOLD_ONLY = { bronze: false, silver: false, gold: true };
 
 /**
- * Feature → which plans include it. Phase 00 copies the gates exactly as they
- * were on 2026-11-19 (calendar and the Messages tab Silver, scheduled blocks
- * on every plan); phases 02–06 then move them to the owner's matrix.
+ * Feature → which plans include it. Phase 00 copied the gates as they were on
+ * 2026-11-19; phases 02–06 move them to the owner's matrix (spec §2):
+ *   02  calendar and one-to-one WhatsApp on every plan.
  */
 const FEATURE_PLANS = {
   sessions: ALL(true),
-  calendar: SILVER_UP,
+  calendar: ALL(true), // 013Fixes / 02: every plan (owner)
   notes: ALL(true),
   basicBlocks: ALL(true),
   scheduledBlocks: ALL(true),
@@ -66,7 +66,7 @@ const FEATURE_PLANS = {
   invoices: SILVER_UP,
   bulkSms: SILVER_UP,
   targetedSms: GOLD_ONLY,
-  whatsappOneToOne: SILVER_UP,
+  whatsappOneToOne: ALL(true), // 013Fixes / 02: every plan (owner)
   whatsappCampaigns: SILVER_UP,
   whatsappAdvanced: GOLD_ONLY,
   mpesaStk: GOLD_ONLY,
