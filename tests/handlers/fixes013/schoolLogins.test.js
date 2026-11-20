@@ -170,3 +170,14 @@ describe('the superadmin console keeps the seat count right', () => {
     expect(list.body.seats.used).toBe(2);
   });
 });
+
+// 013Fixes / 10: the screen shows the logins card to the owner only.
+describe('the billing status says who the owner is', () => {
+  it('true for the owner, false for another teacher', async () => {
+    expect((await call('/api/billing/status', { method: 'GET', token: owner })).body.plan.isOwner).toBe(true);
+    // A fresh token: an earlier test disabled this login, which revoked its old one.
+    const otherAgain = await userWithClaims('fx013l-other', { role: 'teacher' }, { email: 'other@fx013l.example' });
+    expect((await call('/api/billing/status', { method: 'GET', token: otherAgain })).body.plan.isOwner).toBe(false);
+  });
+});
+

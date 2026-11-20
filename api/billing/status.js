@@ -21,11 +21,11 @@ export default createHandler({
   method: 'GET',
   auth: true,
   role: 'teacher',
-  handle: async ({ log }) => {
+  handle: async ({ log, user }) => {
     if (!(await isEnabled('billing.enabled'))) {
       // Flag off = pre-upgrade behaviour, full access, no billing gate. The
       // plan's features still apply (013Fixes / 00), so they are returned.
-      return { billingEnabled: false, subscription: null, accessGranted: true, plan: await planView() };
+      return { billingEnabled: false, subscription: null, accessGranted: true, plan: await planView(user) };
     }
 
     const db = getDb();
@@ -64,7 +64,7 @@ export default createHandler({
       accessGranted: resolved.accessGranted,
       graceEndsAt: resolved.graceEndsAt,
       reason: resolved.reason,
-      plan: await planView(),
+      plan: await planView(user),
     };
   },
 });
@@ -75,7 +75,7 @@ export default createHandler({
  * offer what the server refuses (or hide what it allows). The client keeps its
  * own copy of the shipped plans only as a stand-in until this arrives.
  */
-async function planView() {
+async function planView(user) {
   const plan = await schoolPlan();
   // 013Fixes / 07: every plan's limits and card words (superadmin settings
   // included), so the billing page's three cards match what each plan holds.
@@ -83,5 +83,7 @@ async function planView() {
   const catalog = Object.fromEntries(PLAN_IDS.map((id) => [id, { limits: all[id].limits, card: all[id].card }]));
   return {
     tier: plan.tier, comp: plan.comp, features: plan.features, limits: plan.limits, trialSmsUnits: TRIAL_SMS_UNITS, catalog,
+    // 013Fixes / 10: whether this login is the school owner (the logins screen).
+    isOwner: Boolean(user?.uid) && user.uid === plan.ownerUid,
   };
 }
