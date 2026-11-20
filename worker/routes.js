@@ -5,6 +5,7 @@ import adminSms from '../api/admin/sms.js';
 import adminReports from '../api/admin/reports.js';
 import adminSetRole from '../api/admin/setRole.js';
 import adminUsers from '../api/admin/users.js';
+import adminPlans from '../api/admin/plans.js';
 import authLoginAttempt from '../api/auth/loginAttempt.js';
 
 import billingInitialize from '../api/billing/initialize.js';
@@ -92,6 +93,8 @@ export const STATIC_ROUTES = {
   '/api/admin/reports': adminReports,
   '/api/admin/setRole': adminSetRole,
   '/api/admin/users': adminUsers,
+  // 013Fixes / 07: plan settings (features, limits, card words).
+  '/api/admin/plans': adminPlans,
   '/api/auth/loginAttempt': authLoginAttempt,
 
   '/api/billing/initialize': billingInitialize,

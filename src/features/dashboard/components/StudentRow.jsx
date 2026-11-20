@@ -39,6 +39,8 @@ function StudentRow({
   sessionName,
   // 011Fixes / 01: the ids of the shown columns, in order (from the table).
   columns = ALL_COLUMNS,
+  // 013Fixes / 05: money (the partial badge) only with fees in the plan.
+  moneyShown = true,
 }) {
   const show = (id) => columns.includes(id);
   const [showPopup, setShowPopup] = useState(false);
@@ -178,7 +180,7 @@ function StudentRow({
               {isBlocked && <span className="badge bg-danger">Blocked</span>}
               {hasPendingReceipt && <span className="badge bg-warning">Pending Approval</span>}
               {/* 006Fixes / 08: on a partial payment — the LIVE balance, never the figure at approval. */}
-              {student.partialPayment && (Number(student.feeBalance) || 0) > 0 && (
+              {moneyShown && student.partialPayment && (Number(student.feeBalance) || 0) > 0 && (
                 <span className="badge rounded-pill text-bg-warning partial-badge" data-testid="partial-badge">
                   Partial: owes KES {Number(student.feeBalance).toLocaleString('en-KE')}
                 </span>
@@ -547,6 +549,7 @@ function areEqual(prev, next) {
   if (prev.onCancelSchedule !== next.onCancelSchedule) return false;
   // 011Fixes / 01: the shown columns (one memoised list from the table).
   if (prev.columns !== next.columns) return false;
+  if (prev.moneyShown !== next.moneyShown) return false;
 
   // Callback identity: the parent passes inline arrows for onDelete/onEdit/
   // onView, so these change every render and are deliberately NOT compared —

@@ -353,6 +353,18 @@ export async function clearFirestore() {
   await fetch(`http://${FS_HOST}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
   const mod = await import('../../api/_lib/flags.js');
   mod.__resetFlagCache?.();
+  // 013Fixes / 00: the school's plan is cached per isolate like the flags.
+  (await import('../../api/_lib/schoolPlan.js')).__resetPlanCache();
+}
+
+/**
+ * 013Fixes / 00: the school's plan comes from `subscription/current`, not from
+ * the login's claims. A test that needs a plan seeds one here (and the plan
+ * cache is reset, as the real writers do).
+ */
+export async function seedPlan(db, tier, extra = {}) {
+  await db.doc('subscription/current').set({ tier, status: 'active', ...extra });
+  (await import('../../api/_lib/schoolPlan.js')).__resetPlanCache();
 }
 
 export const phoneN = (n) => `+2547${String(n).padStart(8, '0')}`;

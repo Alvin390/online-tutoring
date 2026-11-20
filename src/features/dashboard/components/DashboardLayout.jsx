@@ -16,6 +16,8 @@ import WaitingBanner from '../nav/WaitingBanner';
 import { visibleTabs, tabPath, tabFromPath, DEFAULT_TAB } from '../nav/dashboardTabs';
 import { useOptionalToast } from '@/context/ToastContext';
 import { otherRecords, markedToast } from '../staff/markStaffText';
+import { usePlan } from '@features/billing/hooks/usePlan';
+import { asksPaymentOnApprove } from '../bulk/approveChoice';
 
 // Lazy too (001Fixes / 05): the student drawer opens on a click, so it need not
 // be in the dashboard's first download. Fetched when the browser is idle after
@@ -95,10 +97,10 @@ export default function DashboardLayout() {
     staffBySession,
   } = useDashboard();
 
+  const schoolPlan = usePlan();
   const requireApproval = useFlag('registration.requireApproval');
   const notesEnabled = useFlag('notes.enabled');
   const feesEnabled = useFlag('fees.enabled');
-  const whatsappEnabled = useFlag('whatsapp.broadcast');
   const calendarEnabled = useFlag('calendar.enabled');
   const flagsLoaded = useFlagsLoaded();
   const whatsappPreset = useWhatsappPreset();
@@ -106,9 +108,8 @@ export default function DashboardLayout() {
   const flagOn = useMemo(() => ({
     'registration.requireApproval': requireApproval,
     'fees.enabled': feesEnabled,
-    'whatsapp.broadcast': whatsappEnabled,
     'calendar.enabled': calendarEnabled,
-  }), [requireApproval, feesEnabled, whatsappEnabled, calendarEnabled]);
+  }), [requireApproval, feesEnabled, calendarEnabled]);
   const navTabs = useMemo(() => visibleTabs((flag) => flagOn[flag] === true), [flagOn]);
   const shown = useMemo(() => new Set(navTabs.map((t) => t.id)), [navTabs]);
   const currentTab = tabFromPath(location.pathname);
@@ -119,11 +120,15 @@ export default function DashboardLayout() {
    * as before. Resolves when the pop-up is done, so the row's popup closes
    * only then.
    */
+  // 013Fixes / 04: recording money on approval is the school plan's fee
+  // payments (Silver and up). Without it (Bronze) approving lets the student
+  // back in at once, with no Complete/Partial question and nothing recorded.
+  const paymentsInPlan = schoolPlan.has('feePayments');
   const handleApprove = useCallback((session, id, name, student) => {
     const owed = Number(student?.feeBalance) || 0;
-    if (!feesEnabled || owed <= 0) return approveReceipt(session, id, name);
+    if (!asksPaymentOnApprove({ feesOn: feesEnabled, paymentsInPlan, owed })) return approveReceipt(session, id, name);
     return new Promise((resolve) => setApproving({ session, id, name, student, owed, resolve }));
-  }, [feesEnabled, approveReceipt]);
+  }, [feesEnabled, paymentsInPlan, approveReceipt]);
   const closeApproving = useCallback((result = { success: false }) => {
     setApproving((current) => {
       current?.resolve(result);
@@ -131,12 +136,13 @@ export default function DashboardLayout() {
     });
   }, []);
   useEffect(() => {
-    if (!feesEnabled) return undefined;
+    // 013Fixes / 04-05: the Complete/Partial pop-up is only used with fee payments.
+    if (!feesEnabled || !paymentsInPlan) return undefined;
     const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 2500));
     const cancel = window.cancelIdleCallback ?? clearTimeout;
     const handle = idle(() => { loadApprovePaymentModal().catch(() => {}); });
     return () => cancel(handle);
-  }, [feesEnabled]);
+  }, [feesEnabled, paymentsInPlan]);
 
   // Which student the detail drawer is showing, and from which session.
   const [drawerStudent, setDrawerStudent] = useState(null);
@@ -232,7 +238,9 @@ export default function DashboardLayout() {
   const currentStudents = activeSession ? (studentsBySession[activeSession] ?? []) : [];
   // 006Fixes / 08: who is on a partial payment, from the rosters already loaded
   // (once per roster update; no extra read).
-  const partial = useMemo(() => (feesEnabled ? partialSummary(studentsBySession) : null), [feesEnabled, studentsBySession]);
+  // 013Fixes / 05: only with fees in the plan (the Fees tab is an upgrade card otherwise).
+  const feesInPlan = schoolPlan.has('fees');
+  const partial = useMemo(() => (feesEnabled && feesInPlan ? partialSummary(studentsBySession) : null), [feesEnabled, feesInPlan, studentsBySession]);
 
   const actions = {
     deleteStudent,

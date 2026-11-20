@@ -17,7 +17,9 @@ export const DASHBOARD_TABS = Object.freeze([
   { id: 'fees', label: 'Fees', icon: 'bi-cash-coin', flag: 'fees.enabled' },
   // 008Fixes / 11: "Messages" (SMS, and WhatsApp to one person); the id and
   // the address /dashboard/whatsapp stay, so saved links keep working.
-  { id: 'whatsapp', label: 'Messages', icon: 'bi-chat-dots', flag: 'whatsapp.broadcast' },
+  // 013Fixes / 06: no switch — one-to-one WhatsApp is on every plan, so the
+  // tab is always there (the old whatsapp.broadcast switch is retired).
+  { id: 'whatsapp', label: 'Messages', icon: 'bi-chat-dots' },
   // 007Fixes / 10 (owner): teachers registered like students, on the side.
   { id: 'staff', label: 'Staff', icon: 'bi-person-badge' },
   { id: 'calendar', label: 'Calendar', icon: 'bi-calendar3', flag: 'calendar.enabled' },

@@ -152,3 +152,39 @@ describe('Recent actions', () => {
     expect(item.textContent).toContain('Approved 4 students · partial payment');
   });
 });
+
+// 013Fixes / 04: on a Bronze school approving lets students back in with no
+// money: no Complete/Partial, a plain note, and no payment sent.
+describe('a Bronze school: approve back in, no money', () => {
+  it('no payment choice, says nothing is recorded, and sends no payment or amounts', async () => {
+    const { BillingContext } = await import('@features/billing/context/billingContextValue');
+    const { DEFAULT_PLANS } = await import('@shared/constants/plans');
+    api.runBulk.mockResolvedValue({ batchId: 'A9', done: 4, skipped: {}, failed: [], undoUntilMs: Date.now() + 1_800_000, total: 4 });
+    const noop = vi.fn();
+    render(
+      <BillingContext.Provider value={{ loading: false, plan: { tier: 'bronze', ...DEFAULT_PLANS.bronze } }}>
+        <ToastProvider>
+          <MemoryRouter>
+            <StudentSearchPanel
+              session="evening" sessionDoc={{ id: 'evening', name: 'Evening', classes: ['Form 3'] }} students={roster} loading={false}
+              onDelete={noop} onEdit={noop} onExport={noop} onBlock={noop} onUnblock={noop} onApprove={noop} onDecline={noop}
+            />
+          </MemoryRouter>
+        </ToastProvider>
+      </BillingContext.Provider>
+    );
+    fireEvent.click(statusChip('Receipt to review'));
+    await waitFor(() => expect(screen.getAllByRole('checkbox', { name: /^Select (?!all )/ })).toHaveLength(4));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all students on this page' }));
+    fireEvent.click(within(await screen.findByRole('region', { name: 'Selected students' })).getByRole('button', { name: 'Approve receipts' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('radio', { name: /Partial payment/ })).toBeNull();
+    expect(within(dialog).getByTestId('approve-no-money').textContent).toBe('4 students will be let back in. No payment is recorded.');
+    expect(within(dialog).queryByText(/recorded as paid/)).toBeNull();
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Approve 4 students' })); });
+    const call = api.runBulk.mock.calls[0][0];
+    expect(call).not.toHaveProperty('payment');
+    expect(call.items.every((i) => i.amount === undefined)).toBe(true);
+  });
+});
+

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import {
-  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, phoneN, userWithClaims, teacherClaims,
+  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, phoneN, userWithClaims, teacherClaims, seedPlan,
 } from '../_worker.js';
 
 /**
@@ -24,6 +24,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearFirestore();
+  // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
+  await seedPlan(db, 'gold');
   await setFlags(db, { 'auth.legacyStudentRead': true, 'fees.enabled': true });
   await db.doc('sessions/morning').set({ slug: 'morning', name: 'Morning', active: true });
   await db.doc('sessions/evening').set({ slug: 'evening', name: 'Evening', active: true });
@@ -111,12 +113,17 @@ describe('block, kind "fees"', () => {
 
   it('needs Silver, fees switched on, and an amount', async () => {
     await seed('morning', phoneN(220));
+    // 013Fixes / 00: a Bronze SCHOOL is refused, even a login whose claim says Gold.
+    await seedPlan(db, 'bronze');
     expect((await bulk({ action: 'block', kind: 'fees', amount: 100, items: items(220, 1) }, bronze)).status).toBe(403);
+    expect((await bulk({ action: 'block', kind: 'fees', amount: 100, items: items(220, 1) }, gold)).status).toBe(403);
+    // A plain block is fine on Bronze.
+    expect((await bulk({ action: 'block', kind: 'other', items: items(220, 1) }, bronze)).status).toBe(200);
+    await bulk({ action: 'unblock', items: items(220, 1) }, bronze);
+    await seedPlan(db, 'gold');
     expect((await bulk({ action: 'block', kind: 'fees', items: items(220, 1) })).status).toBe(400);
     await setFlags(db, { 'auth.legacyStudentRead': true, 'fees.enabled': false });
     expect((await bulk({ action: 'block', kind: 'fees', amount: 100, items: items(220, 1) })).status).toBe(403);
-    // A plain block is fine on Bronze.
-    expect((await bulk({ action: 'block', kind: 'other', items: items(220, 1) }, bronze)).status).toBe(200);
   });
 });
 

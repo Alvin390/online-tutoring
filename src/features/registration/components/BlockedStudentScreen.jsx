@@ -29,7 +29,9 @@ export default function BlockedStudentScreen({
   const [newReceipt, setNewReceipt] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const feesEnabled = useFlag('fees.enabled');
+  // 013Fixes / 05: and only where the school's plan includes fees (the server
+  // says so with the student's record: `feesShown`).
+  const feesEnabled = useFlag('fees.enabled') && studentData?.feesShown !== false;
   // STK (2/3):
   // // Flag + Gold plan + credentials, decided on the server — so a Bronze or
   // // Silver deployment never offers an STK push it would refuse.

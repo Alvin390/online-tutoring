@@ -27,6 +27,10 @@ function StudentFilters({
   onToggleSubject,
   onRange,
   onSort,
+  // 013Fixes / 05: statuses the school's plan doesn't have (money, scheduling).
+  hiddenStatuses = [],
+  // 013Fixes / 05: no "Balance owed" sort without fees in the plan.
+  moneyShown = true,
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -54,7 +58,7 @@ function StudentFilters({
         <div className="filter-chip-row" role="group" aria-label="Filter by status">
           <span className="filter-chip-label small fw-semibold text-muted">Status</span>
           <div className="filter-chips">
-            {STATUS_KEYS.map((key) => {
+            {STATUS_KEYS.filter((key) => !hiddenStatuses.includes(key)).map((key) => {
               const pressed = state.statuses.includes(key);
               const count = statusCounts[key] ?? 0;
               return (
@@ -122,7 +126,7 @@ function StudentFilters({
               onChange={(e) => onSort(e.target.value)}
               aria-label="Sort students"
             >
-              {SORTS.map((sort) => <option key={sort} value={sort}>{SORT_LABELS[sort]}</option>)}
+              {SORTS.filter((sort) => moneyShown || sort !== 'balance').map((sort) => <option key={sort} value={sort}>{SORT_LABELS[sort]}</option>)}
             </select>
           </label>
         </div>

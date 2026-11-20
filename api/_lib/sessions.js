@@ -131,7 +131,11 @@ export const SESSION_TZ = 'Africa/Nairobi';
  * in src/shared/constants/sessions.js (parity-tested).
  */
 export const DEFAULT_CLASSES = Object.freeze(['Grade 7', 'Grade 8', 'Grade 10', 'Form 3']);
-export const MAX_CLASSES = 30;
+// 013Fixes / 06: a TECHNICAL ceiling, not a plan limit (no plan limits classes).
+// Measured: 100 classes is about 47 KB per session realistically and 279 KB at
+// every field's maximum — inside Firestore's 1 MiB document limit and a public
+// bootstrap every student downloads. (200 would be up to 558 KB a session.)
+export const MAX_CLASSES = 100;
 export const MAX_CLASS_NAME = 60;
 
 /** The class list a session offers: its own, or the defaults. */

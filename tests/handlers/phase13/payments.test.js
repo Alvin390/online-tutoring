@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import {
-  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore,
+  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, seedPlan,
   setFlags, phoneN, externalCalls, fakes, SAFARICOM_IP,
 } from '../_worker.js';
 
@@ -164,7 +164,11 @@ describe('D3 reconciled payments and late callbacks (I2)', () => {
   it('fees/annotate validates and gates', async () => {
     const id = await reconciled(phoneN(23), 600);
     const base = { session: 'morning', phone: phoneN(23), entryId: `mpesa_${id}` };
+    // 013Fixes / 00: refused on a Bronze SCHOOL (the login's claim no longer decides).
+    await seedPlan(db, 'bronze');
     expect((await call('/api/fees/annotate', { token: bronze, body: { ...base, reference: 'TEACH1ER23' } })).status).toBe(403);
+    expect((await call('/api/fees/annotate', { token: silver, body: { ...base, reference: 'TEACH1ER23' } })).status).toBe(403);
+    await seedPlan(db, 'gold');
     expect((await call('/api/fees/annotate', { token: silver, body: { ...base, reference: 'bad ref!' } })).status).toBe(400);
     expect((await call('/api/fees/annotate', { token: silver, body: { ...base, reference: 'TEACH1ER23', amount: 1 } })).status).toBe(400);
     // Not an M-Pesa receipt (e.g. paid in cash): free text up to 40, flagged.
@@ -232,8 +236,11 @@ describe('D5 fee charges respect the fees flag (B12 server)', () => {
   it('works for Silver with fees on, and stays refused for Bronze', async () => {
     await seedPayer(phoneN(31), 0);
     const body = { session: 'morning', phone: phoneN(31), type: 'invoice', amount: 500 };
+    await seedPlan(db, 'silver');
     expect((await call('/api/fees/post', { token: silver, body })).status).toBe(200);
+    await seedPlan(db, 'bronze');
     expect((await call('/api/fees/post', { token: bronze, body })).status).toBe(403);
+    expect((await call('/api/fees/post', { token: silver, body })).status).toBe(403);
   });
 });
 

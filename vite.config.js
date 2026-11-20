@@ -108,6 +108,8 @@ export default defineConfig({
           '**/MessagesArea-*.js', '**/SmsComposer-*.js', '**/StaffSmsModal-*.js', '**/SmsCostCard-*.js', '**/adminSms-*.js', '**/MessageBox-*.js', '**/messageTemplate-*.js',
           // 009Fixes / 04: the teacher's "Numbers changed by students".
           '**/NumberFixesPanel-*.js', '**/smsText-*.js', '**/sms-*.js',
+          // 013Fixes / 07: the superadmin plan editor, the plan map's chunk and the admin calls.
+          '**/PlanSettings-*.js', '**/plans-*.js', '**/admin-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

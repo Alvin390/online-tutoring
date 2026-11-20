@@ -12,8 +12,7 @@ import { SkeletonTable } from '@components/ui/Skeleton';
 import { postLedgerEntry } from '@services/api/fees';
 import logger from '@utils/logger';
 import { useFlag } from '@shared/config/FlagsContext';
-import { useAuthState } from '@features/auth/context/AuthContext';
-import { TIER_RANK } from '@shared/constants/tiers';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
 import { visibleColumns } from './table/studentColumns';
@@ -123,8 +122,13 @@ export default function StudentTable({
   const tableWidth = useMemo(() => columns.reduce((n, c) => n + c.currentWidth, 0), [columns]);
 
   const feesFlag = useFlag('fees.enabled');
-  const { tierRank, isSuperadmin } = useAuthState();
-  const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
+  // 013Fixes / 00: fee blocks are the SCHOOL plan's `feeBlocks` feature.
+  const plan = usePlan();
+  const feesUsable = feesFlag && plan.has('feeBlocks');
+  // 013Fixes / 03: scheduling a block is the plan's `scheduledBlocks` (Silver and up).
+  const schedulesUsable = plan.has('scheduledBlocks');
+  // 013Fixes / 05: money in the rows only with fees on and in the plan.
+  const moneyShown = feesFlag && plan.has('fees');
   const defaultBlockKind = feesUsable ? 'fees' : 'other';
 
   // 'fees' posts a ledger charge and lets the student clear it by M-Pesa;
@@ -337,7 +341,7 @@ export default function StudentTable({
 
     // 003Fixes / 08: a scheduled block is recorded on the server now and
     // applied at that minute (the fee is charged then, not now).
-    if (timing.scheduled) {
+    if (schedulesUsable && timing.scheduled) {
       if (timing.problem) { setShowWhenProblem(true); return; }
       const feeKind = blockKind === 'fees' && feesUsable;
       const isFees = feeKind && !noCharge;
@@ -541,6 +545,7 @@ export default function StudentTable({
                   selected={sel.all || sel.keys.has(rowKey(student))}
                   onSelect={toggleRow}
                   onCancelSchedule={onCancelSchedule ? cancelScheduleFor : undefined}
+                  moneyShown={moneyShown}
                   session={rowSession(student)}
                   sessionName={showSessions ? (sessionNames?.[rowSession(student)] ?? rowSession(student)) : undefined}
                   animated={!paged}
@@ -773,7 +778,8 @@ export default function StudentTable({
               error={blockError}
               feesUsable={feesUsable}
               feesFlag={feesFlag}
-              timing={{ ...timing, showProblem: showWhenProblem }}
+              timing={schedulesUsable ? { ...timing, showProblem: showWhenProblem } : null}
+              scheduleLocked={!schedulesUsable}
               owing={(Number(selectedStudent.feeBalance) || 0) > 0
                 ? { count: 1, total: Number(selectedStudent.feeBalance), nothing: 0 }
                 : null}

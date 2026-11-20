@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '@components/ui/Modal';
-import { useAuthState } from '@features/auth/context/AuthContext';
+import { usePlan } from '@features/billing/hooks/usePlan';
+import { UpgradePrompt } from '@shared/components/TierGate';
+import { lowestPlanWith } from '@shared/constants/plans';
 import { useFlag } from '@shared/config/FlagsContext';
 import { listSmsPeople, previewSms, startSms, sendSmsChunk, cancelSms } from '@services/api/sms';
 import { buildWaLink } from '@utils/waLink';
@@ -34,11 +36,12 @@ const SEND_TO = [
 ];
 const wait = (s) => new Promise((resolve) => { setTimeout(resolve, s * 1000); });
 
-export default function SmsComposer({ setup, preset = null, smsOff = false }) {
-  const { tierRank, isSuperadmin } = useAuthState();
-  const advanced = useFlag('whatsapp.advanced');
+export default function SmsComposer({ setup, preset = null, smsOff = false, smsOffReason = 'off' }) {
+  const plan = usePlan();
   const feesOn = useFlag('fees.enabled');
-  const canChoose = (isSuperadmin || (tierRank ?? 0) >= 3) && advanced;
+  // Choosing recipients is the school plan's `targetedSms` (Gold; 013Fixes / 00;
+  // the old whatsapp.advanced switch retired in 06).
+  const canChoose = plan.has('targetedSms');
 
   const [view, setView] = useState('compose'); // compose | history | campaign
   // With SMS switched off (008Fixes / 11) only WhatsApp to one person is offered.
@@ -173,7 +176,15 @@ export default function SmsComposer({ setup, preset = null, smsOff = false }) {
           </button>
         </div>
 
-        {smsOff && (
+        {smsOff && smsOffReason === 'plan' && (
+          // 013Fixes / 02: SMS isn't in this plan (Silver and up); WhatsApp to one person is.
+          <UpgradePrompt
+            tier={lowestPlanWith('bulkSms')}
+            feature="SMS to parents"
+            description="Message every parent at once by SMS"
+          />
+        )}
+        {smsOff && smsOffReason !== 'plan' && (
           <div className="alert alert-info small py-2" role="status" data-testid="sms-paused">
             Messages to many parents go by SMS, which is not switched on yet. You can still message one person on WhatsApp.
           </div>

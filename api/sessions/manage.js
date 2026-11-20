@@ -122,7 +122,7 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
-  tier: 'bronze',
+  feature: 'sessions',
   schema,
   rateLimit: { bucket: 'sessions_manage', limit: 60, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {

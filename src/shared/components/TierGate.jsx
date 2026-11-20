@@ -1,45 +1,44 @@
 import { Link } from 'react-router-dom';
-import { useAuthState } from '@features/auth/context/AuthContext';
-import { TIERS, TIER_RANK, formatKes } from '@shared/constants/tiers';
+import { usePlan } from '@features/billing/hooks/usePlan';
+import { TIERS, formatKes } from '@shared/constants/tiers';
+import { lowestPlanWith } from '@shared/constants/plans';
 import { ROUTES } from '@/routes/routeConfig';
 
 /**
- * Client-side tier gate — Phase 12 follow-up.
+ * Client-side plan gate — Phase 12 follow-up; 013Fixes / 00.
  *
- * Nine endpoints declare a minimum tier in `createHandler` and enforce it with
- * `requireTier`. Until now nothing on the client knew about those, so a Bronze
- * teacher was shown the Fees panel, used it, and got back
- * "You do not have permission to do that." — a refusal that reads as a bug in
- * the product rather than as a plan boundary.
+ * Every endpoint that declares a plan `feature:` in `createHandler` (or checks
+ * one with `requireFeature`) has a gate here, so a teacher is shown a plan
+ * boundary rather than "You do not have permission to do that."
  *
- * This closes that gap from the front. The rule here is deliberately IDENTICAL
- * to `requireTier` in api/_lib/auth.js:
+ * The rule is deliberately IDENTICAL to `requireFeature` in
+ * api/_lib/schoolPlan.js, and reads the same thing — the SCHOOL's plan
+ * (usePlan), never the login's own claims:
  *
- *     superadmin passes anything;  otherwise tierRank >= the required rank
+ *     superadmin passes anything;  otherwise the plan must include `requires`
  *
  * If the two ever drift, the gate is worse than useless: it either hides
  * something the server would have allowed, or promises something the server
- * will still refuse. So when a handler's `tier:` changes, change it here too.
+ * will still refuse. tests/unit/tierGate.test.jsx pairs every server feature
+ * with a gate here.
  *
  * SHOWN, NOT HIDDEN. The locked panel is replaced by a prompt naming the
- * feature and the plan that carries it, rather than disappearing. That is the
- * same choice `SmsComposer` (formerly the WhatsApp panel) makes for its Gold controls, for the same
- * reason: a teacher who never sees a capability never buys it, and a dashboard
- * whose contents change shape between plans is hard to support ("what do you
- * mean, there's no Fees section?").
+ * feature and the cheapest plan that carries it, rather than disappearing:
+ * a teacher who never sees a capability never buys it.
  *
- * Deliberately NOT conditioned on the `billing.enabled` flag. The server's
- * `requireTier` is not, and mirroring the server is the entire point.
+ * While the school's plan is still loading for a login with no stand-in
+ * (`pending`), nothing is rendered — never an upgrade card the school may not
+ * deserve.
+ *
+ * Deliberately NOT conditioned on the `billing.enabled` flag, like the server.
  */
-export default function TierGate({ tier, feature, description = null, children }) {
-  const { tierRank, isSuperadmin } = useAuthState();
+export default function TierGate({ requires, feature, description = null, children }) {
+  const plan = usePlan();
 
-  const required = TIER_RANK[tier] ?? Infinity;
-  const allowed = isSuperadmin || (tierRank ?? 0) >= required;
+  if (plan.has(requires)) return children;
+  if (plan.pending) return null;
 
-  if (allowed) return children;
-
-  return <UpgradePrompt tier={tier} feature={feature} description={description} />;
+  return <UpgradePrompt tier={lowestPlanWith(requires)} feature={feature} description={description} />;
 }
 
 /**

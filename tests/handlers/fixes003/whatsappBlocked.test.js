@@ -33,10 +33,12 @@ const seed = (session, phone, extra = {}) => db.doc(`sessions/${session}/student
   studentName: 'Student', parentPhone: phone, class: 'Form 3', subjects: 'English', session,
   registeredAt: new Date('2026-10-01T06:00:00Z'), blocked: false, approvalStatus: 'approved', ...extra,
 });
-const campaign = (values) => call('/api/whatsapp/campaign', {
-  token: gold,
-  body: { action: 'create', title: 'Blocked', messageTemplate: 'Dear parent, {{studentName}}', filter: { type: 'individual', values } },
-});
+// 013Fixes / 06: WhatsApp campaigns are retired; the same "chosen students"
+// rule lives on in resolveRecipients, which SMS uses. Tested there directly.
+const chosen = async (values) => {
+  const { resolveRecipients } = await import('../../../api/_lib/messageRecipients.js');
+  return resolveRecipients(db, { type: 'individual', values });
+};
 
 describe('who a bulk action reached', () => {
   // 004Fixes / 02: any staff account may read it (it was its own teacher only).
@@ -51,25 +53,23 @@ describe('who a bulk action reached', () => {
   });
 });
 
-describe('campaign "Chosen students" by session and number', () => {
+describe('"Chosen students" by session and number (resolveRecipients, used by SMS)', () => {
   it('a session-qualified value reaches only that session\'s student; plain numbers still work', async () => {
     await seed('morning', phoneN(10), { blocked: true });
     await seed('evening', phoneN(10));
     await seed('morning', phoneN(11));
-    const qualified = await campaign([`morning:${phoneN(10)}`]);
-    expect(qualified.status, JSON.stringify(qualified.body)).toBe(200);
-    expect(qualified.body.recipientCount).toBe(1);
-    const recipients = await db.collection(`whatsapp/campaigns/items/${qualified.body.campaignId}/recipients`).get();
-    expect(recipients.docs[0].data().session).toBe('morning');
+    const qualified = await chosen([`morning:${phoneN(10)}`]);
+    expect(qualified).toHaveLength(1);
+    expect(qualified[0].session).toBe('morning');
 
-    const plain = await campaign([phoneN(11)]);
-    expect(plain.body.recipientCount).toBe(1);
+    expect(await chosen([phoneN(11)])).toHaveLength(1);
   });
 
-  it('accepts 500 values and refuses 501', async () => {
-    await seed('morning', phoneN(20));
-    const many = Array.from({ length: 499 }, (_, i) => `morning:${phoneN(1000 + i)}`);
-    expect((await campaign([`morning:${phoneN(20)}`, ...many])).status).toBe(200);
-    expect((await campaign([...many, `morning:${phoneN(20)}`, `morning:${phoneN(21)}`])).status).toBe(400);
+  it('SMS takes up to 1,000 chosen values and refuses 1,001 (validation, before anything else)', async () => {
+    const values = (n) => Array.from({ length: n }, (_, i) => `morning:${phoneN(1000 + i)}`);
+    const preview = (n) => call('/api/messages/sms', { token: gold, body: { action: 'preview', template: 'Hi', filter: { type: 'individual', values: values(n) } } });
+    await setFlags(db, { 'auth.legacyStudentRead': true, 'sms.enabled': true });
+    expect((await preview(1001)).status).toBe(400);
+    expect((await preview(1000)).status).not.toBe(400);
   });
 });

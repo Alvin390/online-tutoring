@@ -4,6 +4,7 @@ import { m } from 'framer-motion';
 import { useBilling } from '@features/billing/context/BillingContext';
 import { useToast } from '@/context/ToastContext';
 import { TIERS, TIER_ORDER, TIER_RANK, formatKes } from '@shared/constants/tiers';
+import { limitLines } from '@shared/constants/plans';
 import {
   initializeCheckout,
   cancelSubscription,
@@ -84,7 +85,9 @@ function formatDate(value) {
 }
 
 export default function BillingPage() {
-  const { subscription, status, tier, isLocked, loading, refresh } = useBilling();
+  const { subscription, status, tier, isLocked, loading, refresh, plan: schoolPlan } = useBilling();
+  // 013Fixes / 07: each card's words and limits as the superadmin set them.
+  const catalog = schoolPlan?.catalog ?? null;
   const { showError, showSuccess } = useToast();
 
   const [selectedTier, setSelectedTier] = useState(null);
@@ -431,7 +434,10 @@ export default function BillingPage() {
       <h2 className="h5 fw-bold mt-5 mb-3">Choose a plan</h2>
       <div className="row g-4">
         {TIER_ORDER.map((id) => {
-          const plan = TIERS[id];
+          const entry = catalog?.[id];
+          const plan = entry
+            ? { ...TIERS[id], tagline: entry.card.tagline, features: [...entry.card.bullets, ...limitLines(entry.limits)] }
+            : TIERS[id];
           const isCurrent = tier === id;
           const isDowngrade = TIER_RANK[id] < currentRank;
           // The renew button appears ONLY on the plan they were already on,

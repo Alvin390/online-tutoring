@@ -6,6 +6,9 @@ import { buildIndex, searchStudents, DEFAULT_SEARCH_STATE, STATUS_KEYS, STATUS_L
 import { sanitizeSearch, filtersFromParams, paramsForState } from '@features/dashboard/search/searchState';
 import { partialSummary } from '@features/fees/partialSummary';
 import StudentSearchPanel from '@features/dashboard/components/StudentSearchPanel.jsx';
+// 013Fixes / 05: imported up front — later tests here reset the module registry.
+import { BillingContext } from '@features/billing/context/billingContextValue';
+import { DEFAULT_PLANS } from '@shared/constants/plans';
 
 /**
  * 006Fixes / 08 — the "Partial payment" filter (owner, 4 Nov 2026): students
@@ -165,3 +168,28 @@ describe('the row re-renders when the marker appears (memo compares it by value)
     await waitFor(() => expect(screen.queryAllByTestId('partial-badge')).toHaveLength(3));
   });
 });
+
+// 013Fixes / 05: on a Bronze school (a downgrade keeps the data) no money is
+// shown in the table: no partial badge, no Owes fees / Partial payment chips.
+describe('a Bronze school: money hidden in the table', () => {
+  it('no partial badges and no money chips', async () => {
+    const noop = vi.fn();
+    render(
+      <BillingContext.Provider value={{ loading: false, plan: { tier: 'bronze', ...DEFAULT_PLANS.bronze } }}>
+        <ToastProvider>
+          <MemoryRouter>
+            <StudentSearchPanel
+              session="evening" sessionDoc={{ id: 'evening', name: 'Evening', classes: ['Form 3'] }} students={roster} loading={false}
+              onDelete={noop} onEdit={noop} onExport={noop} onBlock={noop} onUnblock={noop} onApprove={noop} onDecline={noop}
+            />
+          </MemoryRouter>
+        </ToastProvider>
+      </BillingContext.Provider>
+    );
+    await waitFor(() => expect(screen.getByText('Claire Job')).toBeTruthy());
+    expect(screen.queryAllByTestId('partial-badge')).toHaveLength(0);
+    const chips = screen.getByRole('group', { name: 'Filter by status' }).textContent;
+    expect(chips).not.toMatch(/Owes fees|Partial payment/);
+  });
+});
+

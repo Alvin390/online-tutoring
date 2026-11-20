@@ -7,52 +7,28 @@
  * a billing flow.
  */
 
+import { DEFAULT_PLANS, limitLines } from './plans';
+
 export const TIER_RANK = {
   bronze: 1,
   silver: 2,
   gold: 3,
 };
 
+/**
+ * Names and prices (prices change only in the pricing series). The card words
+ * — tagline and bullets — come from the plan map (013Fixes / 07), with the
+ * limit lines made from each plan's limits, so there is one source of truth.
+ */
+function cardFor(id) {
+  const plan = DEFAULT_PLANS[id];
+  return { tagline: plan.card.tagline, features: [...plan.card.bullets, ...limitLines(plan.limits)] };
+}
+
 export const TIERS = {
-  bronze: {
-    id: 'bronze',
-    name: 'Bronze',
-    rank: 1,
-    priceKes: 4999,
-    tagline: 'Everything you need to run your classes',
-    features: [
-      'Student management',
-      'Zoom and Google Meet class links',
-      'Block and unblock students',
-      'Private student notes',
-    ],
-  },
-  silver: {
-    id: 'silver',
-    name: 'Silver',
-    rank: 2,
-    priceKes: 7499,
-    tagline: 'Track fees and plan your term',
-    features: [
-      'Everything in Bronze',
-      'Fee ledger and invoicing',
-      'In-app calendar',
-      'WhatsApp broadcast to all students',
-    ],
-  },
-  gold: {
-    id: 'gold',
-    name: 'Gold',
-    rank: 3,
-    priceKes: 9999,
-    tagline: 'Get paid in-app and message precisely',
-    features: [
-      'Everything in Silver',
-      'WhatsApp documents and photos',
-      'Individual and class-filtered messaging',
-      'M-Pesa fee payments straight to your till',
-    ],
-  },
+  bronze: { id: 'bronze', name: 'Bronze', rank: 1, priceKes: 4999, ...cardFor('bronze') },
+  silver: { id: 'silver', name: 'Silver', rank: 2, priceKes: 7499, ...cardFor('silver') },
+  gold: { id: 'gold', name: 'Gold', rank: 3, priceKes: 9999, ...cardFor('gold') },
 };
 
 export const TIER_ORDER = ['bronze', 'silver', 'gold'];

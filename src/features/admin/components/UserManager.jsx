@@ -4,7 +4,7 @@ import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import {
   listUsers, createTeacher, setUserTier, startTrial, setUserDisabled, deleteUser,
-  expireToGrace, expireNow,
+  expireToGrace, expireNow, setOwner, setDevLogin,
 } from '@services/api/admin';
 import logger from '@utils/logger';
 
@@ -30,11 +30,16 @@ export default function UserManager() {
   const [users, setUsers] = useState([]);
   const [studentCount, setStudentCount] = useState(0);
   const [subscription, setSubscription] = useState(null);
+  // 013Fixes / 01: the school owner and the developer login.
+  const [ownerUid, setOwnerUid] = useState(null);
+  const [devLoginEmail, setDevLoginEmail] = useState(null);
+  const [devEmailDraft, setDevEmailDraft] = useState('');
+  const [movingOwner, setMovingOwner] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ email: '', password: '', displayName: '', tier: 'bronze' });
+  const [form, setForm] = useState({ email: '', password: '', displayName: '' });
   const [formError, setFormError] = useState('');
 
   const [deleting, setDeleting] = useState(null);
@@ -48,6 +53,9 @@ export default function UserManager() {
       setUsers(result.users ?? []);
       setStudentCount(result.studentCount ?? 0);
       setSubscription(result.subscription ?? null);
+      setOwnerUid(result.ownerUid ?? null);
+      setDevLoginEmail(result.devLoginEmail ?? null);
+      setDevEmailDraft(result.devLoginEmail ?? '');
     } catch (error) {
       logger.error('User list failed', error);
       showError(error?.message ?? 'Could not load users.');
@@ -88,7 +96,7 @@ export default function UserManager() {
       `Teacher account created for ${form.email}.`
     );
     if (ok) {
-      setForm({ email: '', password: '', displayName: '', tier: 'bronze' });
+      setForm({ email: '', password: '', displayName: '' });
       setCreating(false);
     }
   };
@@ -196,18 +204,9 @@ export default function UserManager() {
                   onChange={(e) => setForm({ ...form, displayName: e.target.value })}
                 />
               </div>
-              <div className="col-md-6">
-                <label className="form-label small fw-semibold" htmlFor="new-tier">Starting tier</label>
-                <select
-                  id="new-tier" className="form-select"
-                  value={form.tier}
-                  onChange={(e) => setForm({ ...form, tier: e.target.value })}
-                >
-                  {TIER_ORDER.map((t) => (
-                    <option key={t} value={t}>{TIERS[t].name}</option>
-                  ))}
-                </select>
-              </div>
+            </div>
+            <div className="form-text">
+              The login gets the school&apos;s plan, the same as every other login.
             </div>
 
             {formError && (
@@ -230,6 +229,63 @@ export default function UserManager() {
           </form>
         )}
 
+        {/* 013Fixes / 01: the platform owner's own login. It works like any
+            teacher login but never counts against the school's plan. */}
+        {!loading && (
+          <form
+            className="border rounded p-3 mb-3"
+            data-testid="dev-login"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const next = devEmailDraft.trim().toLowerCase() || null;
+              run(() => setDevLogin({ devLoginEmail: next }), next ? 'Developer login saved.' : 'Developer login cleared.');
+            }}
+          >
+            <label className="form-label small fw-semibold" htmlFor="dev-login-email">
+              Developer login <span className="text-muted fw-normal">(yours; never counted against the plan)</span>
+            </label>
+            <div className="d-flex gap-2 flex-wrap">
+              <input
+                id="dev-login-email" type="email" className="form-control form-control-sm" style={{ maxWidth: 320 }}
+                value={devEmailDraft}
+                onChange={(e) => setDevEmailDraft(e.target.value)}
+                placeholder="email of your dashboard login"
+                autoComplete="off"
+              />
+              <button
+                type="submit" className="btn btn-outline-primary btn-sm"
+                disabled={busy || devEmailDraft.trim().toLowerCase() === (devLoginEmail ?? '')}
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        )}
+
+        {movingOwner && (
+          <div className="alert alert-warning" role="alert" data-testid="owner-confirm">
+            <p className="mb-2 small">
+              Make <strong>{movingOwner.email}</strong> the school owner?
+              {ownerUid && ` This replaces ${users.find((x) => x.uid === ownerUid)?.email ?? 'the current owner'}.`}
+              {' '}The owner is the login that manages the school&apos;s other logins.
+            </p>
+            <div className="d-flex gap-2">
+              <button
+                type="button" className="btn btn-warning btn-sm" disabled={busy}
+                onClick={async () => {
+                  const ok = await run(() => setOwner({ uid: movingOwner.uid }), `${movingOwner.email} is now the school owner.`);
+                  if (ok) setMovingOwner(null);
+                }}
+              >
+                Make owner
+              </button>
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setMovingOwner(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {loading && <SkeletonList rows={3} />}
 
         {!loading && users.length === 0 && (
@@ -245,7 +301,7 @@ export default function UserManager() {
                 <tr>
                   <th scope="col">Account</th>
                   <th scope="col">Role</th>
-                  <th scope="col">Tier</th>
+                  <th scope="col" title="The school's plan. Changing it sets the school's plan (comp) for every login.">School plan</th>
                   <th scope="col">Last sign-in</th>
                   <th scope="col"><span className="visually-hidden">Actions</span></th>
                 </tr>
@@ -258,6 +314,8 @@ export default function UserManager() {
                       <div className="small text-muted">
                         {u.displayName ?? '—'}
                         {u.disabled && <span className="badge text-bg-secondary ms-2">Disabled</span>}
+                        {u.isOwner && <span className="badge text-bg-success ms-2">Owner</span>}
+                        {u.isDeveloper && <span className="badge text-bg-info ms-2">Developer, not counted</span>}
                       </div>
                     </td>
                     <td>
@@ -272,15 +330,15 @@ export default function UserManager() {
                         <select
                           className="form-select form-select-sm"
                           style={{ minWidth: 110 }}
-                          value={u.tier ?? ''}
+                          value={subscription?.tier ?? ''}
                           disabled={busy}
                           onChange={(e) =>
                             run(
                               () => setUserTier({ uid: u.uid, tier: e.target.value || null }),
-                              `Tier set to ${e.target.value || 'none'}.`
+                              `School plan set to ${e.target.value || 'none'}.`
                             )
                           }
-                          aria-label={`Tier for ${u.email}`}
+                          aria-label={`School plan (via ${u.email})`}
                         >
                           <option value="">none</option>
                           {TIER_ORDER.map((t) => (
@@ -303,17 +361,28 @@ export default function UserManager() {
                                 // so "pick Silver, then click Trial" now starts
                                 // a Silver trial rather than silently upgrading
                                 // the account to Gold for fourteen days.
+                                // 013Fixes / 01: the school's plan (one plan per school).
                                 () => startTrial({
                                   uid: u.uid,
-                                  tier: u.tier ?? 'bronze',
+                                  tier: subscription?.tier ?? 'bronze',
                                   trialDays: 14,
                                 }),
-                                `14-day ${TIERS[u.tier ?? 'bronze'].name} trial started.`
+                                `14-day ${TIERS[subscription?.tier ?? 'bronze'].name} trial started.`
                               )
                             }
-                            title={`Start a 14-day ${TIERS[u.tier ?? 'bronze'].name} trial`}
+                            title={`Start a 14-day ${TIERS[subscription?.tier ?? 'bronze'].name} trial`}
                           >
                             Trial
+                          </button>
+                        )}
+                        {u.role === 'teacher' && !u.isOwner && !u.disabled && (
+                          <button
+                            className="btn btn-outline-success btn-sm"
+                            disabled={busy}
+                            onClick={() => setMovingOwner(u)}
+                            title="Make this login the school owner"
+                          >
+                            Make owner
                           </button>
                         )}
                         <button

@@ -2,14 +2,18 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAuthState } from '../context/AuthContext';
 import { useFlag } from '@shared/config/FlagsContext';
-import { TIER_RANK } from '@shared/constants/tiers';
+import { usePlan } from '@features/billing/hooks/usePlan';
+import { lowestPlanWith } from '@shared/constants/plans';
 
 /**
  * Route protection — Phase 02 D5.
  *
  * Extended from "is someone signed in" to a policy:
  *
- *   <ProtectedRoute role="teacher" tier="silver" requireActive>
+ *   <ProtectedRoute role="teacher" requires="fees" requireActive>
+ *
+ * `requires` is a plan feature of the SCHOOL's plan (usePlan; 013Fixes / 00),
+ * never the login's own claims.
  *
  * Client-side gating is UX, never security. Every gated action is independently
  * enforced in firestore.rules and in the serverless handler; this exists so the
@@ -40,14 +44,13 @@ function FullPageSpinner({ label }) {
 export default function ProtectedRoute({
   children,
   role = null,
-  tier = null,
+  requires = null,
   requireActive = false,
 }) {
   const {
     isAuthenticated,
     loading,
     role: userRole,
-    tierRank,
     isSuperadmin,
     isTeacher,
   } = useAuthState();
@@ -55,6 +58,7 @@ export default function ProtectedRoute({
   const rolesEnabled = useFlag('auth.roles');
   const billingEnabled = useFlag('billing.enabled');
   const location = useLocation();
+  const plan = usePlan();
 
   if (loading) return <FullPageSpinner label="Checking authentication…" />;
 
@@ -80,11 +84,8 @@ export default function ProtectedRoute({
     if (!satisfied) return <Navigate to="/403" replace />;
   }
 
-  if (tier && billingEnabled && !isSuperadmin) {
-    const needed = TIER_RANK[tier] ?? Infinity;
-    if ((tierRank ?? 0) < needed) {
-      return <Navigate to="/billing" replace state={{ upgradeTo: tier, from: location.pathname }} />;
-    }
+  if (requires && billingEnabled && !plan.has(requires) && !plan.pending) {
+    return <Navigate to="/billing" replace state={{ upgradeTo: lowestPlanWith(requires), from: location.pathname }} />;
   }
 
   // Subscription lockout is enforced by BillingGuard, which sits inside the

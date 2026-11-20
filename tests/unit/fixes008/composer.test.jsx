@@ -261,6 +261,23 @@ describe('SMS switched off (the old WhatsApp panel is removed)', () => {
     expect(decodeURIComponent(link.getAttribute('href').split('text=')[1])).toBe('Hi Ann');
   });
 
+  // 013Fixes / 02: on a plan without SMS (Bronze) the same WhatsApp-only mode,
+  // with an upgrade card instead of the "not switched on" notice.
+  it('SMS not in the plan: WhatsApp to one person, with an SMS upgrade card', async () => {
+    auth.tierRank = 1;
+    const { default: SmsComposer } = await import('@features/sms/components/SmsComposer');
+    const { MemoryRouter } = await import('react-router-dom');
+    render(<MemoryRouter><SmsComposer setup={null} smsOff smsOffReason="plan" /></MemoryRouter>);
+    expect(await screen.findByText(/SMS to parents/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Upgrade to Silver/ })).toBeInTheDocument();
+    expect(screen.queryByTestId('sms-paused')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SMS', exact: true })).toBeNull();
+    await act(async () => { fireEvent.change(await screen.findByLabelText('Choose one person: search'), { target: { value: 'ann' } }); });
+    await act(async () => { fireEvent.click(screen.getByRole('radio')); });
+    await typeMessage('Hi [Student name]');
+    expect(await screen.findByRole('link', { name: /Open WhatsApp/ })).toBeInTheDocument();
+  });
+
   it('a sent message opens from what is stored when HashBack may not be asked', async () => {
     sms.listSms.mockResolvedValue({ campaigns: [{ id: 's1', template: 'Hi', createdAt: '2026-11-15T10:00:00Z', counts: { delivered: 1 } }] });
     sms.refreshSms.mockRejectedValue(Object.assign(new Error('SMS is not switched on yet.'), { code: 'sms_off', status: 403 }));

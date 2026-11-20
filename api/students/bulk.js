@@ -1,7 +1,7 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
-import { requireTier } from '../_lib/auth.js';
+import { requireFeature, hasFeature } from '../_lib/schoolPlan.js';
 import { badRequest, forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
@@ -120,8 +120,8 @@ export default createHandler({
     // 006Fixes / 09: a fee block charges unless the teacher chose "for what they owe".
     const charge = isFees && body.charge !== false;
     if (isFees) {
-      // The same gates as /api/fees/post: Silver, and fees switched on.
-      requireTier(user, 'silver');
+      // The plan's fee blocks (Silver and up), and fees switched on.
+      await requireFeature(user, 'feeBlocks');
       if (!(await isEnabled('fees.enabled'))) throw forbidden('Fees are not enabled.', 'feature_disabled');
       if (charge && !body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
     }
@@ -130,8 +130,16 @@ export default createHandler({
     // Every session named must exist (cached per isolate for 60 s).
     for (const slug of new Set(body.items.map((i) => i.session))) await assertSessionExists(db, slug);
 
-    // Approving receipts records the balance as paid only with fees switched on.
-    const feesEnabled = body.action === 'approveReceipts' ? await isEnabled('fees.enabled') : false;
+    // Approving receipts records the balance as paid only with fees switched on
+    // AND the plan's fee payments (013Fixes / 04: Silver and up). Without them
+    // the students are let back in and nothing is posted; any payment detail
+    // in the request is refused, so a crafted call can't post money either.
+    const paymentsAllowed = body.action === 'approveReceipts' ? await hasFeature(user, 'feePayments') : false;
+    if (body.action === 'approveReceipts' && !paymentsAllowed
+      && (body.payment !== undefined || body.items.some((i) => i.amount !== undefined))) {
+      throw forbidden('Recording a payment is on the Silver plan and up. You can still approve the students back in.', 'tier_required');
+    }
+    const feesEnabled = body.action === 'approveReceipts' && paymentsAllowed ? await isEnabled('fees.enabled') : false;
 
     const batch = await openBatch({
       db,
@@ -142,7 +150,7 @@ export default createHandler({
       amount: charge ? body.amount : null,
       reason: body.action === 'block' && !isFees ? (body.reason ?? '') : null,
       nowMs,
-      payment: body.action === 'approveReceipts' ? (body.payment ?? 'full') : null,
+      payment: body.action === 'approveReceipts' && paymentsAllowed ? (body.payment ?? 'full') : null,
       charge: isFees ? charge : null,
     });
 

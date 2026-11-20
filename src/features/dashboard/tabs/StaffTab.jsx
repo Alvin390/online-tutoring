@@ -1,6 +1,6 @@
 import { useMemo, useState, lazy, Suspense } from 'react';
 import { useFlag } from '@shared/config/FlagsContext';
-import { useAuthState } from '@features/auth/context/AuthContext';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import Modal from '@components/ui/Modal';
 import SubjectPicker from '@features/registration/components/SubjectPicker';
 import { subjectsForClass, parseSubjects, joinSubjects } from '@shared/constants/subjects';
@@ -92,9 +92,10 @@ export default function StaffTab({ staffBySession = {}, sessions = [], onEdit, o
   const [busy, setBusy] = useState(false);
   const numbers = useFlag('checkin.admissionNumbers');
   const smsOn = useFlag('sms.enabled');
-  const { tierRank, isSuperadmin } = useAuthState();
-  // SMS is Silver, as on the Messages tab (api/messages/sms.js).
-  const canSms = smsOn && (isSuperadmin || (tierRank ?? 0) >= 2);
+  // SMS is the school plan's `bulkSms` (Silver), as on the Messages tab
+  // (api/messages/sms.js; 013Fixes / 00).
+  const plan = usePlan();
+  const canSms = smsOn && plan.has('bulkSms');
   const [texting, setTexting] = useState(null);
 
   const names = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s.name ?? s.id])), [sessions]);

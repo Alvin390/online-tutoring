@@ -411,6 +411,7 @@ export const useDashboard = () => {
         });
 
         const kes = (n) => `KES ${Number(n).toLocaleString('en-KE')}`;
+        // 013Fixes / 04: on a plan without fee payments the reply carries no money.
         if (result.posted && result.balance > 0) {
           showSuccess(`Receipt approved for ${studentName}. ${kes(result.paid)} recorded; ${kes(result.balance)} still owed.`);
         } else if (result.posted) {

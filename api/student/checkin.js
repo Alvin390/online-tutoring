@@ -11,6 +11,7 @@ import { issuePass, passBypass } from '../_lib/checkinPass.js';
 import { parseNumberInput, recordNumber, reservationId } from '../_lib/admissionNumber.js';
 import { DEVICE_ID_PATTERN, lockRef, deviceHash, lockState, lockUntil } from '../_lib/checkinLock.js';
 import { sessionSchedule } from '../_lib/sessions.js';
+import { cachedPlan, planRefs, rememberPlan } from '../_lib/schoolPlan.js';
 
 /**
  * Student check-in — Phase 01 D1/D4.
@@ -192,10 +193,17 @@ export default createHandler({
     const extraRefs = numbersOn
       ? [lockRef(db, session, phone), ...(number ? [db.doc(`sessions/${session}/numbers/${reservationId(number.kind, number.digits)}`)] : [])]
       : [];
-    const [[snap, activity, retiredSnap, lockSnap, reservationSnap]] = await Promise.all([
-      db.getAll(ref, activityRef, retiredRef, ...extraRefs),
+    // 013Fixes / 05: the school's plan (does it include fees?) rides in the
+    // same batchGet when it isn't cached — no extra round trip, ever.
+    const knownPlan = cachedPlan();
+    const planDocs = knownPlan ? [] : planRefs(db);
+    const [all] = await Promise.all([
+      db.getAll(ref, activityRef, retiredRef, ...planDocs, ...extraRefs),
       phoneLimit,
     ]);
+    const [snap, activity, retiredSnap] = all;
+    const plan = knownPlan ?? rememberPlan(all[3], all[4]);
+    const [lockSnap, reservationSnap] = all.slice(3 + planDocs.length);
 
     if (!snap.exists) {
       // Deliberately identical in shape to the found case — no timing or
@@ -274,6 +282,7 @@ export default createHandler({
     // 002Fixes / 07: a pass for this number's repeat checks. Only when the
     // student exists — an unknown number gets nothing to skip limits with.
     const pass = issuePass({ session, phone });
-    return { exists: true, student: projectStudent(data), ...(pass ? { pass } : {}) };
+    // 013Fixes / 05: the balance only on a plan with fees.
+    return { exists: true, student: projectStudent(data, { fees: plan.features.fees === true }), ...(pass ? { pass } : {}) };
   },
 });

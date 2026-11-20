@@ -2,7 +2,8 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { postEntry } from '../_lib/ledger.js';
-import { notFound, badRequest } from '../_lib/errors.js';
+import { notFound, badRequest, forbidden } from '../_lib/errors.js';
+import { hasFeature } from '../_lib/schoolPlan.js';
 import { approvalFields, receiptIdFor, mpesaCodeFrom, paymentChoice } from '../_lib/receiptApproval.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 
@@ -15,6 +16,13 @@ import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
  *
  * Now approving can post a `payment` entry linked back to the receipt via
  * `sourceReceiptId`.
+ *
+ * 013Fixes / 04 (owner: "Let them keep the approvals, just the approvals on
+ * being blocked"): every plan may approve a blocked student back in. Recording
+ * money with it is the plan's `feePayments` (Silver and up). Without it any
+ * `payment`, `amount`, `method` or `reference` is refused (even in a crafted
+ * request), nothing touches the ledger, the student is let back in whatever
+ * they owe, and no money comes back in the reply.
  *
  * THE TWO ACTIONS STAY SEPARABLE. `amount` is optional: a teacher can approve
  * access without recording money, because sometimes they just want to let
@@ -48,6 +56,13 @@ export default createHandler({
   handle: async ({ body, user, log }) => {
     const { session, phone, method, reference } = body;
     const db = getDb();
+
+    const paymentsAllowed = await hasFeature(user, 'feePayments');
+    const asksForMoney = body.payment !== undefined || body.amount !== undefined
+      || body.method !== undefined || body.reference !== undefined;
+    if (!paymentsAllowed && asksForMoney) {
+      throw forbidden('Recording a payment is on the Silver plan and up. You can still approve the student back in.', 'tier_required');
+    }
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
 
     const snap = await studentRef.get();
@@ -61,11 +76,13 @@ export default createHandler({
     // What is owed: the student's feeBalance, which the ledger keeps equal to
     // the account in the same transaction (no extra read).
     const owed = Number(data.feeBalance) || 0;
-    let choice;
-    try {
-      choice = paymentChoice({ payment: body.payment, amount: body.amount, owed });
-    } catch (err) {
-      throw badRequest(err.message, err.code);
+    let choice = { kind: 'none', amount: 0, partial: false, note: null };
+    if (paymentsAllowed) {
+      try {
+        choice = paymentChoice({ payment: body.payment, amount: body.amount, owed });
+      } catch (err) {
+        throw badRequest(err.message, err.code);
+      }
     }
 
     let posted = null;
@@ -115,13 +132,17 @@ export default createHandler({
         actor: user.uid,
         actorRole: user.role,
         target: `${session}/${phone}`,
-        before: { balance: posted?.previousBalance ?? null, blocked: data.blocked === true },
-        after: { balance: balanceAfter, blocked: !clearBlock, entryId: posted?.entryId ?? null },
-        context: { requestId: log.requestId, payment: choice.kind, amountPosted: posted ? choice.amount : null },
+        before: { balance: paymentsAllowed ? (posted?.previousBalance ?? null) : null, blocked: data.blocked === true },
+        after: { balance: paymentsAllowed ? balanceAfter : null, blocked: !clearBlock, entryId: posted?.entryId ?? null },
+        context: { requestId: log.requestId, payment: choice.kind, amountPosted: posted ? choice.amount : null, ...(paymentsAllowed ? {} : { plan: 'no_fee_payments' }) },
       },
       log
     );
 
+    if (!paymentsAllowed) {
+      // No money in the reply on a plan without fee payments.
+      return { ok: true, posted: false, entryId: null, paid: 0, partial: false, balance: null, stillBlocked: !clearBlock, stillOwes: null };
+    }
     return {
       ok: true,
       posted: Boolean(posted),

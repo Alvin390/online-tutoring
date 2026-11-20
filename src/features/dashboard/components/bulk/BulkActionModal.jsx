@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import Modal from '@components/ui/Modal';
 import BlockForm from '../block/BlockForm';
 import { useFlag } from '@shared/config/FlagsContext';
-import { useAuthState } from '@features/auth/context/AuthContext';
-import { TIER_RANK } from '@shared/constants/tiers';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import { effectiveApprovalStatus } from '@/shared/utils/studentState';
 import { formatKes } from '@utils/blockReason';
 import { runBulk, runSchedule, removeFromSchedule, BulkInterrupted } from '@services/api/students';
@@ -68,8 +67,11 @@ export function planBulk(action, rows, { noCharge = false } = {}) {
 export default function BulkActionModal({ action, rows, sessionOf, onClose, onDone, schedule = null }) {
   const text = BULK_TEXT[action] ?? BULK_TEXT.block;
   const feesFlag = useFlag('fees.enabled');
-  const { tierRank, isSuperadmin } = useAuthState();
-  const feesUsable = feesFlag && (isSuperadmin || (tierRank ?? 0) >= TIER_RANK.silver);
+  // 013Fixes / 00: the SCHOOL's plan. Fee blocks and recording a payment on
+  // approval are separate plan features (fee blocks / fee payments).
+  const schoolPlan = usePlan();
+  const feesUsable = feesFlag && schoolPlan.has('feeBlocks');
+  const paymentsUsable = feesFlag && schoolPlan.has('feePayments');
 
   const [step, setStep] = useState(action === 'block' ? 'form' : 'confirm');
   const [kind, setKind] = useState(feesUsable ? 'fees' : 'other');
@@ -99,9 +101,11 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
 
   const timing = useBlockWhen(schedule);
   const [showWhenProblem, setShowWhenProblem] = useState(false);
+  // 013Fixes / 03: scheduling is the school plan's `scheduledBlocks` (Silver and up).
+  const schedulesUsable = schoolPlan.has('scheduledBlocks');
   // A scheduled block takes every selected student: the skip rules apply at
   // the time it starts, not now (someone may be approved meanwhile).
-  const scheduling = action === 'block' && timing.scheduled;
+  const scheduling = action === 'block' && schedulesUsable && timing.scheduled;
   const noCharge = action === 'block' && kind === 'fees' && feesUsable && owing?.count > 0 && !charge;
   const plan = useMemo(() => {
     const p = planBulk(action, rows, { noCharge });
@@ -111,7 +115,7 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
   const isFees = action === 'block' && kind === 'fees' && feesUsable && !noCharge;
   const feeKind = action === 'block' && kind === 'fees' && feesUsable;
   // 006Fixes / 07: the partial step's lines and sums.
-  const approving = action === 'approveReceipts' && feesUsable;
+  const approving = action === 'approveReceipts' && paymentsUsable;
   const owingRows = useMemo(() => (approving ? plan.eligible.filter((r) => owedOf(r) > 0) : []), [approving, plan]);
   const owingTotal = owingRows.reduce((sum, r) => sum + owedOf(r), 0);
   const choosePartial = () => {
@@ -220,7 +224,8 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
           feesUsable={feesUsable}
           feesFlag={feesFlag}
           count={rows.length}
-          timing={{ ...timing, showProblem: showWhenProblem }}
+          timing={schedulesUsable ? { ...timing, showProblem: showWhenProblem } : null}
+          scheduleLocked={!schedulesUsable}
           owing={owing}
           charge={charge}
           onCharge={setCharge}
@@ -382,10 +387,16 @@ export default function BulkActionModal({ action, rows, sessionOf, onClose, onDo
             )}
           </div>
         )}
-        {action === 'approveReceipts' && n > 0 && !isPartial && (
+        {action === 'approveReceipts' && n > 0 && !isPartial && approving && (
           <p className="mb-2 small">
             {plan.owing > 0 && `${plural(plan.owing, 'owes', 'owe')} a balance: each balance is recorded as paid, with the M-Pesa code from their receipt, and they are let back in. `}
             {n - plan.owing > 0 && `${plural(n - plan.owing, 'owes nothing', 'owe nothing')}: they are let back in.`}
+          </p>
+        )}
+        {action === 'approveReceipts' && n > 0 && !approving && (
+          // 013Fixes / 04: no fee payments in the plan (or fees off): nothing recorded.
+          <p className="mb-2 small" data-testid="approve-no-money">
+            {`${plural(n, 'student')} will be let back in. No payment is recorded.`}
           </p>
         )}
         {!scheduling && action !== 'cancelSchedule' && (

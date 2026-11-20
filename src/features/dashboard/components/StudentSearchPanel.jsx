@@ -10,12 +10,14 @@ import {
 import { highlightTerms } from '../search/highlightMatches';
 import { DEFAULT_CLASSES } from '@shared/constants/sessions';
 import { useOptionalToast } from '@/context/ToastContext';
+import { usePlan } from '@features/billing/hooks/usePlan';
 import { describeResult, plural } from '../bulk/bulkText';
 import { formatWhen } from '../bulk/scheduleTime';
 import { rememberBulk, markUndone, useUndoableCount } from '../bulk/recentBulk';
 
 // 003Fixes / 05: both load on first use.
 import { pairsAcross } from '../duplicates/duplicatePairs';
+import { useMoneyShown } from '@features/billing/hooks/useMoneyShown';
 const BulkActionModal = lazy(() => import('./bulk/BulkActionModal'));
 // 006Fixes / 02: loaded on the first Delete, prefetched when the browser is idle.
 const loadBulkDeleteModal = () => import('./bulk/BulkDeleteModal');
@@ -137,6 +139,15 @@ export default function StudentSearchPanel({
     return () => cancel(id);
   }, []);
 
+  // 013Fixes / 03: scheduled blocks are the school plan's (Silver and up).
+  const schoolPlan = usePlan();
+  const schedulesUsable = schoolPlan.has('scheduledBlocks');
+  // 013Fixes / 05: money filters only with fees on and in the plan.
+  const moneyShown = useMoneyShown();
+  const hiddenStatuses = useMemo(() => [
+    ...(moneyShown ? [] : ['owes', 'partial']),
+    ...(schedulesUsable ? [] : ['scheduled']),
+  ], [moneyShown, schedulesUsable]);
   const scheduledCount = useMemo(() => {
     const ids = new Set();
     for (const list of Object.values(rosters)) for (const s of list ?? []) if (s?.scheduledBlock?.batchId) ids.add(s.scheduledBlock.batchId);
@@ -346,16 +357,19 @@ export default function StudentSearchPanel({
             <span className="d-none d-sm-inline">Recent actions</span>
             {undoable > 0 && <span className="badge text-bg-primary ms-1">{undoable}</span>}
           </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-secondary recent-actions-btn"
-            onClick={() => setShowScheduled(true)}
-            aria-label={scheduledCount > 0 ? `Scheduled blocks (${scheduledCount})` : 'Scheduled blocks'}
-          >
-            <i className="bi bi-calendar-event me-1" aria-hidden="true" />
-            <span className="d-none d-sm-inline">Scheduled</span>
-            {scheduledCount > 0 && <span className="badge text-bg-warning ms-1">{scheduledCount}</span>}
-          </button>
+          {/* 013Fixes / 03: the waiting list is the plan's scheduled blocks (Silver and up). */}
+          {schedulesUsable && (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary recent-actions-btn"
+              onClick={() => setShowScheduled(true)}
+              aria-label={scheduledCount > 0 ? `Scheduled blocks (${scheduledCount})` : 'Scheduled blocks'}
+            >
+              <i className="bi bi-calendar-event me-1" aria-hidden="true" />
+              <span className="d-none d-sm-inline">Scheduled</span>
+              {scheduledCount > 0 && <span className="badge text-bg-warning ms-1">{scheduledCount}</span>}
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-sm btn-outline-secondary recent-actions-btn"
@@ -388,6 +402,8 @@ export default function StudentSearchPanel({
           subjectOptions={subjects}
           subjectCounts={out.facets.subject}
           onToggleStatus={toggleStatus}
+          hiddenStatuses={hiddenStatuses}
+          moneyShown={moneyShown}
           onToggleSubject={toggleSubject}
           onRange={setRange}
           onSort={setSort}
@@ -489,7 +505,7 @@ export default function StudentSearchPanel({
           />
         </Suspense>
       )}
-      {showScheduled && (
+      {showScheduled && schedulesUsable && (
         <Suspense fallback={null}>
           <ScheduledPanel
             rosters={rosters}

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger } from './log.js';
 import { sendError, badRequest, methodNotAllowed, payloadTooLarge } from './errors.js';
-import { authenticate, requireRole, requireTier } from './auth.js';
+import { authenticate, requireRole } from './auth.js';
+import { requireFeature } from './schoolPlan.js';
 import { enforceRateLimit, clientIp } from './rateLimit.js';
 import { validate } from './validate.js';
 import { subrequestsSpent } from './firestoreRest.js';
@@ -15,7 +16,7 @@ import { PASS_HEADER } from './checkinPass.js';
  * Every handler runs through this, in this order:
  *
  *   method check → content-type check → body size cap → rate limit
- *     → auth → role/tier → schema validation → handler
+ *     → auth → role/plan feature → schema validation → handler
  *
  * The order is not arbitrary. Cheap rejections come first so an attacker
  * cannot make us do expensive work (a token verification, a Firestore read)
@@ -125,7 +126,9 @@ export function backgroundTask(req, promise, log) {
  * @param {string|string[]} opts.method        allowed HTTP method(s)
  * @param {boolean} [opts.auth]                require a verified ID token
  * @param {string}  [opts.role]                minimum role
- * @param {string}  [opts.tier]                minimum subscription tier
+ * @param {string}  [opts.feature]             a plan feature the SCHOOL's plan must include
+ *        (api/_lib/plans.js; 013Fixes / 00 — the plan comes from
+ *        subscription/current, never from the login's claims)
  * @param {object}  [opts.schema]              Zod schema for the body
  * @param {object}  [opts.rateLimit]           { bucket, limit, windowSeconds, keyBy, bypass? }
  *   bypass({ req, body }) → Promise<boolean> (002Fixes / 07): checked after
@@ -143,7 +146,7 @@ export function createHandler(opts) {
     method = 'POST',
     auth = false,
     role = null,
-    tier = null,
+    feature = null,
     schema = null,
     rateLimit = null,
     rawBody = false,
@@ -228,7 +231,7 @@ export function createHandler(opts) {
         user = await authenticate(req);
         if (perf.detailed) perf.auth = performance.now() - authStart;
         if (role) requireRole(user, role);
-        if (tier) requireTier(user, tier);
+        if (feature) await requireFeature(user, feature);
       }
 
       // 6. Validation — strict schemas, so an unexpected key is a rejection.

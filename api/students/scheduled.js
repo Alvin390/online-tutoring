@@ -1,7 +1,7 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
-import { requireTier } from '../_lib/auth.js';
+import { requireFeature } from '../_lib/schoolPlan.js';
 import { badRequest, forbidden } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { assertSessionExists } from '../_lib/sessions.js';
@@ -45,6 +45,10 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
+  // 013Fixes / 03: every action — create, list, reschedule, cancel, remove —
+  // is the plan's scheduled blocks (Silver and up). A fee schedule also needs
+  // the plan's fee blocks (below).
+  feature: 'scheduledBlocks',
   schema,
   rateLimit: { bucket: 'students_scheduled', limit: 600, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ req, body, user: signedIn, log }) => {
@@ -82,7 +86,7 @@ export default createHandler({
       }
       default: {
         if (body.kind === 'fees') {
-          requireTier(user, 'silver');
+          await requireFeature(user, 'feeBlocks');
           if (!(await isEnabled('fees.enabled'))) throw forbidden('Fees are not enabled.', 'feature_disabled');
           if (body.charge !== false && !body.amount) throw badRequest('Enter the amount owed.', 'amount_required');
         }

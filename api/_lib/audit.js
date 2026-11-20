@@ -38,6 +38,9 @@ export const AuditAction = {
   SUBSCRIPTION_CANCELLED: 'billing.subscription_cancelled',
   SUBSCRIPTION_STATE_CHANGED: 'billing.state_changed',
   TIER_GRANTED_BY_SUPERADMIN: 'billing.tier_granted',
+  // 013Fixes / 01
+  OWNER_SET: 'billing.owner_set',
+  DEV_LOGIN_SET: 'platform.dev_login_set',
   WEBHOOK_RECEIVED: 'billing.webhook_received',
   WEBHOOK_REJECTED: 'billing.webhook_rejected',
   DATA_PURGED: 'data.purged',

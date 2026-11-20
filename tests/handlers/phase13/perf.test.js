@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import {
   pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, drainWaitUntil,
-  userWithClaims, teacherClaims,
+  userWithClaims, teacherClaims, seedPlan,
 } from '../_worker.js';
 
 /**
@@ -24,6 +24,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearFirestore();
+  // 013Fixes / 00: the plan is the SCHOOL's (subscription/current), not the login's claim.
+  await seedPlan(db, 'gold');
   await setFlags(db, { 'auth.legacyStudentRead': true });
   await db.doc('sessions/morning').set({ slug: 'morning', name: 'Morning', active: true });
   await db.doc(studentPath).set({
@@ -141,6 +143,7 @@ describe('ledger under contention (D3)', () => {
   async function postConcurrently(n, phone) {
     await setFlags(db, { 'fees.enabled': true, 'auth.legacyStudentRead': true });
     const teacher = await userWithClaims('p13-perf-silver', teacherClaims.silver);
+    await seedPlan(db, 'silver'); // 013Fixes / 00: the school's plan
     await db.doc(`sessions/morning/students/${phone}`).set({
       studentName: 'Busy', parentPhone: phone, class: 'G8', subjects: 'Maths', receiptMessage: 'QAB123XYZ9 x',
       registeredAt: new Date(), session: 'morning', blocked: false, approvalStatus: 'approved', receiptStatus: 'approved', feeBalance: 0,

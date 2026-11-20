@@ -276,7 +276,7 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
-  tier: 'silver',
+  feature: 'invoices',
   schema,
   rateLimit: { bucket: 'fees_invoice_run', limit: 10, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {

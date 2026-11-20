@@ -9,11 +9,14 @@ const ReportsInbox = lazy(() => import('@features/reports/components/ReportsInbo
 const NotificationsSettingsCard = lazy(() => import('@features/reports/components/NotificationsSettingsCard'));
 // 008Fixes / 10: the SMS wallet, usage per teacher and credit alerts.
 const SmsCostCard = lazy(() => import('@features/sms/components/SmsCostCard'));
+// 013Fixes / 07: what each plan includes, its limits and its card words.
+const PlanSettings = lazy(() => import('@features/admin/components/PlanSettings'));
 
 // Phase 13 / 06: bugs and feature requests are separate inboxes. `?tab=` is
 // what the link in every alert email targets, with `&report=<id>`.
 const TABS = [
   { id: 'users', label: 'Accounts & tiers', icon: 'bi-people' },
+  { id: 'plans', label: 'Plans', icon: 'bi-sliders' },
   { id: 'bugs', label: 'Bug reports', icon: 'bi-bug', type: 'bug' },
   { id: 'features', label: 'Feature requests', icon: 'bi-lightbulb', type: 'feature' },
   { id: 'audit', label: 'Audit log', icon: 'bi-shield-check' },
@@ -262,6 +265,7 @@ export default function SuperadminPage() {
         }
       >
         {tab === 'users' && <UserManager />}
+        {tab === 'plans' && <PlanSettings />}
         {tab === 'bugs' && (
           <ReportsInbox key="bug" type="bug" initialReportId={requestedTab === 'bugs' ? linkedReport : null} onCountsChange={onCountsChange} />
         )}

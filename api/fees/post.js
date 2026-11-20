@@ -39,7 +39,7 @@ export default createHandler({
   method: 'POST',
   auth: true,
   role: 'teacher',
-  tier: 'silver',
+  feature: 'feePayments',
   schema,
   rateLimit: { bucket: 'fees_post', limit: 300, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log }) => {

@@ -1,10 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@services/firebase/config';
 import { useAuthState } from '@features/auth/context/AuthContext';
 import { useFlag } from '@shared/config/FlagsContext';
 import { getBillingStatus } from '@services/api/billing';
 import logger from '@utils/logger';
+import { BillingContext, useOptionalBilling } from './billingContextValue';
 
 /**
  * Billing state — Phase 03.
@@ -19,7 +20,6 @@ import logger from '@utils/logger';
  *      deadline merely passes.
  */
 
-const BillingContext = createContext(null);
 
 const EMPTY = {
   loading: true,
@@ -29,6 +29,9 @@ const EMPTY = {
   status: null,
   tier: null,
   graceEndsAt: null,
+  // 013Fixes / 00: the SCHOOL's plan (features and limits) from /api/billing/status,
+  // the same `schoolPlan()` the server gates use. null until it answers.
+  plan: null,
 };
 
 function toMillis(value) {
@@ -54,6 +57,7 @@ export function BillingProvider({ children }) {
     try {
       const result = await getBillingStatus();
       setState({
+        plan: result.plan ?? null,
         loading: false,
         billingEnabled: result.billingEnabled,
         subscription: result.subscription,
@@ -76,6 +80,13 @@ export function BillingProvider({ children }) {
   }, [refresh]);
 
   // Live projection listener.
+  //
+  // 013Fixes / 00: when the projected tier CHANGES (a webhook, a superadmin
+  // plan change), the plan's features and limits are fetched again, so the
+  // screens follow the new plan without a reload. Only a change triggers it —
+  // comparing against the last projected tier, never against the fetched plan,
+  // so a stale projection can't cause a refetch loop.
+  const lastProjectedTier = useRef(undefined);
   useEffect(() => {
     if (!isAuthenticated || !isTeacher || !billingEnabled) return undefined;
 
@@ -84,6 +95,9 @@ export function BillingProvider({ children }) {
       (snap) => {
         if (!snap.exists()) return;
         const sub = snap.data();
+        const tierNow = sub.tier ?? null;
+        if (lastProjectedTier.current !== undefined && lastProjectedTier.current !== tierNow) refresh();
+        lastProjectedTier.current = tierNow;
         setState((prev) => ({
           ...prev,
           loading: false,
@@ -97,7 +111,7 @@ export function BillingProvider({ children }) {
     );
 
     return unsubscribe;
-  }, [isAuthenticated, isTeacher, billingEnabled]);
+  }, [isAuthenticated, isTeacher, billingEnabled, refresh]);
 
   const value = useMemo(
     () => ({
@@ -120,4 +134,4 @@ export function useBilling() {
   return context;
 }
 
-export { BillingContext };
+export { BillingContext, useOptionalBilling };

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, userWithClaims, teacherClaims,
+  pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, userWithClaims, teacherClaims, seedPlan,
   fakes, resetFakes, externalCalls, decodeGmailRaw,
 } from '../_worker.js';
 
@@ -71,11 +71,15 @@ describe('the switch and the tiers', () => {
   });
 
   it('Silver sends to everyone; choosing who is Gold', async () => {
+    // 013Fixes / 00: a Silver SCHOOL — even a login whose claim says Gold can't choose.
+    await seedPlan(db, 'silver');
     await seed('evening', P(1));
     expect((await sms(silver, { action: 'preview', template: 'Hi', filter: { type: 'all' } })).status).toBe(200);
     const filtered = await sms(silver, { action: 'preview', template: 'Hi', filter: { type: 'class', values: ['Form 3'] } });
     expect(filtered.status).toBe(403);
     expect(filtered.body.error.code).toBe('tier_required');
+    const crafted = await sms(gold, { action: 'preview', template: 'Hi', filter: { type: 'class', values: ['Form 3'] } });
+    expect(crafted.status).toBe(403);
   });
 });
 
