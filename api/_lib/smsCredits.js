@@ -148,4 +148,56 @@ export async function creditContext(db) {
   return { sub: subSnap.exists ? subSnap.data() : null, overrides: plan.overrides ?? null };
 }
 
+/** The refusal when the units are not enough (no money in it; owner answer 3). */
+export function unitsExhausted() {
+  return new ApiError(402, 'sms_credit_exhausted', "You've used your SMS units. Contact us for more.");
+}
+
+/**
+ * Inside the chunk's claim transaction (013Fixes / 15): take `units` from the
+ * balance — included first, then top-up — or answer null when there are not
+ * enough. Written with the claim, so a chunk is charged exactly once.
+ * Reads must come before this (it reads the state, then writes).
+ */
+export async function reserveInTx(tx, db, { sub, overrides, nowMs, units, campaignId, chunkId, actor }) {
+  const { state, ref } = await ensureInTx(tx, db, { sub, overrides, nowMs, actor });
+  const view = creditView(state);
+  if (view.available < units) return null;
+  const fromIncluded = Math.min(units, view.includedLeft);
+  const fromTopup = units - fromIncluded;
+  const next = { ...state, includedUsed: (state.includedUsed ?? 0) + fromIncluded, topup: (state.topup ?? 0) - fromTopup };
+  tx.set(ref, { ...next, updatedAt: FieldValue.serverTimestamp() });
+  tx.set(db.doc(`${LEDGER}/reserve:${campaignId}:${chunkId}`), {
+    type: 'reserve', units: -units, fromIncluded, fromTopup, windowId: state.windowId, campaignId, actor, at: new Date(nowMs),
+  });
+  return { fromIncluded, fromTopup, windowId: state.windowId };
+}
+
+/**
+ * After the chunk: give back the units of everyone NOT sent (failed, or put
+ * back in the queue). Top-up first, then included; if the window changed in
+ * between, it all goes back as top-up (the old window's included units are
+ * gone). Idempotent by the ledger id.
+ */
+export async function refundUnits(db, { units, reservation, campaignId, chunkId, nowMs = Date.now(), actor }) {
+  if (!(units > 0) || !reservation) return { refunded: 0 };
+  return db.runTransaction(async (tx) => {
+    const entryRef = db.doc(`${LEDGER}/refund:${campaignId}:${chunkId}`);
+    const [existing, snap] = await Promise.all([tx.get(entryRef), tx.get(db.doc(STATE))]);
+    if (existing.exists || !snap.exists) return { refunded: 0 };
+    const state = snap.data();
+    let toTopup = Math.min(units, reservation.fromTopup);
+    let toIncluded = units - toTopup;
+    if (state.windowId !== reservation.windowId) { toTopup = units; toIncluded = 0; }
+    const next = {
+      ...state,
+      topup: (state.topup ?? 0) + toTopup,
+      includedUsed: Math.max(0, (state.includedUsed ?? 0) - toIncluded),
+    };
+    tx.set(db.doc(STATE), { ...next, updatedAt: FieldValue.serverTimestamp() });
+    tx.set(entryRef, { type: 'refund', units, toIncluded, toTopup, windowId: state.windowId, campaignId, actor, at: new Date(nowMs) });
+    return { refunded: units };
+  });
+}
+
 export const CREDIT_PATHS = { STATE, LEDGER };
