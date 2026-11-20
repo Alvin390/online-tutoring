@@ -56,6 +56,7 @@ import studentsScheduled from '../api/students/scheduled.js';
 import studentsDuplicates from '../api/students/duplicates.js';
 import cronScheduledBlocksSweep from '../api/cron/scheduledBlocksSweep.js';
 import cronSmsDeliverySweep from '../api/cron/smsDeliverySweep.js';
+import cronUsageCount from '../api/cron/usageCount.js';
 import messagesSms from '../api/messages/sms.js';
 import studentRequestCode from '../api/student/requestCode.js';
 import studentResubmit from '../api/student/resubmit.js';
@@ -157,6 +158,8 @@ export const STATIC_ROUTES = {
   '/api/cron/scheduledBlocksSweep': cronScheduledBlocksSweep,
   // 008Fixes / 07: SMS.
   '/api/cron/smsDeliverySweep': cronSmsDeliverySweep,
+  // 013Fixes / 11: the usage count (learners, sessions, logins) about once a day.
+  '/api/cron/usageCount': cronUsageCount,
   '/api/messages/sms': messagesSms,
   '/api/student/requestCode': studentRequestCode,
   '/api/student/resubmit': studentResubmit,
@@ -212,4 +215,5 @@ export const CRON_HANDLERS = {
   notificationsSweep: cronNotificationsSweep,
   scheduledBlocksSweep: cronScheduledBlocksSweep,
   smsDeliverySweep: cronSmsDeliverySweep,
+  usageCount: cronUsageCount,
 };

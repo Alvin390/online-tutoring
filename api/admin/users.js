@@ -8,6 +8,7 @@ import { TIER_RANK } from '../_lib/auth.js';
 import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 import { seatState, mirrorDisabled } from '../_lib/logins.js';
+import { recountUsage } from '../_lib/usage.js';
 
 /**
  * User administration — superadmin only.
@@ -43,6 +44,8 @@ const schema = z
       'setDevLogin',
       // 013Fixes / 09
       'setExtraLogins',
+      // 013Fixes / 11
+      'recountUsage',
     ]),
     uid: z.string().trim().max(128).optional(),
     email: z.string().trim().email().max(320).optional(),
@@ -263,6 +266,14 @@ export default createHandler({
         log
       );
       return { ok: true, devLoginEmail: next };
+    }
+
+    // ------------------------------------------------------ recountUsage
+    // 013Fixes / 11: "Recount now" — the same count the hourly trigger runs daily.
+    if (action === 'recountUsage') {
+      const usage = await recountUsage(db, { by: user.uid });
+      log.info('Usage recounted by superadmin');
+      return { ok: true, usage: { ...usage, windowStart: usage.windowStart.toISOString(), windowEnd: usage.windowEnd.toISOString() } };
     }
 
     // ---------------------------------------------------- setExtraLogins
