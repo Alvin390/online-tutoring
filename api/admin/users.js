@@ -7,6 +7,7 @@ import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
+import { seatState, mirrorDisabled } from '../_lib/logins.js';
 
 /**
  * User administration — superadmin only.
@@ -40,6 +41,8 @@ const schema = z
       // 013Fixes / 01
       'setOwner',
       'setDevLogin',
+      // 013Fixes / 09
+      'setExtraLogins',
     ]),
     uid: z.string().trim().max(128).optional(),
     email: z.string().trim().email().max(320).optional(),
@@ -52,6 +55,8 @@ const schema = z
     confirmEmail: z.string().trim().max(320).optional(),
     // 013Fixes / 01: the developer login's email; null clears it.
     devLoginEmail: z.string().trim().toLowerCase().email().max(320).nullable().optional(),
+    // 013Fixes / 09: extra dashboard logins on top of the plan's (added by hand; no checkout yet).
+    extraLogins: z.number().int().min(0).max(1000).optional(),
   })
   .strict();
 
@@ -134,7 +139,9 @@ export default createHandler({
           }
         : null;
 
-      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail };
+      // 013Fixes / 09: the school's seats (enabled teacher logins, developer login not counted).
+      const seats = await seatState(db).then((s) => ({ used: s.used, included: s.included, extra: s.extra, limit: s.limit }), () => null);
+      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats };
     }
 
     // --------------------------------------------------------- createTeacher
@@ -159,6 +166,8 @@ export default createHandler({
         role: 'teacher',
         phone: null,
       });
+      // 013Fixes / 09: seats are counted from users/{uid}.disabled.
+      await mirrorDisabled(db, created.uid, false);
 
       log.info('Teacher account created');
 
@@ -254,6 +263,25 @@ export default createHandler({
         log
       );
       return { ok: true, devLoginEmail: next };
+    }
+
+    // ---------------------------------------------------- setExtraLogins
+    // 013Fixes / 09: extra logins for this school on top of its plan's,
+    // added by hand after an off-platform payment (owner answer 3).
+    if (action === 'setExtraLogins') {
+      if (body.extraLogins === undefined) throw badRequest('How many extra logins?');
+      const ref = db.doc('subscription/current');
+      const snap = await ref.get();
+      const before = snap.exists ? (snap.data().extraLogins ?? 0) : 0;
+      await ref.set({ extraLogins: body.extraLogins, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      log.info('Extra logins set', { extraLogins: body.extraLogins });
+      await tryWriteAudit(
+        { action: 'billing.extra_logins_set', actor: user.uid, actorRole: user.role, target: 'subscription/current',
+          before: { extraLogins: before }, after: { extraLogins: body.extraLogins },
+          context: { requestId: log.requestId, via: 'superadmin_console' } },
+        log
+      );
+      return { ok: true, extraLogins: body.extraLogins };
     }
 
     // Everything below needs a target.
@@ -415,6 +443,8 @@ export default createHandler({
       // Revoking on disable makes it immediate rather than waiting for the
       // current ID token to expire, which can be up to an hour.
       if (disabled) await revokeUserSessions(target.uid);
+      // 013Fixes / 09: seats are counted from users/{uid}.disabled.
+      await mirrorDisabled(db, target.uid, disabled);
 
       log.info(`Account ${action}d`);
 

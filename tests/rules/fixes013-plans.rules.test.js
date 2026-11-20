@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertFails } from '@firebase/rules-unit-testing';
+import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { makeTestEnv, anon, teacher, superadmin, seed } from './helpers.js';
 
@@ -41,3 +41,16 @@ describe('no rule decides by plan', () => {
     expect(rules).not.toMatch(/\.tier\b|tierRank|subActive/);
   });
 });
+
+// 013Fixes / 09: seats are counted from users/{uid}.disabled, so no browser
+// may write it — not even to its own document (only the server does).
+describe('users documents (login seats) are written by the server only', () => {
+  it('a teacher can read their own, write none', async () => {
+    await seed(env, 'users/teacher-uid', { role: 'teacher', disabled: false });
+    await assertSucceeds(getDoc(doc(teacher(env), 'users/teacher-uid')));
+    await assertFails(setDoc(doc(teacher(env), 'users/teacher-uid'), { role: 'teacher', disabled: false, x: 1 }));
+    await assertFails(setDoc(doc(teacher(env), 'users/someone-else'), { role: 'teacher', disabled: true }));
+    await assertFails(getDoc(doc(teacher(env), 'users/someone-else')));
+  });
+});
+
