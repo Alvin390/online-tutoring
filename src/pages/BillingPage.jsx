@@ -14,6 +14,7 @@ import {
 } from '@services/api/billing';
 import logger from '@utils/logger';
 import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
+import UsageBars from '@features/billing/usage/UsageBars';
 
 
 /**
@@ -427,6 +428,13 @@ export default function BillingPage() {
             you renew by hand each month. Choose <strong>Card</strong> if you would
             rather not think about it.
           </div>
+        </div>
+      )}
+
+      {/* 013Fixes / 12: usage against the plan (counted daily; never a lockout). */}
+      {schoolPlan?.usage && (
+        <div className="mt-4">
+          <UsageBars usage={schoolPlan.usage} title="Your plan's usage" />
         </div>
       )}
 

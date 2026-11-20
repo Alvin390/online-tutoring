@@ -4,8 +4,9 @@ import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import {
   listUsers, createTeacher, setUserTier, startTrial, setUserDisabled, deleteUser,
-  expireToGrace, expireNow, setOwner, setDevLogin, setExtraLogins,
+  expireToGrace, expireNow, setOwner, setDevLogin, setExtraLogins, recountUsage,
 } from '@services/api/admin';
+import UsageBars from '@features/billing/usage/UsageBars';
 import logger from '@utils/logger';
 
 /**
@@ -38,6 +39,8 @@ export default function UserManager() {
   // 013Fixes / 09: the school's seats and the extra logins added by hand.
   const [seats, setSeats] = useState(null);
   const [extraDraft, setExtraDraft] = useState('');
+  // 013Fixes / 12: the school's usage (from the stored count) and "Recount now".
+  const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -60,6 +63,7 @@ export default function UserManager() {
       setDevLoginEmail(result.devLoginEmail ?? null);
       setDevEmailDraft(result.devLoginEmail ?? '');
       setSeats(result.seats ?? null);
+      setUsage(result.usage ?? null);
       setExtraDraft(String(result.seats?.extra ?? 0));
     } catch (error) {
       logger.error('User list failed', error);
@@ -294,6 +298,16 @@ export default function UserManager() {
               </button>
             </div>
           </form>
+        )}
+
+        {!loading && (
+          <div className="mb-3" data-testid="superadmin-usage">
+            {usage ? <UsageBars usage={usage} title="School usage" /> : <p className="small text-muted mb-2">No usage counted yet.</p>}
+            <button type="button" className="btn btn-outline-secondary btn-sm" disabled={busy}
+              onClick={() => run(async () => { const r = await recountUsage(); setUsage(r.usage); }, 'Usage recounted.')}>
+              Recount now
+            </button>
+          </div>
         )}
 
         {movingOwner && (

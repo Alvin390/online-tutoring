@@ -76,7 +76,12 @@ export default createHandler({
  * own copy of the shipped plans only as a stand-in until this arrives.
  */
 async function planView(user) {
-  const plan = await schoolPlan();
+  const [plan, usageSnap] = await Promise.all([
+    schoolPlan(),
+    // 013Fixes / 12: the stored usage count (phase 11), shown on the billing
+    // page and as a notice at 100%. One document, no counting here.
+    getDb().doc('config/usage').get().catch(() => null),
+  ]);
   // 013Fixes / 07: every plan's limits and card words (superadmin settings
   // included), so the billing page's three cards match what each plan holds.
   const all = mergePlans(plan.overrides);
@@ -85,5 +90,24 @@ async function planView(user) {
     tier: plan.tier, comp: plan.comp, features: plan.features, limits: plan.limits, trialSmsUnits: TRIAL_SMS_UNITS, catalog,
     // 013Fixes / 10: whether this login is the school owner (the logins screen).
     isOwner: Boolean(user?.uid) && user.uid === plan.ownerUid,
+    usage: usageView(usageSnap),
+  };
+}
+
+/** The stored usage for the screens: counts, limits, percentages and the window. */
+function usageView(snap) {
+  if (!snap?.exists) return null;
+  const u = snap.data();
+  const iso = (v) => v?.toDate?.()?.toISOString?.() ?? null;
+  return {
+    activeStudents: u.activeStudents ?? 0,
+    sessions: u.sessions ?? 0,
+    logins: u.logins ?? 0,
+    limits: u.limits ?? {},
+    percent: u.percent ?? {},
+    windowStart: iso(u.windowStart),
+    windowEnd: iso(u.windowEnd),
+    windowKind: u.windowKind ?? null,
+    countedAt: u.countedAtMs ? new Date(u.countedAtMs).toISOString() : null,
   };
 }

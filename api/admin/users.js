@@ -144,7 +144,16 @@ export default createHandler({
 
       // 013Fixes / 09: the school's seats (enabled teacher logins, developer login not counted).
       const seats = await seatState(db).then((s) => ({ used: s.used, included: s.included, extra: s.extra, limit: s.limit }), () => null);
-      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats };
+      // 013Fixes / 12: the stored usage count, for the console's bars.
+      const usageSnap = await db.doc('config/usage').get().catch(() => null);
+      const u = usageSnap?.exists ? usageSnap.data() : null;
+      const usage = u ? {
+        activeStudents: u.activeStudents ?? 0, sessions: u.sessions ?? 0, logins: u.logins ?? 0,
+        limits: u.limits ?? {}, percent: u.percent ?? {},
+        windowStart: u.windowStart?.toDate?.()?.toISOString?.() ?? null, windowEnd: u.windowEnd?.toDate?.()?.toISOString?.() ?? null,
+        windowKind: u.windowKind ?? null, countedAt: u.countedAtMs ? new Date(u.countedAtMs).toISOString() : null,
+      } : null;
+      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats, usage };
     }
 
     // --------------------------------------------------------- createTeacher
@@ -273,7 +282,13 @@ export default createHandler({
     if (action === 'recountUsage') {
       const usage = await recountUsage(db, { by: user.uid });
       log.info('Usage recounted by superadmin');
-      return { ok: true, usage: { ...usage, windowStart: usage.windowStart.toISOString(), windowEnd: usage.windowEnd.toISOString() } };
+      return {
+        ok: true,
+        usage: {
+          ...usage, windowStart: usage.windowStart.toISOString(), windowEnd: usage.windowEnd.toISOString(),
+          countedAt: new Date(usage.countedAtMs).toISOString(),
+        },
+      };
     }
 
     // ---------------------------------------------------- setExtraLogins

@@ -18,6 +18,7 @@ import { useOptionalToast } from '@/context/ToastContext';
 import { otherRecords, markedToast } from '../staff/markStaffText';
 import { usePlan } from '@features/billing/hooks/usePlan';
 import { asksPaymentOnApprove } from '../bulk/approveChoice';
+import UsageNotice from '@features/billing/usage/UsageNotice';
 
 // Lazy too (001Fixes / 05): the student drawer opens on a click, so it need not
 // be in the dashboard's first download. Fetched when the browser is idle after
@@ -289,6 +290,9 @@ export default function DashboardLayout() {
           />
         </Suspense>
       )}
+
+      {/* 013Fixes / 12: above an included allowance (dismissible; never a lockout). */}
+      <UsageNotice />
 
       <DashboardNav
         tabs={navTabs}

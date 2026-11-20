@@ -144,3 +144,33 @@ describe('cost', () => {
   }, 120_000);
 });
 
+// 013Fixes / 12: the screens get the stored usage from the status call; being
+// over every limit never stops a student.
+describe('usage on the screens, and nothing stops', () => {
+  it('the billing status carries the stored usage', async () => {
+    await seedPlan(db, 'silver');
+    await recount();
+    const teacher = await userWithClaims('fx013u-teacher2', { role: 'teacher' });
+    const res = await call('/api/billing/status', { method: 'GET', token: teacher });
+    expect(res.body.plan.usage).toMatchObject({ sessions: 2, limits: { sessions: 5 }, windowKind: 'month' });
+    expect(res.body.plan.usage.countedAt).toMatch(/^\d{4}-/);
+  });
+
+  it('a school over every limit still checks students in and gives the class link', async () => {
+    await seedPlan(db, 'bronze');
+    await db.doc('sessions/morning/private/classLink').set({ url: 'https://zoom.us/j/1234567890', provider: 'zoom' });
+    await db.doc('config/flags').set({ 'auth.legacyStudentRead': true });
+    (await import('../../../api/_lib/flags.js')).__resetFlagCache?.();
+    await db.doc('config/usage').set({
+      activeStudents: 900, sessions: 9, logins: 9, limits: { activeStudents: 100, sessions: 2, logins: 2 },
+      percent: { activeStudents: 900, sessions: 450, logins: 450 }, countedAtMs: Date.now(),
+    });
+    await learner('morning', phoneN(20));
+    const checkin = await call('/api/student/checkin', { body: { session: 'morning', phone: phoneN(20) } });
+    expect(checkin.status, JSON.stringify(checkin.body)).toBe(200);
+    expect(checkin.body.student.blocked).toBe(false);
+    const link = await call('/api/class/link', { body: { session: 'morning', phone: phoneN(20) } });
+    expect(link.status, JSON.stringify(link.body)).toBe(200);
+  });
+});
+
