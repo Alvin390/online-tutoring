@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import TierGate from '@shared/components/TierGate';
-import { BillingContext } from '@features/billing/context/BillingContext';
+import { BillingContext } from '@features/billing/context/billingContextValue';
 import { DEFAULT_PLANS, PLAN_IDS } from '@shared/constants/plans';
 
 /**
