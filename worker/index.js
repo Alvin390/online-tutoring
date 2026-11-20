@@ -255,7 +255,9 @@ async function runSweep(name, secret) {
  * mismatch logs loudly above rather than failing silently.
  */
 const CRON_SCHEDULE_TO_SWEEP = {
-  '0 * * * *': 'subscriptionSweep',   // hourly — subscription state and reminders
+  // hourly — subscription state and reminders; then (013Fixes / 11) the usage
+  // count, which recounts only when its stored count is about a day old.
+  '0 * * * *': ['subscriptionSweep', 'usageCount'],
   '0 2 * * *': 'feesSweep',           // 02:00 UTC — overdue flags and invoice runs
   // every 10 min — recover lost M-Pesa callbacks, then retry report emails.
   // One trigger, two sweeps (money first): stays within the free plan's

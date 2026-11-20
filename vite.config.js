@@ -110,6 +110,10 @@ export default defineConfig({
           '**/NumberFixesPanel-*.js', '**/smsText-*.js', '**/sms-*.js',
           // 013Fixes / 07: the superadmin plan editor, the plan map's chunk and the admin calls.
           '**/PlanSettings-*.js', '**/plans-*.js', '**/admin-*.js',
+          // 013Fixes / 10: the owner's logins card and its service.
+          '**/LoginsCard-*.js', '**/logins-*.js',
+          // 013Fixes / 12: the usage bars, notice and their levels (staff screens only).
+          '**/usageLevels-*.js', '**/UsageBars-*.js', '**/UsageNotice-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

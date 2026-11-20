@@ -4,8 +4,9 @@ import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import {
   listUsers, createTeacher, setUserTier, startTrial, setUserDisabled, deleteUser,
-  expireToGrace, expireNow, setOwner, setDevLogin,
+  expireToGrace, expireNow, setOwner, setDevLogin, setExtraLogins, recountUsage,
 } from '@services/api/admin';
+import UsageBars from '@features/billing/usage/UsageBars';
 import logger from '@utils/logger';
 
 /**
@@ -35,6 +36,11 @@ export default function UserManager() {
   const [devLoginEmail, setDevLoginEmail] = useState(null);
   const [devEmailDraft, setDevEmailDraft] = useState('');
   const [movingOwner, setMovingOwner] = useState(null);
+  // 013Fixes / 09: the school's seats and the extra logins added by hand.
+  const [seats, setSeats] = useState(null);
+  const [extraDraft, setExtraDraft] = useState('');
+  // 013Fixes / 12: the school's usage (from the stored count) and "Recount now".
+  const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -56,6 +62,9 @@ export default function UserManager() {
       setOwnerUid(result.ownerUid ?? null);
       setDevLoginEmail(result.devLoginEmail ?? null);
       setDevEmailDraft(result.devLoginEmail ?? '');
+      setSeats(result.seats ?? null);
+      setUsage(result.usage ?? null);
+      setExtraDraft(String(result.seats?.extra ?? 0));
     } catch (error) {
       logger.error('User list failed', error);
       showError(error?.message ?? 'Could not load users.');
@@ -260,6 +269,45 @@ export default function UserManager() {
               </button>
             </div>
           </form>
+        )}
+
+        {!loading && seats && (
+          <form
+            className="border rounded p-3 mb-3"
+            data-testid="extra-logins"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = Number(extraDraft);
+              if (!/^\d+$/.test(extraDraft.trim()) || n > 1000) return;
+              run(() => setExtraLogins({ extraLogins: n }), `Extra logins set to ${n}.`);
+            }}
+          >
+            <div className="small mb-2" data-testid="seat-count">
+              Logins: <strong>{seats.used} of {seats.limit}</strong> in use
+              {' '}({seats.included} in the plan{seats.extra ? ` + ${seats.extra} extra` : ''}; the developer login isn&apos;t counted).
+            </div>
+            <label className="form-label small fw-semibold" htmlFor="extra-logins">
+              Extra logins <span className="text-muted fw-normal">(added by hand after the school pays you)</span>
+            </label>
+            <div className="d-flex gap-2">
+              <input id="extra-logins" className="form-control form-control-sm" style={{ maxWidth: 120 }} inputMode="numeric"
+                value={extraDraft} onChange={(e) => setExtraDraft(e.target.value)} />
+              <button type="submit" className="btn btn-outline-primary btn-sm"
+                disabled={busy || extraDraft.trim() === String(seats.extra) || !/^\d+$/.test(extraDraft.trim())}>
+                Save
+              </button>
+            </div>
+          </form>
+        )}
+
+        {!loading && (
+          <div className="mb-3" data-testid="superadmin-usage">
+            {usage ? <UsageBars usage={usage} title="School usage" /> : <p className="small text-muted mb-2">No usage counted yet.</p>}
+            <button type="button" className="btn btn-outline-secondary btn-sm" disabled={busy}
+              onClick={() => run(async () => { const r = await recountUsage(); setUsage(r.usage); }, 'Usage recounted.')}>
+              Recount now
+            </button>
+          </div>
         )}
 
         {movingOwner && (

@@ -54,6 +54,8 @@ export function resolvePlan(sub, overrides) {
     tier,
     status: sub?.status ?? null,
     comp: sub?.grantedBySuperadmin === true,
+    // 013Fixes / 10: the school owner's login (manages the school's logins).
+    ownerUid: typeof sub?.ownerUid === 'string' ? sub.ownerUid : null,
     features,
     limits,
   };

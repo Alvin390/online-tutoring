@@ -34,6 +34,13 @@ export const startTrial = ({ uid, tier, trialDays }) =>
 export const setUserDisabled = ({ uid, disabled }) =>
   apiPost('/api/admin/users', { action: disabled ? 'disable' : 'enable', uid });
 
+/** 013Fixes / 11-12: count the school's usage now (otherwise about once a day). */
+export const recountUsage = () => apiPost('/api/admin/users', { action: 'recountUsage' });
+
+/** 013Fixes / 09: extra dashboard logins on top of the plan's (added by hand). */
+export const setExtraLogins = ({ extraLogins }) =>
+  apiPost('/api/admin/users', { action: 'setExtraLogins', extraLogins });
+
 /** 013Fixes / 07: plan settings (features, limits, card words). */
 export const getPlanSettings = () => apiPost('/api/admin/plans', { action: 'get' });
 export const savePlanSettings = (plans) => apiPost('/api/admin/plans', { action: 'save', plans });
