@@ -95,32 +95,8 @@ describe('code-first registration', () => {
 });
 
 describe('fix my number', () => {
-  it('from the code step: real number → code → choose a number → check in with the real number', async () => {
-    const { api } = await renderSessionPage({
-      checkinCard: probeCard, flags: ON,
-      api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.')) },
-    });
-    await click('Check in');
-    await click('Use my real number');
-    const fix = await screen.findByTestId('fix-number');
-    expect(fix.textContent).toMatch(/uses the number ending in 009/);
-    await waitFor(() => expect(fix.querySelector('input[type="tel"]').disabled).toBe(false));
-    await act(async () => { fireEvent.change(fix.querySelector('input[type="tel"]'), { target: { value: '733000007' } }); });
-    await click('Send me a code');
-    expect(api.fixNumberRequest).toHaveBeenCalledWith('evening', REAL, { oldPhone: PHONE });
-    expect((await screen.findByTestId('fix-number')).textContent).toMatch(/ending in 007/);
-    await type('Code', '654321');
-    await click('Confirm');
-    expect(api.fixNumberConfirm).toHaveBeenCalledWith('evening', REAL, { oldPhone: PHONE }, { code: '654321' });
-    expect(await screen.findByTestId('choose-step')).toBeTruthy();
-    await type(/Choose your 4-digit admission number/, '4071');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Use 4071' }).disabled).toBe(false));
-    await click('Use 4071');
-    expect(api.chooseNumber).toHaveBeenCalledWith('evening', REAL, '4071', 'v1.fix');
-    expect((await screen.findByTestId('notice')).textContent).toMatch(/now the one ending in 007, and your admission number is 4071/);
-    expect(screen.getByTestId('refill').textContent).toBe(REAL);
-  });
-
+  // 014Fixes / 04: "Use my real number" left the code step; phase 05 brings
+  // it back as "That phone isn't near me" (tests/unit/fixes014/differentNumber.test.jsx).
   it('registered before with another number: by name and class, moved to the number typed', async () => {
     const { api } = await renderSessionPage({
       checkinCard: probeCard, flags: ON, classes: ['Form 3', 'Grade 8'],
@@ -162,43 +138,7 @@ describe('fix my number', () => {
     expect((await screen.findByRole('alert')).textContent).toBe("We couldn't find you. Check the details, or ask your teacher.");
   });
 
-  it('a move that stopped half-way finishes with its ticket', async () => {
-    const confirm = vi.fn()
-      .mockResolvedValueOnce({ ok: true, partial: true, ticket: 'v1.half' })
-      .mockResolvedValueOnce({ ok: true, phone: REAL, ticket: 'v1.fix', next: 'checkin' });
-    await renderSessionPage({
-      checkinCard: probeCard, flags: ON,
-      api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm.')), fixNumberConfirm: confirm },
-    });
-    await click('Check in');
-    await click('Use my real number');
-    const fix = await screen.findByTestId('fix-number');
-    await waitFor(() => expect(fix.querySelector('input[type="tel"]').disabled).toBe(false));
-    await act(async () => { fireEvent.change(fix.querySelector('input[type="tel"]'), { target: { value: '733000007' } }); });
-    await click('Send me a code');
-    await type('Code', '654321');
-    await click('Confirm');
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
-    expect(confirm.mock.calls[1][3]).toEqual({ ticket: 'v1.half' });
-    expect(await screen.findByTestId('notice')).toBeTruthy();
-  });
 });
 
-describe('flag off', () => {
-  it('no links, and registration saves first as before', async () => {
-    const { api } = await renderSessionPage({
-      checkinCard: probeCard, flags: { 'checkin.admissionNumbers': true },
-      api: {
-        checkinStudent: vi.fn().mockResolvedValueOnce({ exists: false, student: null }).mockRejectedValueOnce(refusal('verify_required', 'Confirm.')),
-        registerStudentApi: vi.fn().mockResolvedValue({ ok: true, next: 'verify', student: pending }),
-      },
-    });
-    await click('Check in');
-    expect(screen.queryByRole('button', { name: /Registered before with a different phone number/ })).toBeNull();
-    await click('Register');
-    expect(api.registerStudentApi).toHaveBeenCalledTimes(1);
-    expect(await screen.findByTestId('code-step')).toBeTruthy();
-    expect(api.requestCode).toHaveBeenCalledWith('evening', PHONE);
-    expect(screen.queryByRole('button', { name: 'Use my real number' })).toBeNull();
-  });
-});
+// 014Fixes: one switch (checkin.admissionNumbers), and registration is
+// always code first with it on — the old "flag off" path is gone.

@@ -65,6 +65,8 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.ticket', next: 'chooseNumber', numberKind: 'student' }),
     checkNumber: vi.fn().mockResolvedValue({ status: 'free', message: 'Available' }),
     chooseNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '4071', display: '4071' }),
+    // 014Fixes / 04: the number the school gives.
+    assignNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '7319', display: '7319' }),
     // 009Fixes / 03: fix my number.
     fixNumberRequest: vi.fn().mockResolvedValue({ ok: true, deliveryChannel: 'sms', retryAfterSeconds: 60 }),
     fixNumberConfirm: vi.fn().mockResolvedValue({ ok: true, phone: '+254733000007', ticket: 'v1.fix', next: 'chooseNumber', numberKind: 'student' }),
@@ -85,6 +87,7 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     verifyCode: (...a) => api.verifyCode(...a),
     checkNumber: (...a) => api.checkNumber(...a),
     chooseNumber: (...a) => api.chooseNumber(...a),
+    assignNumber: (...a) => api.assignNumber(...a),
     fixNumberRequest: (...a) => api.fixNumberRequest(...a),
     fixNumberConfirm: (...a) => api.fixNumberConfirm(...a),
   }));

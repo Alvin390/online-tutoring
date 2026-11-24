@@ -23,3 +23,38 @@ export const NUMBER_STEP = Object.freeze({
   mismatch: "That admission number and phone don't match. Check both, or ask your teacher.",
   shape: 'Enter your 4-digit admission number (staff: S- and 4 digits).',
 });
+
+/** "Confirm your phone" and "Enter the code" (copy.md §2b). `{phone}` is masked. */
+export const CONFIRM_STEP = Object.freeze({
+  title: 'Confirm your phone',
+  why: (phone) => `We'll send a 6-digit code by SMS to **${phone}**. Make sure that phone is near you so you can see the code.`,
+  send: 'Send code',
+  sending: 'Sending…',
+  notNear: "That phone isn't near me. Use a different number.",
+  codeTitle: 'Enter the code',
+  codeWhy: (phone) => `We sent a 6-digit code to **${phone}**.`,
+  noSms: "We couldn't send an SMS right now. **Ask your teacher for your code.**",
+  codeLabel: 'Code',
+  confirm: 'Confirm',
+  checking: 'Checking…',
+  resend: 'Send again',
+  resendIn: (s) => `Send again in ${s} s`,
+  resendLater: 'Send again later',
+  didntGet: "Didn't get it?",
+  help: 'Tap Send again when the countdown ends. Still nothing? Your teacher can see your code. Ask your teacher.',
+  sixDigits: 'Enter the 6-digit code.',
+  invalid: 'That code is not valid or has expired.',
+  back: 'Back',
+});
+
+/** The number pop-up (copy.md §3). */
+export const NUMBER_POPUP = Object.freeze({
+  title: (kind) => (kind === 'staff' ? 'Your staff number' : 'Your admission number'),
+  forSession: (kind, session) => `This is your ${kind === 'staff' ? 'staff' : 'admission'} number for **${session} class**.`,
+  copy: 'Copy number',
+  copied: 'Copied ✓',
+  copyFallback: 'Select the number above and copy it, or write it down.',
+  remember: "**Don't forget it.** Every time you check in, you'll enter your phone number, then this number. We've also sent it to you by SMS.",
+  goToClass: "I've saved it. Go to class",
+  saved: "I've saved it",
+});

@@ -23,11 +23,10 @@ import RetryWaitNotice from './RetryWaitNotice';
 // normally ready before the lookup answers.
 const loadRegistrationForm = () => import('./RegistrationForm');
 const RegistrationForm = lazy(loadRegistrationForm);
-// 008Fixes / 04: the first-time steps (confirm the phone, choose a number),
-// loaded only when a student reaches them; prefetched with the registration
-// form when a number is submitted, so normally ready before the reply.
+// 008Fixes / 04: the registration code step and "registered before with a
+// different number" (009Fixes) — loaded only when a student reaches them.
+// (014Fixes / 04: the check-in first-time steps moved to ./numbers.)
 const loadAdmissionSteps = () => import('./AdmissionSteps');
-const AdmissionFlow = lazy(loadAdmissionSteps);
 // 009Fixes / 01 and 03: the code before registering, and "registered before
 // with a different number" — the same lazy chunk.
 const RegisterCodeStep = lazy(() => loadAdmissionSteps().then((mod) => ({ default: mod.RegisterCodeStep })));
@@ -36,6 +35,7 @@ const FixNumberByName = lazy(() => loadAdmissionSteps().then((mod) => ({ default
 // the number given) — one lazy chunk, prefetched when a phone is submitted.
 const loadNumberSteps = () => import('./numbers');
 const NumberStep = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.NumberStep })));
+const FirstTimeFlow = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.FirstTimeFlow })));
 /** 014Fixes / 03: refusals of a typed admission number, shown on the number step. */
 const NUMBER_REFUSALS = Object.freeze(['number_mismatch', 'other_device', 'duplicate_records', 'invalid_number']);
 const stepFallback = (
@@ -103,8 +103,6 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   // 014Fixes / 03: the last refusal of a typed admission number (a new object
   // each time, so the step shows it again after the student typed).
   const [numberRefusal, setNumberRefusal] = useState(null);
-  // The number to check in with once the phone is confirmed (from registering).
-  const [admissionNumber, setAdmissionNumber] = useState(null);
 
 
   const {
@@ -157,7 +155,6 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const startOver = useCallback(() => {
     resetFlow();
     setJoinTried(false);
-    setAdmissionNumber(null);
     setPendingForm(null);
     setRegTicket(null);
     setNumberRefusal(null);
@@ -299,12 +296,8 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
       await handleCheckin(phoneNumber, formData.number ?? '');
       return undefined;
     }
-    // 008Fixes / 04: confirm the phone, then check in with the chosen number.
-    if (result.next === 'verify') {
-      setAdmissionNumber(formData.number ?? null);
-      setStep('admission');
-      return;
-    }
+    // (014Fixes / 02: registration no longer answers next 'verify'; with
+    // admission numbers on it is always code-first.)
 
     // Route on the record that was actually written, not on an assumption.
     // With approval on, a new registration goes to the pending screen and the
@@ -490,18 +483,17 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                 </Suspense>
               )}
 
-              {/* 008Fixes / 04: confirm the phone, choose a number (lazy). */}
+              {/* 014Fixes / 04: no number yet — confirm the phone, the number is
+                  given (a pop-up), then checked in with it (lazy). */}
               {step === 'admission' && (
                 <Suspense key="admission" fallback={stepFallback}>
-                  <AdmissionFlow
+                  <FirstTimeFlow
                     session={session}
+                    sessionName={label}
                     phone={phoneNumber}
-                    number={admissionNumber}
-                    fixOn={fixOn}
-                    classes={classes}
-                    onFixed={numberFixed}
-                    onDone={backToCard}
                     onCheckin={(number) => handled('checkin', handleCheckin)(phoneNumber, number)}
+                    onHasNumber={() => { setNumberRefusal(null); setStep('number'); }}
+                    onRefresh={(message) => backToCard({ tone: 'error', text: message })}
                     onBack={handleBack}
                   />
                 </Suspense>

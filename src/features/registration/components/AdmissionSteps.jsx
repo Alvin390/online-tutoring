@@ -5,9 +5,10 @@ import { formatNumber } from '@utils/admissionNumber';
 import AdmissionNumberField from './AdmissionNumberField';
 
 /**
- * The two first-time steps of admission-number check-in — 008Fixes / 04.
- * Loaded only when a student reaches them (a lazy chunk), so the check-in
- * form every student sees stays small.
+ * The registration code step and "registered before with a different
+ * number" — 008/009Fixes. 014Fixes / 04: the check-in first-time steps moved
+ * to ./numbers (the number is given, not chosen); what is left here is
+ * removed in 014Fixes / 06 and 08. A lazy chunk.
  *
  *   CodeStep          "We sent a 6-digit code…": the code by SMS, "Send again"
  *                     after 60 s (each resend is a new code), and "No SMS? Ask
@@ -242,18 +243,6 @@ export function ChooseNumberStep({ session, phone, ticket, kind = 'student', onC
   );
 }
 
-/**
- * The whole first-time flow, so the session page only says "go here"
- * (008Fixes / 04: its logic and words stay in this lazy chunk, off the
- * check-in form every student loads).
- *
- *   code → (no number yet) choose → back to the card with the number named
- *   code → (has a number)  check in with `number` if known (just registered),
- *                          otherwise back to the card to type it
- *
- * `onDone(notice)` returns to the check-in card with `notice` shown;
- * `onCheckin(number)` checks in straight away.
- */
 /** 009Fixes / 01: the code before a registration is saved; `onVerified(ticket)`. */
 export function RegisterCodeStep({ session, phone, onVerified, onRefused, onBack }) {
   const verified = useCallback(({ ticket }) => onVerified(ticket), [onVerified]);
@@ -266,48 +255,5 @@ export function FixNumberByName({ session, phone, classes, onFixed, onBack }) {
     <Suspense fallback={<div className="text-center py-4"><span className="spinner-border spinner-border-sm text-primary" /></div>}>
       <FixNumberFlow session={session} mode="name" newPhone={phone} classes={classes} onFixed={onFixed} onBack={onBack} />
     </Suspense>
-  );
-}
-
-export default function AdmissionFlow({ session, phone, number = null, onDone, onCheckin, onBack, fixOn = false, classes = [], onFixed }) {
-  const [stage, setStage] = useState({ name: 'code', ticket: null, kind: 'student' });
-
-  const verified = useCallback(({ ticket = null, next, numberKind = 'student' }) => {
-    if (next === 'chooseNumber') { setStage({ name: 'choose', ticket, kind: numberKind }); return; }
-    if (number) { onCheckin(number); return; }
-    onDone({ tone: 'info', text: 'Phone confirmed. Now enter your admission number with your phone.' });
-  }, [number, onCheckin, onDone]);
-
-  const chosen = ({ display, already }) => onDone({
-    tone: 'info',
-    text: already
-      ? 'You already have a number. Enter it with your phone. Forgot it? Ask your teacher.'
-      : `Your number is ${display}. Don't forget it! Now check in with your number and phone.`,
-  });
-
-  if (stage.name === 'fix') {
-    return (
-      <Suspense fallback={<div className="text-center py-4"><span className="spinner-border spinner-border-sm text-primary" /></div>}>
-        <FixNumberFlow session={session} mode="number" oldPhone={phone} classes={classes} onFixed={onFixed}
-          onBack={() => setStage({ name: 'code', ticket: null, kind: 'student' })} />
-      </Suspense>
-    );
-  }
-  if (stage.name === 'choose') {
-    return (
-      <ChooseNumberStep
-        session={session}
-        phone={phone}
-        ticket={stage.ticket}
-        kind={stage.kind}
-        onChosen={chosen}
-        onNeedsCode={() => setStage({ name: 'code', ticket: null, kind: 'student' })}
-        onBack={onBack}
-      />
-    );
-  }
-  return (
-    <CodeStep key={stage.name} session={session} phone={phone} onVerified={verified} onBack={onBack}
-      onWrongNumber={fixOn && onFixed ? () => setStage({ name: 'fix', ticket: null, kind: 'student' }) : undefined} />
   );
 }

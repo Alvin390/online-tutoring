@@ -42,3 +42,11 @@ export const checkNumber = (session, number, kind, { signal } = {}) =>
 
 export const chooseNumber = (session, phone, number, ticket) =>
   apiPost('/api/student/number', { action: 'choose', session, phone, number, ticket }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
+
+/**
+ * 014Fixes / 00: the school GIVES a number once the phone is confirmed:
+ * { number, kind, display }. Safe to retry (the server answers the same
+ * number for the same ticket), so one automatic retry on a flaky network.
+ */
+export const assignNumber = (session, phone, ticket) =>
+  apiPost('/api/student/number', { action: 'assign', session, phone, ticket }, { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS });
