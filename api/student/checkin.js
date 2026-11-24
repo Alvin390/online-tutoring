@@ -68,6 +68,8 @@ export const CHECKIN_STEP = Object.freeze({
 });
 const step = (code, message) => new ApiError(409, code, message);
 const MISMATCH_MESSAGE = "That admission number and phone don't match. Check both, or ask your teacher.";
+// 014Fixes / 03 (copy.md §2a): what to do now, not just what happened.
+const OTHER_DEVICE_MESSAGE = 'Your number is already checked in on another device for this class. You can use this device next class, or ask your teacher to allow this one now.';
 
 /**
  * 008Fixes / 03: with `checkin.admissionNumbers` on, who may come in. Returns
@@ -98,7 +100,7 @@ function admissionGate({ data, phone, number, reservation, lock, hash }) {
   const state = lockState(lock, hash);
   if (state === 'other') {
     throw forbidden(
-      'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.',
+      OTHER_DEVICE_MESSAGE,
       CHECKIN_STEP.OTHER_DEVICE,
     );
   }
@@ -249,7 +251,7 @@ export default createHandler({
           const raced = (await lockRef(db, session, phone).get()).data();
           if (lockState(raced, hash) !== 'same') {
             throw forbidden(
-              'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.',
+              OTHER_DEVICE_MESSAGE,
               CHECKIN_STEP.OTHER_DEVICE,
             );
           }

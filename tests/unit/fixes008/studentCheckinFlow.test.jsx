@@ -126,12 +126,14 @@ describe('the first time: phone → code → choose → check in afresh', () => 
   });
 });
 
-describe('refusals, in plain words on the card (no toast)', () => {
-  for (const [code, message] of [
-    ['number_mismatch', "That admission number and phone don't match. Check both, or ask your teacher."],
-    ['other_device', 'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.'],
-    ['number_required', 'Enter your admission number too.'],
-    ['duplicate_records', 'Your teacher needs to sort out duplicate records. Please try again later.'],
+// 014Fixes / 03: a refused typed number is said on the number step (phone
+// first, then the number); the first screen is the phone only.
+describe('refusals of a typed number, on the number step (no toast)', () => {
+  for (const [code, message, shown] of [
+    ['number_mismatch', "That admission number and phone don't match. Check both, or ask your teacher.", true],
+    ['other_device', 'Your number is already checked in on another device for this class. You can use this device next class, or ask your teacher to allow this one now.', true],
+    ['number_required', 'Enter your admission number too.', false],
+    ['duplicate_records', 'Your teacher needs to sort out duplicate records. Please try again later.', true],
   ]) {
     it(code, async () => {
       const { toast } = await renderSessionPage({
@@ -139,12 +141,10 @@ describe('refusals, in plain words on the card (no toast)', () => {
         api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal(code, message, code === 'number_required' ? 409 : 403)) },
       });
       await click('Check in');
-      const notice = await screen.findByTestId('notice');
-      expect(notice.textContent).toBe(message);
-      expect(notice.dataset.tone).toBe('error');
+      await screen.findByTestId('number-step');
+      if (shown) expect(screen.getByRole('alert').textContent).toBe(message);
+      else expect(screen.queryByRole('alert')).toBeNull();
       expect(toast.showError).not.toHaveBeenCalled();
-      // "Try again" is the card's own button.
-      expect(screen.getByRole('button', { name: 'Check in' })).toBeTruthy();
     });
   }
 });
@@ -209,32 +209,18 @@ describe('the check-in card itself', () => {
     expect(screen.queryByTestId('phone-only-toggle')).toBeNull();
   });
 
-  it('numbers on: both fields; "Forgot your number? Ask your teacher."; submits phone and number', async () => {
+  // 014Fixes / 03: the number has its own step (tests/unit/fixes014/phoneFirst.test.jsx).
+  it('numbers on: the phone only, too; submits the phone alone', async () => {
     const onSubmit = await renderCard({ numbers: true });
-    expect(screen.getByText('Forgot your number? Ask your teacher.')).toBeTruthy();
-    await type(/Admission number/, 'S-4071');
-    await typeTel('0712345678');
-    await click('Continue');
-    expect(onSubmit).toHaveBeenCalledWith('+254712345678', 'S-4071');
-  });
-
-  it('a malformed number is refused on the phone; "phone only" sends none', async () => {
-    const onSubmit = await renderCard({ numbers: true });
-    await type(/Admission number/, '40');
-    await typeTel('0712345678');
-    await click('Continue');
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText(/Enter your 4-digit admission number/)).toBeTruthy();
-    await click(/Check in with your phone only/);
     expect(screen.queryByLabelText(/Admission number/)).toBeNull();
+    await typeTel('0712345678');
     await click('Continue');
-    expect(onSubmit).toHaveBeenCalledWith('+254712345678', '');
+    expect(onSubmit).toHaveBeenCalledWith('+254712345678');
   });
 
-  it('refills the phone, shows the notice, focuses the number field', async () => {
-    await renderCard({ numbers: true, initialPhone: '+254712345678', focusNumber: true, notice: { tone: 'info', text: 'Your number is 4071.' } });
+  it('refills the phone and shows the notice', async () => {
+    await renderCard({ numbers: true, initialPhone: '+254712345678', notice: { tone: 'info', text: 'Your number is 4071.' } });
     await waitFor(() => expect(document.querySelector('input[type="tel"]').value).toBe('712345678'));
     expect(screen.getByRole('status').textContent).toBe('Your number is 4071.');
-    expect(document.activeElement).toBe(screen.getByLabelText(/Admission number/));
   });
 });
