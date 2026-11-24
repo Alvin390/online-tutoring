@@ -434,7 +434,7 @@ export default function BillingPage() {
       {/* 013Fixes / 12: usage against the plan (counted daily; never a lockout). */}
       {schoolPlan?.usage && (
         <div className="mt-4">
-          <UsageBars usage={schoolPlan.usage} title="Your plan's usage" />
+          <UsageBars usage={schoolPlan.usage} title="Your plan's usage" smsUnits={schoolPlan.smsUnits ?? null} />
         </div>
       )}
 

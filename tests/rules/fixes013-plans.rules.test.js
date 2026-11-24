@@ -54,3 +54,18 @@ describe('users documents (login seats) are written by the server only', () => {
   });
 });
 
+// 013Fixes / 14: the SMS units (sms/credits and its ledger) are the server's,
+// under the existing sms/** rule: no browser may read or change a balance.
+describe('SMS units are closed to every browser', () => {
+  it('no reads, no writes', async () => {
+    await seed(env, 'sms/credits', { granted: 1000, includedUsed: 0, topup: 0 });
+    await seed(env, 'sms/credits/ledger/grant:w', { type: 'grant', units: 1000 });
+    for (const db of [anon(env), teacher(env), superadmin(env)]) {
+      await assertFails(getDoc(doc(db, 'sms/credits'))); // eslint-disable-line no-await-in-loop
+      await assertFails(getDoc(doc(db, 'sms/credits/ledger/grant:w'))); // eslint-disable-line no-await-in-loop
+    }
+    await assertFails(setDoc(doc(teacher(env), 'sms/credits'), { topup: 99999 }));
+    await assertFails(setDoc(doc(superadmin(env), 'sms/credits/ledger/x'), { type: 'topup_added', units: 5 }));
+  });
+});
+

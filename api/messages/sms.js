@@ -6,6 +6,7 @@ import { tryWriteAudit } from '../_lib/audit.js';
 import { getFlags } from '../_lib/flags.js';
 import { withDevice } from '../_lib/device.js';
 import { hasFeature, requireFeature } from '../_lib/schoolPlan.js';
+import { creditContext, readCredits, peekCredits, unitsExhausted } from '../_lib/smsCredits.js';
 import {
   prepareMessages, smsRecipients, assertAboveReserve, createCampaign, sendChunk, checkDelivery,
   campaignsCol, campaignView, recipientView, SMS_CHUNK,
@@ -128,7 +129,12 @@ export default createHandler({
       }
     };
 
-    if (body.action === 'setup') return { setup: setupView(await readSetup()) };
+    if (body.action === 'setup') {
+      // 013Fixes / 16: the school's SMS units with the setup the composer loads
+      // once (units only, never money). A failure here never hides the setup.
+      const units = await creditContext(db).then((ctx) => peekCredits(db, ctx)).catch(() => null);
+      return { setup: setupView(await readSetup()), units };
+    }
 
     if (body.action === 'people') {
       const [students, staff] = await Promise.all([smsRecipients(db, { type: 'all' }), smsRecipients(db, { type: 'staff' })]);
@@ -208,18 +214,24 @@ export default createHandler({
     if (body.action === 'preview' || body.action === 'start') {
       const [people, schoolName] = await Promise.all([audience(body.filter), schoolNameOf(db)]);
       const prepared = prepareMessages(body.template, people, schoolName);
+      // 013Fixes / 15: the school's SMS units (included this month first, then
+      // extra). A preview uses none; a start needs enough for the whole message.
+      const credits = await readCredits(db, await creditContext(db));
       if (body.action === 'preview') {
         const balance = await lastKnownBalance(db);
         // 009Fixes / 00: no money for teachers (the school pays): credit is a yes/no.
         return {
           recipients: prepared.messages.length,
           units: prepared.units,
+          unitsLeft: credits.available,
+          enoughUnits: credits.available >= prepared.units,
           longest: prepared.longest,
           maxChars: SMS_MAX_CHARS,
           enoughCredit: balance == null ? null : balance - prepared.cost >= SMS_RESERVE_KES,
           sample: prepared.messages.slice(0, 3).map((m) => ({ studentName: m.studentName ?? null, text: m.text, units: m.units })),
         };
       }
+      if (credits.available < prepared.units) throw unitsExhausted();
       await assertAboveReserve(db, prepared.cost, log);
       const ref = await createCampaign({
         db, user, kind: 'campaign', template: body.template, filter: body.filter, title: body.title, schoolName, prepared,
@@ -256,6 +268,8 @@ export default createHandler({
         nextDueDate: s.nextDueDate ?? null,
       };
       const prepared = prepareMessages(body.template, [person], await schoolNameOf(db));
+      // 013Fixes / 15: one message is charged like any other (in sendChunk); refuse early when short.
+      if ((await readCredits(db, await creditContext(db))).available < prepared.units) throw unitsExhausted();
       await assertAboveReserve(db, prepared.cost, log);
       const ref = await createCampaign({ db, user, kind: 'one', template: body.template, filter: null, schoolName: null, prepared });
       const result = await sendChunk({ db, user, campaignId: ref.id, log });

@@ -7,6 +7,7 @@ import { getNotificationSettings } from '../_lib/reports.js';
 import { smsBalance, SmsError } from '../_lib/sms.js';
 import { recordSmsBalance, monthKey, SMS_RESERVE_KES, ALERT_USED_FRACTION } from '../_lib/smsCredit.js';
 import { SMS_RATE_KES } from '../_lib/smsText.js';
+import { creditContext, readCredits, addTopup, recentLedger } from '../_lib/smsCredits.js';
 
 /**
  * The superadmin SMS card — 008Fixes / 10 (owner answers 6 and 8: track the
@@ -25,8 +26,12 @@ import { SMS_RATE_KES } from '../_lib/smsText.js';
  */
 
 const schema = z.object({
-  action: z.enum(['summary', 'refresh', 'setAlertRecipient', 'resetAlertRecipient']),
+  action: z.enum(['summary', 'refresh', 'setAlertRecipient', 'resetAlertRecipient', 'credits', 'addUnits']),
   email: z.string().trim().toLowerCase().email().max(254).optional(),
+  // 013Fixes / 14: SMS units added by hand (after an off-platform payment).
+  units: z.number().int().min(1).max(1_000_000).optional(),
+  note: z.string().trim().max(120).optional(),
+  key: z.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
 }).strict();
 
 const iso = (v) => v?.toDate?.()?.toISOString?.() ?? (v instanceof Date ? v.toISOString() : null);
@@ -92,6 +97,25 @@ export default createHandler({
     const db = getDb();
 
     if (body.action === 'summary') return summary(db);
+
+    // 013Fixes / 14: the school's SMS units (included this window, top-up) and the ledger.
+    if (body.action === 'credits') {
+      const ctx = await creditContext(db);
+      const [credits, ledger] = await Promise.all([readCredits(db, ctx), recentLedger(db, 20)]);
+      return { credits, ledger };
+    }
+    if (body.action === 'addUnits') {
+      if (!body.units || !body.key) throw new ApiError(400, 'units_required', 'Enter how many SMS units to add.');
+      const ctx = await creditContext(db);
+      const result = await addTopup(db, { ...ctx, units: body.units, note: body.note ?? null, key: body.key, actor: user.uid });
+      if (!result.already) {
+        await tryWriteAudit({
+          action: 'sms.units_added', actor: user.uid, actorRole: user.role, target: 'sms/credits',
+          after: { units: body.units, topup: result.credits.topup }, context: { requestId: log.requestId, note: body.note ?? null },
+        }, log);
+      }
+      return { ...result, ledger: await recentLedger(db, 20) };
+    }
 
     if (body.action === 'refresh') {
       let json;

@@ -8,6 +8,7 @@ import {
 import { sendSms, smsStatus, SmsError, smsAvailable } from './sms.js';
 import { recordSmsBalance, recordSmsUsage, lastKnownBalance, SMS_RESERVE_KES, smsAlertRecipient } from './smsCredit.js';
 import { gmailConfigured, sendGmail } from './gmail.js';
+import { creditContext, reserveInTx, refundUnits, unitsExhausted } from './smsCredits.js';
 
 /**
  * SMS messages to parents — 008Fixes / 07 (owner, 2026-11-14/15).
@@ -224,13 +225,28 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
   const chunkCost = smsCost(batchDocs.reduce((n, d) => n + (d.data().units ?? 1), 0));
   await assertAboveReserve(db, chunkCost, log);
 
-  // Claim.
-  const claimed = await db.runTransaction(async (tx) => {
+  // Claim — and, in the same transaction, take the chunk's units from the
+  // school's SMS units (013Fixes / 15): exactly once per claimed chunk, or
+  // nothing is claimed when the units are not enough.
+  const creditCtx = await creditContext(db);
+  const chunkId = `${nowMs}-${batchDocs[0]?.id ?? 'stale'}`;
+  const claim = await db.runTransaction(async (tx) => {
     const fresh = await Promise.all(batchDocs.map((d) => tx.get(d.ref)));
     const mine = fresh.filter((d) => d.exists && d.data().status === 'queued');
+    const units = mine.reduce((n, d) => n + (d.data().units ?? 1), 0);
+    let reservation = null;
+    if (units > 0) {
+      reservation = await reserveInTx(tx, db, { ...creditCtx, nowMs, units, campaignId, chunkId, actor: user.uid });
+      if (!reservation) return { exhausted: true, claimed: [] };
+    }
     mine.forEach((d) => tx.update(d.ref, { status: 'sending', claimedAt: new Date(nowMs) }));
-    return mine.map((d) => ({ ref: d.ref, ...d.data() }));
+    return { claimed: mine.map((d) => ({ ref: d.ref, ...d.data() })), reservation };
   });
+  if (claim.exhausted) {
+    await ref.set({ status: 'paused_no_units' }, { merge: true });
+    throw unitsExhausted();
+  }
+  const claimed = claim.claimed;
 
   const results = [];
   let retryAfter = null;
@@ -276,6 +292,12 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
     ...(sent.length ? { lastSentAt: now } : {}),
   });
   await batch.commit();
+
+  // 013Fixes / 15: give back the units of everyone not sent this chunk.
+  const unsentUnits = [...failed, ...requeued].reduce((n, x) => n + (x.r.units ?? 1), 0);
+  if (unsentUnits > 0) {
+    await refundUnits(db, { units: unsentUnits, reservation: claim.reservation, campaignId, chunkId, nowMs, actor: user.uid });
+  }
 
   if (sent.length) await addPending(db, campaignId, nowMs + DELIVERY_WINDOW_MS);
   await Promise.all([

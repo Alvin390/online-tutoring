@@ -114,6 +114,8 @@ export default defineConfig({
           '**/LoginsCard-*.js', '**/logins-*.js',
           // 013Fixes / 12: the usage bars, notice and their levels (staff screens only).
           '**/usageLevels-*.js', '**/UsageBars-*.js', '**/UsageNotice-*.js',
+          // 013Fixes / 16: the superadmin SMS units card.
+          '**/SmsUnitsCard-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

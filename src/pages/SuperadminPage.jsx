@@ -9,6 +9,8 @@ const ReportsInbox = lazy(() => import('@features/reports/components/ReportsInbo
 const NotificationsSettingsCard = lazy(() => import('@features/reports/components/NotificationsSettingsCard'));
 // 008Fixes / 10: the SMS wallet, usage per teacher and credit alerts.
 const SmsCostCard = lazy(() => import('@features/sms/components/SmsCostCard'));
+// 013Fixes / 16: the school's SMS units and "Add SMS units".
+const SmsUnitsCard = lazy(() => import('@features/sms/components/SmsUnitsCard'));
 // 013Fixes / 07: what each plan includes, its limits and its card words.
 const PlanSettings = lazy(() => import('@features/admin/components/PlanSettings'));
 
@@ -273,7 +275,7 @@ export default function SuperadminPage() {
           <ReportsInbox key="feature" type="feature" initialReportId={requestedTab === 'features' ? linkedReport : null} onCountsChange={onCountsChange} />
         )}
         {tab === 'audit' && <AuditLogViewer />}
-        {tab === 'sms' && <SmsCostCard />}
+        {tab === 'sms' && <><SmsCostCard /><SmsUnitsCard /></>}
         {tab === 'settings' && <NotificationsSettingsCard />}
       </Suspense>
     </div>

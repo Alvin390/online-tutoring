@@ -4,7 +4,7 @@ import { USAGE_ROWS, USAGE_WORDS, usageLevel, overallLevel, windowText } from '.
  * The plan's usage as bars — 013Fixes / 12. Used on the billing page and the
  * superadmin page. Counted about once a day (phase 11); never a lockout.
  */
-export default function UsageBars({ usage, title = 'Usage' }) {
+export default function UsageBars({ usage, title = 'Usage', smsUnits = null }) {
   if (!usage) return null;
   const level = overallLevel(usage);
   const loginsFull = (usage.limits?.logins ?? 0) > 0 && usage.logins >= usage.limits.logins;
@@ -38,6 +38,23 @@ export default function UsageBars({ usage, title = 'Usage' }) {
             </div>
           );
         })}
+        {/* 013Fixes / 16: SMS units this window (units only). */}
+        {smsUnits && smsUnits.granted + smsUnits.topup > 0 && (
+          <div className="mb-2" data-testid="usage-sms">
+            <div className="d-flex justify-content-between small">
+              <span>SMS units</span>
+              <span>
+                <strong>{smsUnits.includedUsed.toLocaleString('en-KE')}</strong> of {smsUnits.granted.toLocaleString('en-KE')} used
+                {smsUnits.topup ? ` · ${smsUnits.topup.toLocaleString('en-KE')} extra` : ''}
+              </span>
+            </div>
+            <div className="progress" style={{ height: 6 }} role="progressbar" aria-label={`SMS units: ${smsUnits.includedUsed} of ${smsUnits.granted} used`}>
+              <div className={`progress-bar ${smsUnits.includedLeft === 0 && !smsUnits.topup ? 'bg-danger' : 'bg-info'}`}
+                style={{ width: `${smsUnits.granted ? Math.min(100, Math.round((smsUnits.includedUsed / smsUnits.granted) * 100)) : 0}%` }} />
+            </div>
+            {smsUnits.available === 0 && <p className="small text-danger mb-0 mt-1">SMS units used up. Contact us for more.</p>}
+          </div>
+        )}
         {level !== 'ok' && (
           <p className={`small mb-1 ${level === 'over' ? 'text-danger' : 'text-warning-emphasis'}`} data-testid="usage-notice">
             {USAGE_WORDS[level]}
