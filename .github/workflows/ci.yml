@@ -81,6 +81,19 @@ jobs:
       # (correctly) rejects — see tests/handlers/authParity.test.js.
       - run: npx firebase-tools emulators:exec --project demo-online-tutoring --only firestore,auth "npx vitest run --config vitest.handlers.config.js"
 
+  # Render and search speed on a large roster (tests/perf, `npm run perf:render`).
+  # Each figure is a median of several runs against a fixed budget. A real
+  # slowdown fails every attempt; a noisy runner rarely fails twice in a row,
+  # so a failed test gets two more tries before the job fails.
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm' }
+      - run: npm ci
+      - run: npm run perf:render -- --retry=2 --maxWorkers=1
+
   audit:
     runs-on: ubuntu-latest
     steps:
