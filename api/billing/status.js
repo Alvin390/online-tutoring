@@ -4,6 +4,7 @@ import { resolveSubscriptionState, publicProjection } from '../_lib/subscription
 import { isEnabled } from '../_lib/flags.js';
 import { invalidatePlanCache, schoolPlan } from '../_lib/schoolPlan.js';
 import { TRIAL_SMS_UNITS, PLAN_IDS, mergePlans } from '../_lib/plans.js';
+import { creditContext, peekCredits } from '../_lib/smsCredits.js';
 
 /**
  * Subscription status, with the lazy on-read check — Phase 03 D5.
@@ -91,6 +92,10 @@ async function planView(user) {
     // 013Fixes / 10: whether this login is the school owner (the logins screen).
     isOwner: Boolean(user?.uid) && user.uid === plan.ownerUid,
     usage: usageView(usageSnap),
+    // 013Fixes / 16: SMS units (included this window, used, extra) — read only.
+    smsUnits: plan.features.bulkSms
+      ? await creditContext(getDb()).then((ctx) => peekCredits(getDb(), ctx)).catch(() => null)
+      : null,
   };
 }
 

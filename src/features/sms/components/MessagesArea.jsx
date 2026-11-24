@@ -25,7 +25,9 @@ export default function MessagesArea({ children }) {
   const load = useCallback(async () => {
     setError('');
     try {
-      setSetup((await getSmsSetup()).setup);
+      // 013Fixes / 16: the school's SMS units ride along with the setup.
+      const result = await getSmsSetup();
+      setSetup({ ...result.setup, units: result.units ?? null });
     } catch (err) {
       setError(err?.message || 'Could not load the SMS setup.');
     }

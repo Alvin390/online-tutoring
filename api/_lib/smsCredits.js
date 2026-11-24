@@ -148,6 +148,21 @@ export async function creditContext(db) {
   return { sub: subSnap.exists ? subSnap.data() : null, overrides: plan.overrides ?? null };
 }
 
+/**
+ * What the screens show, WITHOUT writing (013Fixes / 16): the stored state as
+ * it would be in the current window — a new window shows its fresh grant and
+ * the carried top-up, exactly what the next send will find.
+ */
+export async function peekCredits(db, { sub, overrides, nowMs = Date.now() }) {
+  const snap = await db.doc(STATE).get();
+  const state = snap.exists ? snap.data() : null;
+  const win = creditWindow(sub, overrides, nowMs);
+  if (!state || state.windowId !== win.windowId) {
+    return { ...creditView({ windowId: win.windowId, granted: win.units, includedUsed: 0, topup: state?.topup ?? 0 }), kind: win.kind };
+  }
+  return { ...creditView({ ...state, granted: Math.max(state.granted ?? 0, win.units) }), kind: win.kind };
+}
+
 /** The refusal when the units are not enough (no money in it; owner answer 3). */
 export function unitsExhausted() {
   return new ApiError(402, 'sms_credit_exhausted', "You've used your SMS units. Contact us for more.");

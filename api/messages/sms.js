@@ -6,7 +6,7 @@ import { tryWriteAudit } from '../_lib/audit.js';
 import { getFlags } from '../_lib/flags.js';
 import { withDevice } from '../_lib/device.js';
 import { hasFeature, requireFeature } from '../_lib/schoolPlan.js';
-import { creditContext, readCredits, unitsExhausted } from '../_lib/smsCredits.js';
+import { creditContext, readCredits, peekCredits, unitsExhausted } from '../_lib/smsCredits.js';
 import {
   prepareMessages, smsRecipients, assertAboveReserve, createCampaign, sendChunk, checkDelivery,
   campaignsCol, campaignView, recipientView, SMS_CHUNK,
@@ -129,7 +129,12 @@ export default createHandler({
       }
     };
 
-    if (body.action === 'setup') return { setup: setupView(await readSetup()) };
+    if (body.action === 'setup') {
+      // 013Fixes / 16: the school's SMS units with the setup the composer loads
+      // once (units only, never money). A failure here never hides the setup.
+      const units = await creditContext(db).then((ctx) => peekCredits(db, ctx)).catch(() => null);
+      return { setup: setupView(await readSetup()), units };
+    }
 
     if (body.action === 'people') {
       const [students, staff] = await Promise.all([smsRecipients(db, { type: 'all' }), smsRecipients(db, { type: 'staff' })]);

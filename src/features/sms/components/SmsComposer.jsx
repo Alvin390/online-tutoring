@@ -196,6 +196,13 @@ export default function SmsComposer({ setup, preset = null, smsOff = false, smsO
             <MessageBox value={text} onChange={setText} sms feesOn={feesOn} schoolName={schoolName}>
               <div className={`small mt-1 ${counter.over ? 'text-danger fw-semibold' : 'text-muted'}`} data-testid="sms-counter" aria-live="polite">
                 {counter.length} / {SMS_MAX_CHARS} characters · {counter.units} SMS
+                {/* 013Fixes / 16: units only — never money. */}
+                {setup?.units && (
+                  <span className="d-block" data-testid="sms-units-left">
+                    SMS units left: {setup.units.available.toLocaleString('en-KE')}
+                    {` (${setup.units.includedLeft.toLocaleString('en-KE')} included${setup.units.topup ? ` + ${setup.units.topup.toLocaleString('en-KE')} extra` : ''})`}
+                  </span>
+                )}
                 {counter.studentName && audience.length > 1 ? <> · longest for <strong>{counter.studentName}</strong></> : null}
                 {counter.over > 0 && <> · Too long for 2 SMS. Shorten it by {counter.over} character{counter.over === 1 ? '' : 's'}.</>}
                 {!counter.over && counter.length > SMS_UNIT_CHARS && <> · 2 SMS per parent</>}
@@ -300,7 +307,7 @@ export default function SmsComposer({ setup, preset = null, smsOff = false, smsO
           onClose={() => setReview(null)}
           onConfirm={send}
           confirmLabel={`Send to ${review.data.recipients}`}
-          footer={review.data.enoughCredit === false
+          footer={review.data.enoughCredit === false || review.data.enoughUnits === false
             ? <button type="button" className="btn btn-secondary" onClick={() => setReview(null)}>Close</button>
             : undefined}
         >
@@ -312,6 +319,17 @@ export default function SmsComposer({ setup, preset = null, smsOff = false, smsO
               <div className="small text-muted">The longest message ({review.data.longest.studentName ?? 'one parent'}, {review.data.longest.length} characters):</div>
               <p className="border rounded p-2 small bg-light" style={{ whiteSpace: 'pre-wrap' }}>{review.data.longest.text}</p>
             </>
+          )}
+          {/* 013Fixes / 16: the school's units, never money. */}
+          {typeof review.data.unitsLeft === 'number' && (
+            <p className="small mb-1" data-testid="sms-units-needed">
+              This message uses <strong>{review.data.units.toLocaleString('en-KE')}</strong> SMS units. {review.data.unitsLeft.toLocaleString('en-KE')} left.
+            </p>
+          )}
+          {review.data.enoughUnits === false && (
+            <p className="small mb-1 text-danger" role="alert" data-testid="sms-units-short">
+              Not enough SMS units. Contact us for more.
+            </p>
           )}
           {/* 009Fixes / 00: no prices or credit figures for teachers (the school pays). */}
           {review.data.enoughCredit === false && (

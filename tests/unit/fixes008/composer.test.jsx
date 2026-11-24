@@ -320,3 +320,49 @@ describe('history', () => {
     expect(items[1].textContent).toMatch(/WhatsApp.*40 of 50 opened in WhatsApp \(old campaign\)/);
   });
 });
+
+// 013Fixes / 16: the school's SMS units in the composer — units only, never money.
+describe('SMS units', () => {
+  const units = { available: 2340, includedLeft: 2000, topup: 340, granted: 3000, includedUsed: 1000 };
+
+  it('shows the units left (included + extra) and never a price', async () => {
+    const { default: SmsComposer } = await import('@features/sms/components/SmsComposer');
+    render(<SmsComposer setup={{ ...setup, units }} />);
+    await waitFor(() => expect(screen.getByTestId('sms-audience').textContent).toMatch(/3 people/));
+    expect(screen.getByTestId('sms-units-left').textContent).toBe('SMS units left: 2,340 (2,000 included + 340 extra)');
+    expect(document.body.textContent).not.toMatch(/KES|Ksh/);
+  });
+
+  it('the review says what the message uses and what is left', async () => {
+    sms.previewSms.mockResolvedValue({ recipients: 3, units: 360, unitsLeft: 2340, enoughUnits: true, longest: null, enoughCredit: true });
+    await renderComposer({ setup: { ...setup, units } });
+    await typeMessage('Hi');
+    await click('Review and send');
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByTestId('sms-units-needed').textContent).toBe('This message uses 360 SMS units. 2,340 left.');
+    expect(within(dialog).getByRole('button', { name: 'Send to 3' })).toBeTruthy();
+  });
+
+  it('not enough units: says so, and offers only Close', async () => {
+    sms.previewSms.mockResolvedValue({ recipients: 3, units: 360, unitsLeft: 100, enoughUnits: false, longest: null, enoughCredit: true });
+    await renderComposer({ setup: { ...setup, units: { ...units, available: 100, includedLeft: 100, topup: 0 } } });
+    await typeMessage('Hi');
+    await click('Review and send');
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByTestId('sms-units-short').textContent).toBe('Not enough SMS units. Contact us for more.');
+    expect(within(dialog).queryByRole('button', { name: /^Send to/ })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Close' })).toBeTruthy();
+  });
+});
+
+describe('the billing usage card: SMS units', () => {
+  it('used of included, extra, and "used up" when nothing is left', async () => {
+    const { default: UsageBars } = await import('@features/billing/usage/UsageBars');
+    const usage = { activeStudents: 1, sessions: 1, logins: 1, limits: { activeStudents: 300, sessions: 5, logins: 5 }, percent: {}, windowStart: null };
+    const { rerender } = render(<UsageBars usage={usage} smsUnits={{ granted: 1000, includedUsed: 400, includedLeft: 600, topup: 50, available: 650 }} />);
+    expect(screen.getByTestId('usage-sms').textContent).toMatch(/400 of 1,000 used · 50 extra/);
+    rerender(<UsageBars usage={usage} smsUnits={{ granted: 1000, includedUsed: 1000, includedLeft: 0, topup: 0, available: 0 }} />);
+    expect(screen.getByTestId('usage-sms').textContent).toMatch(/SMS units used up\. Contact us for more\./);
+  });
+});
+

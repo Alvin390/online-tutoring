@@ -204,3 +204,22 @@ describe('what is never charged', () => {
     expect(smsRoute.slice(smsRoute.indexOf("body.action === 'sendTest'"), smsRoute.indexOf("body.action === 'unlock'"))).toMatch(/sendSms\(/);
   });
 });
+
+// 013Fixes / 16: the screens read the units without changing anything.
+describe('showing the units', () => {
+  it('the composer setup carries the units, and reading them writes nothing', async () => {
+    await silverWith(1000, 0);
+    const res = await sms({ action: 'setup' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.units).toMatchObject({ granted: 1000, includedLeft: 1000, topup: 0, available: 1000, kind: 'period' });
+    expect((await db.doc('sms/credits').get()).exists).toBe(false);
+  });
+
+  it('the billing status shows the SMS row on a plan with SMS, not on Bronze', async () => {
+    await silverWith(1000, 0);
+    expect((await call('/api/billing/status', { method: 'GET', token: teacher })).body.plan.smsUnits).toMatchObject({ granted: 1000 });
+    await seedPlan(db, 'bronze', { currentPeriodStart: start });
+    expect((await call('/api/billing/status', { method: 'GET', token: teacher })).body.plan.smsUnits).toBeNull();
+  });
+});
+
