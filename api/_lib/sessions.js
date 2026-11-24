@@ -357,7 +357,11 @@ async function lookupSession(db, slug) {
   if (snap.exists) {
     // 008Fixes / 03: the schedule rides along (check-in's one-device lock
     // lasts until the class ends) — the same read, no extra request.
-    entry = { exists: true, active: snap.data().active !== false, schedule: snap.data().schedule ?? null, at: Date.now() };
+    // 014Fixes / 01: and its display name (the number SMS names the session).
+    entry = {
+      exists: true, active: snap.data().active !== false, schedule: snap.data().schedule ?? null,
+      name: typeof snap.data().name === 'string' && snap.data().name.trim() ? snap.data().name.trim() : null, at: Date.now(),
+    };
   } else if (LEGACY_SLUGS.includes(slug)) {
     entry = { exists: true, active: true, legacy: true, at: Date.now() };
   } else {
@@ -377,6 +381,15 @@ async function lookupSession(db, slug) {
  */
 export async function sessionSchedule(db, slug) {
   return (await lookupSession(db, slug)).schedule ?? null;
+}
+
+/**
+ * The session's display name ("Evening"), from the same 60 s cache
+ * (014Fixes / 01). Falls back to the slug with a capital ("Evening").
+ */
+export async function sessionName(db, slug) {
+  const name = (await lookupSession(db, slug)).name;
+  return name || `${slug.charAt(0).toUpperCase()}${slug.slice(1)}`;
 }
 
 /**

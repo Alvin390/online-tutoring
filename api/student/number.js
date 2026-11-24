@@ -7,6 +7,7 @@ import { tryWriteAudit } from '../_lib/audit.js';
 import { verifyTicket, TICKET_LIFETIME_SECONDS } from '../_lib/verifyTicket.js';
 import { getFlags } from '../_lib/flags.js';
 import { reserveGivenNumber } from '../_lib/assignNumber.js';
+import { sendNumberSms } from '../_lib/numberSms.js';
 import {
   numberProblem, numberProblemMessage, recordNumber, reservationId, formatNumber,
 } from '../_lib/admissionNumber.js';
@@ -113,6 +114,8 @@ export default createHandler({
         after: { kind: result.kind }, context: { requestId: log.requestId },
       }, log));
       log.info('Number given', { session, kind: result.kind });
+      // 014Fixes / 01: the number by SMS, once — after the answer.
+      waitUntil(sendNumberSms({ db, session, phone, log }));
     }
     return { ok: true, kind: result.kind, number: result.digits, display: formatNumber(result.kind, result.digits) };
   },

@@ -98,8 +98,9 @@ service cloud.firestore {
         'phoneVerifiedAt', 'admissionNumber', 'staffNumber', 'numberChosenAt',
         // 009Fixes / 02: a student's one-time number fix (POST /api/student/fixNumber).
         'numberFixedAt', 'numberFixedFrom',
-        // 014Fixes / 00: a number the school GAVE (POST /api/student/number assign).
-        'numberGivenAt'
+        // 014Fixes / 00: a number the school GAVE (POST /api/student/number assign);
+        // 014Fixes / 01: its one-time SMS.
+        'numberGivenAt', 'numberSmsAt'
       ];
     }
 

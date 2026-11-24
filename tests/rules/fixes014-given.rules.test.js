@@ -21,15 +21,18 @@ beforeEach(async () => {
   });
 });
 
-describe('numberGivenAt is server-owned', () => {
+describe('numberGivenAt and numberSmsAt are server-owned', () => {
   it('a teacher cannot set it; ordinary edits still work', async () => {
     const t = teacher(env);
     await assertFails(updateDoc(doc(t, path(PHONE_A)), { numberGivenAt: serverTimestamp() }));
+    // 014Fixes / 01: the one-time number SMS.
+    await assertFails(updateDoc(doc(t, path(PHONE_A)), { numberSmsAt: serverTimestamp() }));
     await assertSucceeds(updateDoc(doc(t, path(PHONE_A)), { blocked: true, blockReason: 'Fees', blockedAt: serverTimestamp() }));
   });
 
   it('a client registration carrying it is refused', async () => {
     const fresh = '+254711000781';
     await assertFails(setDoc(doc(anon(env), path(fresh)), { ...validRegistration(fresh), numberGivenAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(anon(env), path(fresh)), { ...validRegistration(fresh), numberSmsAt: serverTimestamp() }));
   });
 });
