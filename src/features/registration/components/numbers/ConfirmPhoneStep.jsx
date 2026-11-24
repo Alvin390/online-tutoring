@@ -13,7 +13,12 @@ import { CONFIRM_STEP as COPY } from './numberCopy';
  * `purpose` 'register': a code-first registration's code (no record yet);
  * `onRefused(message)` when that phone can't register (already registered,
  * retired). `onDifferentNumber` (phase 05) shows "That phone isn't near me".
- * `onVerified({ ticket, next, numberKind })` after a correct code.
+ * `onVerified({ ticket, next, numberKind, phone, partial })` after a correct code.
+ *
+ * 014Fixes / 05: `sendCode()` / `checkCode(code)` replace the usual calls
+ * (moving to a different number sends and checks through fixNumber), and
+ * `sent` ({ deliveryChannel, retryAfterSeconds }) opens straight on "Enter
+ * the code" when the caller has just sent one.
  *
  * The sending and checking rules are 008/010Fixes' CodeStep's, unchanged:
  * Send again after the server's wait, the hourly cap, "ask your teacher"
@@ -38,15 +43,17 @@ function useMounted() {
   return mounted;
 }
 
-export default function ConfirmPhoneStep({ session, phone, purpose, onVerified, onRefused, onBack, onDifferentNumber }) {
+export default function ConfirmPhoneStep({
+  session, phone, purpose, onVerified, onRefused, onBack, onDifferentNumber, sendCode, checkCode, sent = null,
+}) {
   const mounted = useMounted();
-  const [stage, setStage] = useState('ready'); // 'ready' → 'code'
+  const [stage, setStage] = useState(sent ? 'code' : 'ready'); // 'ready' → 'code'
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
-  const [channel, setChannel] = useState(null);
+  const [channel, setChannel] = useState(sent ? (sent.deliveryChannel === 'sms' ? 'sms' : 'teacher') : null);
   const [error, setError] = useState('');
-  const [resendAt, setResendAt] = useState(0);
+  const [resendAt, setResendAt] = useState(() => (sent ? Date.now() + (sent.retryAfterSeconds ?? 60) * 1000 : 0));
   const [capped, setCapped] = useState(false);
   const wait = useCountdown(resendAt);
   const masked = maskPhone(phone);
@@ -55,7 +62,9 @@ export default function ConfirmPhoneStep({ session, phone, purpose, onVerified, 
     setSending(true);
     setError('');
     try {
-      const res = purpose ? await requestCode(session, phone, purpose) : await requestCode(session, phone);
+      const res = sendCode
+        ? await sendCode()
+        : purpose ? await requestCode(session, phone, purpose) : await requestCode(session, phone);
       if (!mounted.current) return;
       setChannel(res.deliveryChannel === 'sms' ? 'sms' : 'teacher');
       setResendAt(Date.now() + (res.retryAfterSeconds ?? 60) * 1000);
@@ -90,7 +99,7 @@ export default function ConfirmPhoneStep({ session, phone, purpose, onVerified, 
     } finally {
       if (mounted.current) setSending(false);
     }
-  }, [session, phone, purpose, onVerified, onRefused, mounted]);
+  }, [session, phone, purpose, onVerified, onRefused, mounted, sendCode]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -98,9 +107,14 @@ export default function ConfirmPhoneStep({ session, phone, purpose, onVerified, 
     setBusy(true);
     setError('');
     try {
-      const res = purpose ? await verifyCode(session, phone, code, purpose) : await verifyCode(session, phone, code);
+      const res = checkCode
+        ? await checkCode(code)
+        : purpose ? await verifyCode(session, phone, code, purpose) : await verifyCode(session, phone, code);
       if (!mounted.current) return;
-      onVerified({ ticket: res.ticket ?? null, next: res.next ?? 'checkin', numberKind: res.numberKind ?? 'student' });
+      onVerified({
+        ticket: res.ticket ?? null, next: res.next ?? 'checkin', numberKind: res.numberKind ?? 'student',
+        ...(res.phone ? { phone: res.phone } : {}), ...(res.partial ? { partial: true } : {}),
+      });
     } catch (err) {
       if (!mounted.current) return;
       if (err?.code === 'too_many_tries') setCode('');

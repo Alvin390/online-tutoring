@@ -58,3 +58,18 @@ export const NUMBER_POPUP = Object.freeze({
   goToClass: "I've saved it. Go to class",
   saved: "I've saved it",
 });
+
+/** "Use a different number" (copy.md §2b). Phones are masked. */
+export const DIFFERENT_NUMBER = Object.freeze({
+  title: 'Use a different number',
+  why: "Enter the phone number you'll use from now on.",
+  send: 'Send code',
+  sending: 'Sending…',
+  confirmTitle: 'This will be your new number',
+  confirmBody: (next, old, session) => `From now on, **${next}** will be your number for checking in to ${session} class, and for messages from your teacher. **${old}** will stop working.`,
+  yes: 'Yes, use this number',
+  goBack: 'Go back',
+  same: 'That is the number you started with. Enter the phone you have with you now.',
+  back: 'Back',
+  finishing: 'Moving your registration to the new number…',
+});

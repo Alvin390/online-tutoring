@@ -103,6 +103,9 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   // 014Fixes / 03: the last refusal of a typed admission number (a new object
   // each time, so the step shows it again after the student typed).
   const [numberRefusal, setNumberRefusal] = useState(null);
+  // 014Fixes / 05: which first-time answer sent the student to confirm their
+  // phone. Only a phone never confirmed may move to a different number.
+  const [firstTimeFrom, setFirstTimeFrom] = useState(null);
 
 
   const {
@@ -185,6 +188,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     // Confirm the phone (a confirmed record without a number gets a code
     // again: choosing needs the ticket a confirmed code gives).
     if (result.admission === 'verify_required' || result.admission === 'choose_number') {
+      setFirstTimeFrom(result.admission);
       setStep('admission');
       return;
     }
@@ -491,8 +495,14 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                     session={session}
                     sessionName={label}
                     phone={phoneNumber}
-                    onCheckin={(number) => handled('checkin', handleCheckin)(phoneNumber, number)}
-                    onHasNumber={() => { setNumberRefusal(null); setStep('number'); }}
+                    allowDifferent={firstTimeFrom === 'verify_required'}
+                    onCheckin={(number, phone) => handled('checkin', handleCheckin)(phone ?? phoneNumber, number)}
+                    onHasNumber={(phone) => {
+                      // Moved to a new phone: check in with it (the number step follows).
+                      if (phone && phone !== phoneNumber) { handled('checkin', handleCheckin)(phone); return; }
+                      setNumberRefusal(null);
+                      setStep('number');
+                    }}
                     onRefresh={(message) => backToCard({ tone: 'error', text: message })}
                     onBack={handleBack}
                   />

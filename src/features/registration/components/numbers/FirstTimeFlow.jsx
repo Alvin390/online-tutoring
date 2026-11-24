@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { assignNumber } from '@services/api/studentAdmission';
 import ConfirmPhoneStep from './ConfirmPhoneStep';
+import DifferentNumber from './DifferentNumber';
 import NumberPopup from './NumberPopup';
 
 /**
@@ -9,15 +10,21 @@ import NumberPopup from './NumberPopup';
  * phone (one short step), the school GIVES the number, the pop-up shows it,
  * then the student is checked in with it. Next time: phone → number → in.
  *
- *   code → next 'assignNumber' → assign → pop-up → onCheckin(display)
- *   code → next 'checkin'      → onHasNumber()   (a number, phone unconfirmed)
+ *   code → next 'assignNumber' → assign → pop-up → onCheckin(display, phone)
+ *   code → next 'checkin'      → onHasNumber(phone)  (a number, phone unconfirmed)
+ *
+ * 014Fixes / 05: with `allowDifferent` (a phone never confirmed), "That phone
+ * isn't near me" moves the registration to the phone they have; everything
+ * after uses the NEW phone.
  *
  * `onRefresh(message)`: the page's settings are out of date (the switch
- * changed); `onBack()`: back to the phone. `onDifferentNumber` is phase 05's.
+ * changed); `onBack()`: back to the phone.
  */
 export default function FirstTimeFlow({
-  session, sessionName, phone, onCheckin, onHasNumber, onRefresh, onBack, onDifferentNumber,
+  session, sessionName, phone: startPhone, allowDifferent = false, onCheckin, onHasNumber, onRefresh, onBack,
 }) {
+  const [phone, setPhone] = useState(startPhone);
+  const [stage, setStage] = useState('confirm'); // 'confirm' | 'different'
   const [given, setGiven] = useState(null); // { display, kind }
   const [ticket, setTicket] = useState(null);
   const [assigning, setAssigning] = useState(false);
@@ -26,31 +33,33 @@ export default function FirstTimeFlow({
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
-  const assign = useCallback(async (withTicket) => {
+  const assign = useCallback(async (forPhone, withTicket) => {
     setAssigning(true);
     setError('');
     try {
-      const res = await assignNumber(session, phone, withTicket);
+      const res = await assignNumber(session, forPhone, withTicket);
       if (!mounted.current) return;
       setGiven({ display: res.display ?? res.number, kind: res.kind ?? 'student' });
     } catch (err) {
       if (!mounted.current) return;
-      if (err?.code === 'already_has_number') { onHasNumber(); return; }
-      if (err?.code === 'verification_required') { setTicket(null); setConfirmKey((k) => k + 1); return; }
+      if (err?.code === 'already_has_number') { onHasNumber(forPhone); return; }
+      if (err?.code === 'verification_required') { setTicket(null); setStage('confirm'); setConfirmKey((k) => k + 1); return; }
       if (err?.code === 'refresh_needed') { onRefresh(err.message); return; }
       setError(err?.message || 'We could not give you a number just now. Please try again.');
     } finally {
       if (mounted.current) setAssigning(false);
     }
-  }, [session, phone, onHasNumber, onRefresh]);
+  }, [session, onHasNumber, onRefresh]);
 
-  const verified = useCallback(({ ticket: t, next }) => {
-    if (next === 'assignNumber' && t) { setTicket(t); assign(t); return; }
-    onHasNumber();
-  }, [assign, onHasNumber]);
+  const verified = useCallback(({ ticket: t, next, phone: movedTo }) => {
+    const forPhone = movedTo ?? phone;
+    if (movedTo) setPhone(movedTo);
+    if (next === 'assignNumber' && t) { setTicket(t); assign(forPhone, t); return; }
+    onHasNumber(forPhone);
+  }, [assign, onHasNumber, phone]);
 
   if (given) {
-    return <NumberPopup kind={given.kind} display={given.display} session={sessionName} onDone={() => onCheckin(given.display)} />;
+    return <NumberPopup kind={given.kind} display={given.display} session={sessionName} onDone={() => onCheckin(given.display, phone)} />;
   }
   if (ticket) {
     return (
@@ -58,12 +67,23 @@ export default function FirstTimeFlow({
         {error ? (
           <>
             <p className="alert alert-danger small py-2" role="alert">{error}</p>
-            <button type="button" className="btn btn-primary btn-lg w-100" onClick={() => assign(ticket)} disabled={assigning}>Try again</button>
+            <button type="button" className="btn btn-primary btn-lg w-100" onClick={() => assign(phone, ticket)} disabled={assigning}>Try again</button>
           </>
         ) : (
           <p className="mb-0"><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />Getting your admission number…</p>
         )}
       </m.div>
+    );
+  }
+  if (stage === 'different') {
+    return (
+      <DifferentNumber
+        session={session}
+        sessionName={sessionName}
+        oldPhone={phone}
+        onMoved={verified}
+        onBack={() => setStage('confirm')}
+      />
     );
   }
   return (
@@ -73,7 +93,7 @@ export default function FirstTimeFlow({
       phone={phone}
       onVerified={verified}
       onBack={onBack}
-      onDifferentNumber={onDifferentNumber}
+      onDifferentNumber={allowDifferent ? () => setStage('different') : undefined}
     />
   );
 }

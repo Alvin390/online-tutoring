@@ -35,7 +35,8 @@ import { moveStudent } from '../_lib/moveStudent.js';
  * words). None or several: the same "not found" as a wrong number — the
  * server never reveals names. A confirmed record (including one already
  * fixed) is refused: changing it is the teacher's (owner: once only).
- * Behind `checkin.admissionNumbers` + `student.fixNumber`. The move is the
+ * Behind `checkin.admissionNumbers` (014Fixes / 05: that switch alone; the
+ * check-in code step offers it as "That phone isn't near me"). The move is the
  * teacher edit's (api/_lib/moveStudent.js); the code is requestCode's
  * (api/_lib/otpIssue.js), with its limits and the teacher's "Codes waiting".
  */
@@ -128,7 +129,8 @@ export default createHandler({
   rateLimit: { bucket: 'fix_number_ip', limit: 60, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, log, waitUntil }) => {
     const flags = await getFlags();
-    if (flags['checkin.admissionNumbers'] !== true || flags['student.fixNumber'] !== true) {
+    // 014Fixes / 05: one switch — admission numbers alone (not student.fixNumber).
+    if (flags['checkin.admissionNumbers'] !== true) {
       throw new ApiError(404, 'not_available', 'This is not available.');
     }
     const { session, newPhone } = body;

@@ -176,8 +176,8 @@ describe('refusals', () => {
     expect(await record(P(19))).toBeTruthy();
   });
 
-  it('flag off: not available', async () => {
-    await setFlags(db, { 'auth.legacyStudentRead': true, 'checkin.admissionNumbers': true, 'student.fixNumber': false });
+  it('admission numbers off: not available (014Fixes / 05: that switch alone)', async () => {
+    await setFlags(db, { 'auth.legacyStudentRead': true, 'checkin.admissionNumbers': false, 'student.fixNumber': true });
     await seed(P(22));
     const res = await fix({ action: 'request', oldPhone: P(22), newPhone: P(23) });
     expect(res.status).toBe(404);

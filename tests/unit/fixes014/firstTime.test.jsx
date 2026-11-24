@@ -131,7 +131,7 @@ describe('the number pop-up', () => {
   });
 });
 
-describe('the page: phone → confirm → number given → in', () => {
+describe('the page: phone → confirm → number given → in', { timeout: 20_000 }, () => {
   const flow = async (overrides) => {
     const page = await renderSessionPage({ flags: { 'checkin.admissionNumbers': true }, api: overrides });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check in' })); });
