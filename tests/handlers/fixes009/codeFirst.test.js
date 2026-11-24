@@ -128,8 +128,10 @@ describe('code first', () => {
     expect(res.status).toBe(200);
     expect(res.body.next).toBe('verify');
     expect((await record(P(7))).phoneVerifiedAt).toBeUndefined();
+    // 014Fixes / 00: one switch — the registration code follows
+    // checkin.admissionNumbers alone, whatever student.fixNumber says.
     const reg = await requestCode(P(8), 'register');
-    expect(reg.status).toBe(404); // the register kind does not exist with the flag off
-    expect(fakes.hashback.sent).toHaveLength(0);
+    expect(reg.status).toBe(200);
+    expect(fakes.hashback.sent).toHaveLength(1);
   });
 });

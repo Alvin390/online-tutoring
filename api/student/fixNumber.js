@@ -113,7 +113,8 @@ async function finished(db, session, newPhone) {
     ok: true,
     phone: newPhone,
     ticket: issueTicket({ session, phone: newPhone }),
-    next: recordNumber(record) ? 'checkin' : 'chooseNumber',
+    // 014Fixes / 00: given, not chosen.
+    next: recordNumber(record) ? 'checkin' : 'assignNumber',
     numberKind: record.staff === true ? 'staff' : 'student',
   };
 }

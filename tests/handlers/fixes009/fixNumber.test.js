@@ -47,7 +47,7 @@ beforeEach(async () => {
 });
 
 describe('by the number they registered with', () => {
-  it('code to the real number → the whole record moves there, confirmed; then choose a number', async () => {
+  it('code to the real number → the whole record moves there, confirmed; then a number is given', async () => {
     await seed(P(1), { feeBalance: 2750, approvalStatus: 'approved' });
     await db.doc(`sessions/evening/students/${P(1)}/notes/n1`).set({ text: 'paid half', createdAt: new Date() });
     await db.doc(`fees/accounts/items/evening__${P(1)}`).set({ key: `evening__${P(1)}`, phone: P(1), session: 'evening', balance: 2750 });
@@ -61,7 +61,7 @@ describe('by the number they registered with', () => {
 
     const done = await fix({ action: 'confirm', oldPhone: P(1), newPhone: P(2), code: lastCode() });
     expect(done.status).toBe(200);
-    expect(done.body).toMatchObject({ ok: true, phone: P(2), next: 'chooseNumber', numberKind: 'student' });
+    expect(done.body).toMatchObject({ ok: true, phone: P(2), next: 'assignNumber', numberKind: 'student' });
     expect(done.body.ticket).toMatch(/^v1\./);
 
     expect(await record(P(1))).toBeNull();
@@ -75,9 +75,9 @@ describe('by the number they registered with', () => {
     const audit = (await db.collection('audit').where('action', '==', 'student.number_fixed_by_student').get()).docs;
     expect(audit).toHaveLength(1);
 
-    // Then the usual: choose an admission number with the ticket.
-    const chosen = await call('/api/student/number', { body: { action: 'choose', session: 'evening', phone: P(2), number: '5738', ticket: done.body.ticket } });
-    expect(chosen.status).toBe(200);
+    // Then the usual (014Fixes): a number is given with the ticket.
+    const given = await call('/api/student/number', { body: { action: 'assign', session: 'evening', phone: P(2), ticket: done.body.ticket } });
+    expect(given.status).toBe(200);
   });
 
   it('a record that already had a number keeps it (next: checkin); its reservation follows', async () => {

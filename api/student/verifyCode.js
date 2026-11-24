@@ -27,7 +27,7 @@ import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
  *
  * 008Fixes / 01: with `checkin.admissionNumbers` on, success returns a
  * short-lived verified-phone TICKET (api/_lib/verifyTicket.js) and what comes
- * next ('chooseNumber' or 'checkin'), and no Firebase identity is minted:
+ * next ('assignNumber' (014Fixes) or 'checkin'), and no Firebase identity is minted:
  * student pages load no Firebase, so the custom token was never usable there,
  * and minting costs several Identity Toolkit round trips per student at class
  * start. The code must have been issued for this session. The record is
@@ -59,7 +59,8 @@ export default createHandler({
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
     const flags = await getFlags();
     const numbersOn = flags['checkin.admissionNumbers'] === true;
-    const forRegistration = body.purpose === 'register' && numbersOn && flags['student.fixNumber'] === true;
+    // 014Fixes / 00: one switch — admission numbers alone (not student.fixNumber).
+    const forRegistration = body.purpose === 'register' && numbersOn;
 
     const verified = await db.runTransaction(async (tx) => {
       // Both in one batchGet (the shim coalesces reads in the same tick).
@@ -144,7 +145,8 @@ export default createHandler({
       return {
         ok: true,
         ticket: issueTicket({ session, phone }),
-        next: recordNumber(record) ? 'checkin' : 'chooseNumber',
+        // 014Fixes / 00: a record without a number is GIVEN one next (student/number assign).
+        next: recordNumber(record) ? 'checkin' : 'assignNumber',
         numberKind: record.staff === true ? 'staff' : 'student',
       };
     }

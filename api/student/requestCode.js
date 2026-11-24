@@ -30,7 +30,7 @@ import { retiredMessage } from '../_lib/duplicates.js';
  * 10 minutes; the student endpoints never return either.
  *
  * 009Fixes / 01 - code-first registration (owner, 2026-11-16): with admission
- * numbers and `student.fixNumber` on, `purpose: 'register'` asks for a code
+ * numbers on (014Fixes: that switch alone), `purpose: 'register'` asks for a code
  * for a number with NO record yet, so the phone is confirmed before the
  * registration is saved. A number already registered (or retired by the
  * teacher) is refused before any SMS. With the flag off that kind does not
@@ -61,8 +61,8 @@ export default createHandler({
     const otpRef = db.collection('otp').doc(sha256(phone));
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
     const flags = body.purpose ? await getFlags() : null;
-    const forRegistration = body.purpose === 'register'
-      && flags['checkin.admissionNumbers'] === true && flags['student.fixNumber'] === true;
+    // 014Fixes / 00: one switch — admission numbers alone (not student.fixNumber).
+    const forRegistration = body.purpose === 'register' && flags['checkin.admissionNumbers'] === true;
 
     // The record and the live code in one round trip, beside the limiter.
     const [[studentSnap, otpSnap, retiredSnap]] = await Promise.all([

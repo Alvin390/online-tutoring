@@ -220,21 +220,21 @@ describe('the lock lasts until the class ends', () => {
   });
 });
 
-describe('the first time: phone → code → choose → check in afresh', () => {
+describe('the first time: phone → code → number given → check in (014Fixes)', () => {
   it('works end to end', async () => {
     await seed('evening', P(30));
     expect((await checkin({ phone: P(30) })).body.error.code).toBe('verify_required');
     await call('/api/student/requestCode', { body: { session: 'evening', phone: P(30) } });
     const code = /(\d{6})/.exec(fakes.hashback.sent.at(-1).message)[1];
     const verified = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(30), code } });
-    expect(verified.body.next).toBe('chooseNumber');
+    expect(verified.body.next).toBe('assignNumber');
     expect((await checkin({ phone: P(30) })).body.error.code).toBe('choose_number');
-    const chosen = await call('/api/student/number', {
-      body: { action: 'choose', session: 'evening', phone: P(30), number: '4071', ticket: verified.body.ticket },
+    const given = await call('/api/student/number', {
+      body: { action: 'assign', session: 'evening', phone: P(30), ticket: verified.body.ticket },
     });
-    expect(chosen.status).toBe(200);
+    expect(given.status).toBe(200);
     expect((await checkin({ phone: P(30) })).body.error.code).toBe('number_required');
-    expect((await checkin({ phone: P(30), number: '4071' })).status).toBe(200);
+    expect((await checkin({ phone: P(30), number: given.body.number })).status).toBe(200);
   });
 });
 
