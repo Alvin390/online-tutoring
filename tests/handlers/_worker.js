@@ -33,6 +33,8 @@ export const TEST_ENV = Object.freeze({
   PUBLIC_BASE_URL: 'https://validation.example',
   CRON_SECRET: 'test-cron-secret',
   APP_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+  // 013Fixes / 32: the first-time report recipient comes from the environment (placeholder).
+  REPORT_RECIPIENT: 'reports.owner@harness.example',
   PAYSTACK_MODE: 'test',
   PAYSTACK_SECRET_KEY_TEST: 'sk_test_harness_only',
   PAYSTACK_PLAN_BRONZE_TEST: 'PLN_bronze',

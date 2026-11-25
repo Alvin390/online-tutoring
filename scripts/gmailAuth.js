@@ -30,7 +30,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const DEFAULT_TEST_RECIPIENT = 'alvinmk06@gmail.com';
+// 013Fixes / 32: no address in the code; --to, or REPORT_RECIPIENT from .env.local.
+const defaultTestRecipient = () => process.env.REPORT_RECIPIENT || null;
 
 const base64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -108,10 +109,10 @@ function waitForCode(server, expectedState) {
 async function main() {
   const args = process.argv.slice(2);
   const toIndex = args.indexOf('--to');
-  const testTo = toIndex !== -1 ? args[toIndex + 1] : DEFAULT_TEST_RECIPIENT;
   const skipTest = args.includes('--no-test');
 
   loadEnvFiles();
+  const testTo = toIndex !== -1 ? args[toIndex + 1] : defaultTestRecipient();
   const clientId = process.env.GMAIL_CLIENT_ID;
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -163,6 +164,10 @@ async function main() {
   if (skipTest) return;
   if (!process.env.GMAIL_SENDER) {
     console.log('GMAIL_SENDER is not set, so no test email was sent. Set it and use the superadmin "Send test email".');
+    return;
+  }
+  if (!testTo) {
+    console.log('No test email sent: pass --to you@example.com (or set REPORT_RECIPIENT in .env.local), or use the superadmin "Send test email".');
     return;
   }
 

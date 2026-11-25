@@ -8,9 +8,9 @@ You do this once, in about 15 minutes. Bug reports and feature requests are save
 
 ## 1. Choose the sender account (recommended: a dedicated one)
 
-Create a new Gmail account such as `onlinetutoring.alerts@gmail.com` and use it as the **sender**. The **recipient** stays `alvinmk06@gmail.com`, editable later from superadmin.
+Create a new Gmail account such as `onlinetutoring.alerts@gmail.com` and use it as the **sender**. The **recipient** is your own address, set on Superadmin → Settings ("Send reports to"); `REPORT_RECIPIENT` can seed it the first time.
 
-**Why separate:** Gmail files mail you send to *yourself* as already read, so it can arrive with no phone notification. Mail from a second account arrives as a normal new message and notifies. Using `alvinmk06@gmail.com` for both does work; you would just lose the alert.
+**Why separate:** Gmail files mail you send to *yourself* as already read, so it can arrive with no phone notification. Mail from a second account arrives as a normal new message and notifies. Using your own address for both does work; you would just lose the alert.
 
 ## 2. Enable the Gmail API
 
@@ -55,7 +55,7 @@ Then run `npm run cf:secrets`. `pushSecrets.js` uploads every runtime variable t
 
 ## 7. Make sure it never goes to spam (recipient side)
 
-In `alvinmk06@gmail.com`: open any report email → ⋮ → *Filter messages like this*. Use **From:** the sender address. Then tick:
+In the recipient's inbox: open any report email → ⋮ → *Filter messages like this*. Use **From:** the sender address. Then tick:
 - **Never send it to Spam**
 - **Always mark it as important**
 - **Categorize as: Primary**

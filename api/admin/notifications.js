@@ -3,7 +3,7 @@ import { getDb } from '../_lib/firebaseAdmin.js';
 import { z } from '../_lib/validate.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { gmailConfigured, sendGmail, GmailError } from '../_lib/gmail.js';
-import { getNotificationSettings } from '../_lib/reports.js';
+import { getNotificationSettings, NO_RECIPIENT_MESSAGE } from '../_lib/reports.js';
 import { FieldValue } from '../_lib/firebaseAdmin.js';
 import { classAlertRecipients, buildPreclassEmail, dashboardUrl } from '../_lib/preclassReminder.js';
 
@@ -128,6 +128,9 @@ export default createHandler({
     }
 
     // sendTest
+    if (!settings.reportRecipient) {
+      return { ok: true, sent: false, code: 'no_recipient', message: NO_RECIPIENT_MESSAGE };
+    }
     try {
       await sendGmail({
         to: settings.reportRecipient,

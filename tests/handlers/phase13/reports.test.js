@@ -109,7 +109,7 @@ describe('D3 submitting a report', () => {
     const sends = gmailSends();
     expect(sends).toHaveLength(1);
     const raw = decodeGmailRaw(sends[0]);
-    expect(headerOf(raw, 'To')).toBe('alvinmk06@gmail.com');
+    expect(headerOf(raw, 'To')).toBe('reports.owner@harness.example');
     expect(headerOf(raw, 'Reply-To')).toBe('zoe.teacher@harness.example');
     expect(decodeSubject(headerOf(raw, 'Subject')))
       .toBe('[Bug] BUG-0001 · Blocking · Zoë cannot join the evening class — p13-reports-teacher (Silver)');
@@ -118,7 +118,7 @@ describe('D3 submitting a report', () => {
     expect(saved).toMatchObject({ type: 'bug', status: 'new', severity: 'blocking', number: 'BUG-0001' });
     expect(saved.submittedBy).toMatchObject({ uid: TEACHER, email: 'zoe.teacher@harness.example' });
     expect(saved.context).toMatchObject({ page: '/dashboard', tier: 'silver' });
-    expect(saved.email).toMatchObject({ status: 'sent', attempts: 1, gmailId: 'gmail_1', recipient: 'alvinmk06@gmail.com' });
+    expect(saved.email).toMatchObject({ status: 'sent', attempts: 1, gmailId: 'gmail_1', recipient: 'reports.owner@harness.example' });
     const due = saved.responseDueAt.toMillis() - saved.createdAt.toMillis();
     expect(due).toBe(36 * 3600_000);
   });
@@ -327,7 +327,7 @@ describe('D7 superadmin: recipient, test email, inboxes', () => {
 
     const audits = await db.collection('audit').where('action', '==', 'notifications.recipient_changed').get();
     expect(audits.size).toBe(1);
-    expect(audits.docs[0].data().before).toEqual({ reportRecipient: 'alvinmk06@gmail.com' });
+    expect(audits.docs[0].data().before).toEqual({ reportRecipient: 'reports.owner@harness.example' });
   });
 
   it('refuses an invalid recipient', async () => {
@@ -633,5 +633,28 @@ describe('superadmin deletes a report', () => {
     fakes.storage.fail = null;
     expect(res.status).toBe(200);
     expect((await db.doc(`reports/${body.reportId}`).get()).exists).toBe(false);
+  });
+});
+
+// 013Fixes / 32: no address is written into the code. The recipient is the
+// superadmin's setting (config/notifications), seeded the first time from
+// REPORT_RECIPIENT when set; with neither, the report is saved and the email
+// skipped, said so.
+describe('no report recipient anywhere', () => {
+  it('the report is saved, the email skipped (no_recipient), and the test email says what to do', async () => {
+    const saved = process.env.REPORT_RECIPIENT;
+    delete process.env.REPORT_RECIPIENT;
+    try {
+      const res = await submit(bug());
+      expect(res.status).toBe(200);
+      await drainWaitUntil();
+      expect(gmailSends()).toHaveLength(0);
+      expect((await report(res.body.id)).email).toMatchObject({ status: 'needs_attention', errorCode: 'no_recipient' });
+      expect((await db.doc('config/notifications').get()).data()?.reportRecipient ?? null).toBeNull();
+      const test = await call('/api/admin/notifications', { token: superadmin, body: { action: 'sendTest' } });
+      expect(test.body).toMatchObject({ ok: true, sent: false, code: 'no_recipient' });
+    } finally {
+      process.env.REPORT_RECIPIENT = saved;
+    }
   });
 });
