@@ -47,6 +47,8 @@ export default function UserManager() {
   // 013Fixes / 22b: every plan (the downgrade warning) and the SMS units, for the account card.
   const [plans, setPlans] = useState(null);
   const [sms, setSms] = useState(null);
+  // 013Fixes / 27: each plan's price (the server's), for the card and Record payment.
+  const [prices, setPrices] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   // 013Fixes / 19: the school's "Start trial" form.
@@ -76,6 +78,7 @@ export default function UserManager() {
       setUsage(result.usage ?? null);
       setPlans(result.plans ?? null);
       setSms(result.sms ?? null);
+      setPrices(result.prices ?? null);
       setExtraDraft(String(result.seats?.extra ?? 0));
     } catch (error) {
       logger.error('User list failed', error);
@@ -152,6 +155,7 @@ export default function UserManager() {
       {recordingPayment && (
         <RecordPaymentModal
           currentTier={subscription?.tier ?? 'gold'}
+          prices={prices}
           onClose={() => setRecordingPayment(false)}
           onRecorded={(res) => {
             setRecordingPayment(false);
@@ -181,6 +185,7 @@ export default function UserManager() {
           subscription={subscription}
           plans={plans}
           sms={sms}
+          prices={prices}
           onChanged={(message) => { if (message) showSuccess(message); load(); }}
         />
 

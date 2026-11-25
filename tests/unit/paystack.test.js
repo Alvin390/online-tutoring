@@ -104,7 +104,8 @@ describe('subunit conversion', () => {
 
 describe('server-side price table', () => {
   it('matches the agreed tier prices', () => {
-    expect(paystack.TIER_PRICE_KES).toEqual({ bronze: 4999, silver: 7499, gold: 9999 });
+    // 013Fixes / 27: only the last fallback now (prices are the Paystack plans).
+    expect(paystack.FALLBACK_PRICE_KES).toEqual({ bronze: 4999, silver: 7499, gold: 9999 });
   });
 
   it('resolves a plan code per tier', () => {

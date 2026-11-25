@@ -3,7 +3,7 @@ import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import { getPlanSettings, savePlanSettings, resetPlanSettings } from '@services/api/admin';
 import { PLAN_IDS, FEATURE_KEYS, LIMIT_KEYS, CARD_LIMITS, limitLines } from '@shared/constants/plans';
-import { TIERS, formatKes } from '@shared/constants/tiers';
+import { TIERS } from '@shared/constants/tiers';
 import logger from '@utils/logger';
 import { FEATURE_LABELS, LIMIT_LABELS } from '../planLabels';
 
@@ -134,7 +134,7 @@ export default function PlanSettings() {
                       {TIERS[id].name}
                       {customised && <span className="badge text-bg-info ms-2">Custom</span>}
                     </h3>
-                    <span className="small text-muted" title="Set in the pricing series">{formatKes(TIERS[id].priceKes)}/month</span>
+                    <span className="small text-muted">Price: see Prices above</span>
                   </div>
 
                   <fieldset className="mb-3">

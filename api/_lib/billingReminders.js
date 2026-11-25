@@ -1,7 +1,7 @@
 import { getAdminAuth } from './firebaseAdmin.js';
 import { gmailConfigured, sendGmail, GmailError } from './gmail.js';
 import { getNotificationSettings } from './reports.js';
-import { TIER_PRICE_KES } from './paystack.js';
+import { planPrices } from './planPrices.js';
 
 /**
  * Reminder emails — 013Fixes / 23 (owner suggestion 7). The hourly sweep
@@ -122,7 +122,7 @@ export async function sendQueuedReminders(db, { sub, log, now = Date.now() }) {
   const snap = await db.collection(QUEUE).where('status', 'in', ['queued', 'failed']).limit(SEND_BATCH).get();
   if (snap.empty) return result;
 
-  const to = await recipients(db, sub);
+  const [to, { prices }] = await Promise.all([recipients(db, sub), planPrices(db)]);
   for (const doc of snap.docs) {
     const q = doc.data();
     const endsAt = q.endsAt?.toMillis?.() ?? (q.endsAt instanceof Date ? q.endsAt.getTime() : null);
@@ -136,7 +136,7 @@ export async function sendQueuedReminders(db, { sub, log, now = Date.now() }) {
       if (to.length === 0) throw new GmailError('no_recipient', 'No address to send the reminder to.', { retryable: false });
       const email = buildReminderEmail({
         reminderId: q.reminderId, kind: q.kind, tier: q.tier, endsAt,
-        priceKes: TIER_PRICE_KES[q.tier] ?? null, baseUrl: process.env.PUBLIC_BASE_URL, now,
+        priceKes: prices[q.tier] ?? null, baseUrl: process.env.PUBLIC_BASE_URL, now,
       });
       // The owner in To, the notification address as the copy (one address each).
       const sent = await sendGmail({ to: to[0], cc: to[1], subject: email.subject, text: email.text, html: email.html });

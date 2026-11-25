@@ -39,11 +39,14 @@ export function currentMode() {
 }
 
 /**
- * Server-side price table. The client NEVER supplies an amount — that is the
- * classic mass-assignment hole in a checkout flow, and the reason
- * /api/billing/initialize takes a tier name and nothing else.
+ * 013Fixes / 27: the LAST FALLBACK only. Prices are the shared Paystack plans
+ * (api/_lib/planPrices.js); these are used when Paystack can't be reached and
+ * no copy is stored. They are the plans' amounts when this was written, and
+ * nothing else in the app may hold a price (tests/unit/fixes013/onePrice).
+ * The client never supplies an amount: /api/billing/initialize takes a tier
+ * name, and the server prices it.
  */
-export const TIER_PRICE_KES = {
+export const FALLBACK_PRICE_KES = {
   bronze: 4999,
   silver: 7499,
   gold: 9999,
@@ -91,9 +94,9 @@ function secretKey() {
   return key;
 }
 
-async function paystackFetch(path, { method = 'GET', body } = {}) {
+async function paystackFetch(path, { method = 'GET', body, timeoutMs = 15_000 } = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     countExternalSubrequest();
@@ -204,6 +207,24 @@ export async function initializeTransaction(opts) {
   }
 
   return paystackFetch('/transaction/initialize', { method: 'POST', body });
+}
+
+/**
+ * 013Fixes / 26: a plan's new price, for every school (the plans are shared).
+ * `update_existing_subscriptions: true` — sent explicitly — makes existing
+ * card subscriptions charge it from their next billing cycle
+ * (upgrade/paystack_docs.txt:6592-6599; evidence/paystack-update-plan-field.md).
+ */
+export async function updatePlanAmount(code, amountKes) {
+  return paystackFetch(`/plan/${encodeURIComponent(code)}`, {
+    method: 'PUT',
+    body: { amount: toSubunit(amountKes), update_existing_subscriptions: true },
+  });
+}
+
+/** 013Fixes / 25: one plan (its `amount` is in cents). Read-only. */
+export async function fetchPlan(code, { timeoutMs } = {}) {
+  return paystackFetch(`/plan/${encodeURIComponent(code)}`, { ...(timeoutMs ? { timeoutMs } : {}) });
 }
 
 export async function verifyTransaction(reference) {

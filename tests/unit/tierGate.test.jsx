@@ -94,9 +94,10 @@ describe('TierGate with the school plan', () => {
 describe('TierGate wording and the superadmin', () => {
   it('names the feature and the cheapest plan with its price', () => {
     authState = { tier: 'bronze', tierRank: 1, isSuperadmin: false };
-    renderGate({ requires: 'mpesaStk', feature: 'M-Pesa payments' });
+    // 013Fixes / 27: the price is the server's (the shared Paystack plan).
+    renderGate({ requires: 'mpesaStk', feature: 'M-Pesa payments' }, { loading: false, plan: { ...schoolPlan('bronze'), prices: { bronze: 5000, silver: 8000, gold: 12000 } } });
     expect(screen.getByText(/M-Pesa payments/)).toBeInTheDocument();
-    expect(screen.getByText(/KES 9,999/)).toBeInTheDocument();
+    expect(screen.getByText(/KES 12,000/)).toBeInTheDocument();
   });
 
   it('links to the billing page carrying the plan to upgrade to', () => {

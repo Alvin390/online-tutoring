@@ -19,9 +19,12 @@ const METHODS = [
   { id: 'bank', label: 'Bank' },
 ];
 
-export default function RecordPaymentModal({ currentTier = 'gold', onClose, onRecorded }) {
+export default function RecordPaymentModal({ currentTier = 'gold', prices = null, onClose, onRecorded }) {
   const [tier, setTier] = useState(TIER_ORDER.includes(currentTier) ? currentTier : 'gold');
-  const [amount, setAmount] = useState('');
+  // 013Fixes / 27: the package's price (the server's), until typed over.
+  const priceFor = (t) => (prices?.[t] != null ? String(prices[t]) : '');
+  const [amount, setAmount] = useState(() => priceFor(TIER_ORDER.includes(currentTier) ? currentTier : 'gold'));
+  const [amountTyped, setAmountTyped] = useState(false);
   const [method, setMethod] = useState('mpesa');
   const [code, setCode] = useState('');
   const [note, setNote] = useState('');
@@ -110,14 +113,14 @@ export default function RecordPaymentModal({ currentTier = 'gold', onClose, onRe
           <div className="row g-3">
             <div className="col-sm-6">
               <label className="form-label small fw-semibold" htmlFor="pay-tier">Package</label>
-              <select id="pay-tier" className="form-select" value={tier} onChange={(e) => setTier(e.target.value)}>
+              <select id="pay-tier" className="form-select" value={tier} onChange={(e) => { setTier(e.target.value); if (!amountTyped) setAmount(priceFor(e.target.value)); }}>
                 {TIER_ORDER.map((t) => <option key={t} value={t}>{TIERS[t].name}</option>)}
               </select>
             </div>
             <div className="col-sm-6">
               <label className="form-label small fw-semibold" htmlFor="pay-amount">Amount (KES)</label>
               <input id="pay-amount" type="number" inputMode="numeric" min={1} step={1} className="form-control"
-                value={amount} onChange={(e) => setAmount(e.target.value)} />
+                value={amount} onChange={(e) => { setAmount(e.target.value); setAmountTyped(true); }} />
             </div>
             <div className="col-sm-6">
               <label className="form-label small fw-semibold" htmlFor="pay-method">Method</label>

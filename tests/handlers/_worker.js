@@ -69,12 +69,14 @@ export const externalCalls = [];
  *   daraja.queryResultCode  ResultCode the fake STK status query returns
  *   paystack.fail           { [pathFragment]: httpStatus } — fail matching calls
  *   paystack.verify         { [reference]: transaction } — /transaction/verify answers (013Fixes / 21)
+ *   paystack.plans          { [planCode]: amountInCents } — GET /plan/:code answers (013Fixes / 25)
  *   gmail.fail              HTTP status for the next Gmail send(s), or null
  *   gmail.oauthError        error string for the token endpoint, or null
  */
 export const fakes = {
   daraja: { queryResultCode: '0', seq: 0 },
-  paystack: { fail: {}, verify: {}, seq: 0 },
+  // hold: a promise every Paystack call awaits first (a slow Paystack; 013Fixes / 28).
+  paystack: { fail: {}, verify: {}, plans: {}, hold: null, seq: 0 },
   // hold: a promise the fake Gmail send awaits before answering.
   gmail: { fail: null, oauthError: null, seq: 0, hold: null },
   storage: { fail: null, objects: new Map() },
@@ -89,6 +91,8 @@ export function resetFakes() {
   fakes.daraja.queryResultCode = '0';
   fakes.paystack.fail = {};
   fakes.paystack.verify = {};
+  fakes.paystack.plans = {};
+  fakes.paystack.hold = null;
   fakes.gmail.fail = null;
   fakes.gmail.oauthError = null;
   fakes.gmail.hold = null;
@@ -161,10 +165,17 @@ export function installFetchGuard() {
     }
 
     if (hostname === 'api.paystack.co') {
+      if (fakes.paystack.hold) await fakes.paystack.hold;
       for (const [fragment, status] of Object.entries(fakes.paystack.fail)) {
         if (pathname.includes(fragment)) return json({ status: false, message: 'fake failure' }, status);
       }
       fakes.paystack.seq += 1;
+      if (pathname.startsWith('/plan/') && (call.method ?? 'GET') === 'GET') {
+        const code = decodeURIComponent(pathname.slice('/plan/'.length));
+        if (fakes.paystack.plans[code] != null) {
+          return json({ status: true, message: 'Plan retrieved', data: { plan_code: code, amount: fakes.paystack.plans[code], currency: 'KES', interval: 'monthly' } });
+        }
+      }
       if (pathname.startsWith('/transaction/verify/')) {
         const tx = fakes.paystack.verify[decodeURIComponent(pathname.slice('/transaction/verify/'.length))];
         if (tx) return json({ status: true, message: 'Verification successful', data: tx });

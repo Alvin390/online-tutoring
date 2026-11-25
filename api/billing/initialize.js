@@ -6,8 +6,8 @@ import {
   findOrCreateCustomer,
   initializeTransaction,
   planCodeForTier,
-  TIER_PRICE_KES,
 } from '../_lib/paystack.js';
+import { planPrices } from '../_lib/planPrices.js';
 import { badRequest } from '../_lib/errors.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 
@@ -72,7 +72,13 @@ export default createHandler({
     const baseUrl = process.env.PUBLIC_BASE_URL ?? '';
     const callbackUrl = `${baseUrl}/billing?ref=${encodeURIComponent(reference)}`;
 
-    const customer = await findOrCreateCustomer({ email: user.email });
+    // 013Fixes / 25: the price is the Paystack plan's (cached; stored copy
+    // or code price if Paystack can't answer).
+    const [customer, { prices }] = await Promise.all([
+      findOrCreateCustomer({ email: user.email }),
+      planPrices(db),
+    ]);
+    const amountKes = prices[tier];
 
     await db.collection('billing').doc('checkouts').collection('items').doc(reference).set({
       reference,
@@ -81,7 +87,7 @@ export default createHandler({
       renewalMode,
       uid: user.uid,
       customerCode: customer.customer_code,
-      amountKes: TIER_PRICE_KES[tier],
+      amountKes,
       status: 'initialized',
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -105,7 +111,7 @@ export default createHandler({
       // (paystack_docs.txt:8014). Card additionally passes the plan, which is
       // what makes Paystack create the recurring subscription; mobile money is
       // a one-off charge at the same price.
-      amountKes: TIER_PRICE_KES[tier],
+      amountKes,
       ...(isAuto ? { planCode: planCodeForTier(tier) } : {}),
       metadata: {
         uid: user.uid,
@@ -123,7 +129,7 @@ export default createHandler({
         actor: user.uid,
         actorRole: user.role,
         target: reference,
-        after: { tier, channel, renewalMode, amountKes: TIER_PRICE_KES[tier] },
+        after: { tier, channel, renewalMode, amountKes },
         context: { requestId: log.requestId },
       },
       log
@@ -134,7 +140,7 @@ export default createHandler({
       reference,
       tier,
       renewalMode,
-      amountKes: TIER_PRICE_KES[tier],
+      amountKes,
       // Surfaced so the UI can restate the consequence after payment, per the
       // "told at the moment of choice" requirement.
       autoRenews: isAuto,

@@ -26,7 +26,7 @@ import SchoolOverridesEditor from './SchoolOverridesEditor';
 const D = 86_400_000;
 const CARD_REFUSAL = 'Paying by card: Paystack would bill the old plan or undo the change. Cancel the card first.';
 
-export default function AccountCard({ subscription: sub, plans, sms, onChanged }) {
+export default function AccountCard({ subscription: sub, plans, sms, prices = null, onChanged }) {
   const [dialog, setDialog] = useState(null);
   const [tier, setTier] = useState('');
   const [days, setDays] = useState('7');
@@ -109,6 +109,9 @@ export default function AccountCard({ subscription: sub, plans, sms, onChanged }
           <span className={`badge text-bg-${badge.tone}`} data-testid="account-status">{badge.text}</span>
           {sub.custom && <span className="badge text-bg-dark ms-1" data-testid="account-custom">custom</span>}
           {left && <span className="d-block small text-muted" data-testid="account-days-left">{left}</span>}
+          {prices?.[sub.tier] != null && (
+            <span className="d-block small text-muted" data-testid="account-price">{amountText(prices[sub.tier])} a month</span>
+          )}
         </div>
         {!comp && sub.endsAt != null && (
           <div>

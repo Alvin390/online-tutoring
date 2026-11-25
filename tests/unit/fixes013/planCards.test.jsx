@@ -46,7 +46,7 @@ describe('limit lines', () => {
   it('TIERS shows the card words plus the limit lines', () => {
     expect(TIERS.silver.tagline).toBe('Complete tuition management');
     expect(TIERS.silver.features).toContain('1,000 SMS units a month included');
-    expect(TIERS.silver.priceKes).toBe(7499); // prices unchanged in this series
+    expect(TIERS.silver).not.toHaveProperty('priceKes'); // 013Fixes / 27: prices come from the server
   });
 });
 
@@ -107,10 +107,12 @@ describe('the superadmin editor', () => {
     await waitFor(() => expect(api.resetPlanSettings).toHaveBeenCalledWith('gold'));
   });
 
-  it('shows prices read-only', async () => {
+  // 013Fixes / 26-27: prices have their own card (Prices, above), from Paystack.
+  it('points to the Prices card and shows no price of its own', async () => {
     render(<PlanSettings />);
     const gold = await screen.findByTestId('plan-gold');
-    expect(within(gold).getByText('KES 9,999/month')).toBeTruthy();
+    expect(within(gold).getByText('Price: see Prices above')).toBeTruthy();
+    expect(within(gold).queryByText(/KES/)).toBeNull();
     expect(within(gold).queryByLabelText(/price/i)).toBeNull();
   });
 });

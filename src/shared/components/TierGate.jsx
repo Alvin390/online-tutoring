@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { usePlan } from '@features/billing/hooks/usePlan';
+import { useOptionalBilling } from '@features/billing/context/billingContextValue';
 import { TIERS, formatKes } from '@shared/constants/tiers';
 import { lowestPlanWith } from '@shared/constants/plans';
 import { ROUTES } from '@/routes/routeConfig';
@@ -48,6 +49,9 @@ export default function TierGate({ requires, feature, description = null, childr
  */
 export function UpgradePrompt({ tier, feature, description = null }) {
   const plan = TIERS[tier];
+  // 013Fixes / 27: the server's price (the shared Paystack plan); none while
+  // it isn't known, never a stale number.
+  const price = useOptionalBilling()?.plan?.prices?.[tier] ?? null;
   if (!plan) return null;
 
   return (
@@ -69,7 +73,7 @@ export function UpgradePrompt({ tier, feature, description = null }) {
           <p className="mb-0 text-muted small">
             {description ?? plan.tagline}
             {' — '}
-            available on the {plan.name} plan at {formatKes(plan.priceKes)}/month.
+            available on the {plan.name} plan{price != null ? ` at ${formatKes(price)}/month` : ''}.
           </p>
         </div>
 

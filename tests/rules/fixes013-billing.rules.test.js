@@ -62,3 +62,19 @@ describe('config/accountNotes and its history are closed to every client', () =>
     }
   });
 });
+
+/** 013Fixes / 25 — the stored Paystack plan prices are the server's fallback. */
+describe('config/planPrices is closed to every client', () => {
+  beforeEach(async () => {
+    await seed(env, 'config/planPrices', { dev: { prices: { bronze: 4999, silver: 7499, gold: 9999 } } });
+  });
+
+  it('nobody reads or writes it', async () => {
+    for (const db of [anon(env), teacher(env), superadmin(env)]) {
+      // eslint-disable-next-line no-await-in-loop
+      await assertFails(getDoc(doc(db, 'config/planPrices')));
+      // eslint-disable-next-line no-await-in-loop
+      await assertFails(setDoc(doc(db, 'config/planPrices'), { dev: { prices: { gold: 1 } } }));
+    }
+  });
+});
