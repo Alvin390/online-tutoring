@@ -19,6 +19,11 @@ import * as paystack from '../../../api/_lib/paystack.js';
  */
 
 vi.mock('@services/api/adminBilling', () => ({ recordSchoolPayment: vi.fn() }));
+// The sign-in state, as in tierGate.test.jsx: importing the real one starts
+// Firebase, which needs a key that CI doesn't have.
+vi.mock('@features/auth/context/AuthContext', () => ({
+  useAuthState: () => ({ tier: null, tierRank: 0, isSuperadmin: false }),
+}));
 afterEach(() => cleanup());
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../src');
