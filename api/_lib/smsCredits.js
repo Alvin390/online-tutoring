@@ -1,6 +1,7 @@
 import { FieldValue } from './firebaseAdmin.js';
 import { ApiError } from './errors.js';
 import { mergePlans, planFor, TRIAL_SMS_UNITS } from './plans.js';
+import { applySchoolOverrides } from './schoolOverrides.js';
 import { nairobiMonth } from './usage.js';
 import { schoolPlan } from './schoolPlan.js';
 
@@ -46,7 +47,8 @@ const toMs = (v) => {
 /** Which window a school is in, and what that window grants. Pure. */
 export function creditWindow(sub, overrides, nowMs) {
   const tier = sub?.tier ?? null;
-  const planUnits = planFor(tier, mergePlans(overrides)).limits.smsUnits;
+  // 013Fixes / 22: a school's own SMS units override counts too.
+  const planUnits = applySchoolOverrides(planFor(tier, mergePlans(overrides)), sub?.schoolOverrides).limits.smsUnits;
   const start = toMs(sub?.currentPeriodStart);
   if (sub?.grantedBySuperadmin !== true && start != null && start <= nowMs) {
     if (sub?.status === 'trialing') {

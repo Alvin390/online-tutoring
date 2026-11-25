@@ -613,6 +613,10 @@ service cloud.firestore {
     // 013Fixes / 18: the billing settings (trial length, countdown) are the
     // server's: read and saved through /api/admin/billing.
     match /config/billing              { allow read, write: if false; }
+    // 013Fixes / 22: the superadmin's private notes on the school (contact,
+    // agreed price, promises) and their history: through /api/admin/billing only.
+    match /config/accountNotes         { allow read, write: if false; }
+    match /config/accountNotes/{document=**} { allow read, write: if false; }
     // 008Fixes / 07: SMS campaigns, credit, usage, pending delivery checks and
     // the setup are the server's (read through /api/messages/sms and the
     // superadmin endpoint).

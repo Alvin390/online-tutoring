@@ -12,8 +12,17 @@ import {
   paymentSchema, checkPayment, preparePaymentInTx, listPayments, paystackPaymentRef, paystackPaymentRecord,
 } from '../_lib/payments.js';
 import { verifyTransaction } from '../_lib/paystack.js';
+import { setUserClaims } from '../_lib/claims.js';
+import { cleanSchoolOverrides, hasSchoolOverrides } from '../_lib/schoolOverrides.js';
+import { FEATURE_KEYS, LIMIT_KEYS } from '../_lib/plans.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// 013Fixes / 22: a school's own limits and features (only known keys).
+const schoolOverridesSchema = z.object({
+  limits: z.object(Object.fromEntries(LIMIT_KEYS.map((k) => [k, z.number().int().min(0).max(1_000_000).optional()]))).strict(),
+  features: z.object(Object.fromEntries(FEATURE_KEYS.map((k) => [k, z.boolean().optional()]))).strict(),
+}).strict();
 const TIERS = ['bronze', 'silver', 'gold'];
 
 /**
@@ -38,6 +47,22 @@ const TIERS = ['bronze', 'silver', 'gold'];
  *                  recorded them, from billing/events through Paystack's
  *                  verify. A dry run by default (counts, calls nobody);
  *                  `apply: true` writes at most BACKFILL_BATCH a run. Audited.
+ *
+ * 013Fixes / 22 — the account card's actions (owner suggestions 2-4, 8),
+ * each audited. Gift (comp) and Cancel reuse /api/billing/manage.
+ *   changePlan     the package, now (a queued package is dropped); the
+ *                  period stays. Refused for a card school.
+ *   extend         N days on the trial or period end (and a queued month);
+ *                  the reminders start again. Never a new period start (that
+ *                  would open a fresh SMS window). Refused when locked
+ *                  (Unlock), gifted (no end) or paying by card (the next
+ *                  charge would undo it).
+ *   lock           locked now; a gift ends (the sweep must see the school).
+ *   unlock         active until a date (then it locks again); with a paid
+ *                  month queued, open until that month begins instead.
+ *   notes / saveNotes   private notes on the school, with their history
+ *                  (config/accountNotes, closed to every browser).
+ *   saveOverrides  the school's own limits and features on top of its plan.
  */
 
 const schema = z.discriminatedUnion('action', [
@@ -50,6 +75,18 @@ const schema = z.discriminatedUnion('action', [
     payment: paymentSchema.optional(),
   }).strict(),
   z.object({ action: z.literal('payments'), cursor: z.number().int().positive().optional() }).strict(),
+  z.object({ action: z.literal('changePlan'), tier: z.enum(TIERS) }).strict(),
+  z.object({ action: z.literal('extend'), days: z.number().int().min(1).max(365) }).strict(),
+  z.object({ action: z.literal('lock') }).strict(),
+  z.object({ action: z.literal('unlock'), until: z.number().int().positive() }).strict(),
+  z.object({ action: z.literal('notes') }).strict(),
+  z.object({
+    action: z.literal('saveNotes'),
+    contact: z.string().trim().max(2000).optional(),
+    agreedPrice: z.string().trim().max(2000).optional(),
+    promises: z.string().trim().max(2000).optional(),
+  }).strict(),
+  schoolOverridesSchema.extend({ action: z.literal('saveOverrides') }).strict(),
   z.object({ action: z.literal('backfillPayments'), apply: z.boolean().optional() }).strict(),
   paymentSchema.extend({
     action: z.literal('recordPayment'),
@@ -76,6 +113,8 @@ export default createHandler({
     if (body.action === 'payments') return listPayments(db, { cursor: body.cursor ?? null });
 
     if (body.action === 'backfillPayments') return backfillPayments({ db, body, user, log, waitUntil });
+
+    if (ACCOUNT_ACTIONS[body.action]) return ACCOUNT_ACTIONS[body.action]({ db, body, user, log, waitUntil });
 
     // saveSettings
     const before = await readBillingSettings(db);
@@ -272,4 +311,196 @@ async function backfillPayments({ db, body, user, log, waitUntil }) {
   }, log));
   log.info('Payments backfilled', result);
   return { ok: true, applied: true, charges: references.length, missing: missing.length, ...result };
+}
+
+// ------------------------------------------------------------ 013Fixes / 22
+
+const NOTE_FIELDS = ['contact', 'agreedPrice', 'promises'];
+
+/**
+ * Read the subscription in a transaction, decide, write; then the cache, the
+ * projection, the owner's claims and the audit — the same for every action.
+ * `decide(current, now)` returns { patch, audit, result } or throws.
+ */
+async function changeSubscription({ db, user, log, waitUntil }, action, decide) {
+  const ref = db.doc('subscription/current');
+  const now = Date.now();
+  const { before, decision } = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const current = snap.exists ? snap.data() : null;
+    if (!current) throw new ApiError(409, 'no_subscription', 'This school has no subscription yet. Start a trial first.');
+    const d = decide(current, now);
+    tx.set(ref, { ...d.patch, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return { before: current, decision: d };
+  });
+
+  invalidatePlanCache();
+  const settings = await readBillingSettings(db);
+  const after = (await ref.get()).data();
+  await db.doc('subscription/public').set(publicProjection(after, settings) ?? {}, { merge: false });
+
+  // Claims are only the screens' stand-in until the server's plan arrives;
+  // kept in step anyway, so they never lag by the sweep's hour.
+  const owner = after?.ownerUid;
+  if (owner && after?.tier) {
+    try {
+      await setUserClaims(owner, { tier: after.tier, subActive: after.status === STATUS.ACTIVE || after.status === STATUS.TRIALING });
+    } catch (err) {
+      log.warn('Owner claims not synced after an account action', { action, error: String(err?.message ?? err) });
+    }
+  }
+
+  waitUntil(tryWriteAudit({
+    action, actor: user.uid, actorRole: user.role, target: 'subscription/current',
+    before: { tier: before?.tier ?? null, status: before?.status ?? null, ...(decision.audit?.before ?? {}) },
+    after: { tier: after?.tier ?? null, status: after?.status ?? null, ...(decision.audit?.after ?? {}) },
+    context: { requestId: log.requestId },
+  }, log));
+  log.info('Account action', { action });
+  return { ok: true, ...(decision.result ?? {}) };
+}
+
+const shift = (t, by) => {
+  const v = toMillis(t);
+  return v == null ? null : new Date(v + by);
+};
+
+const ACCOUNT_ACTIONS = {
+  changePlan: (ctx) => changeSubscription(ctx, 'billing.plan_changed', (current) => {
+    if (cardRenewing(current)) throw cardActive();
+    return {
+      patch: { tier: ctx.body.tier, nextTier: null },
+      result: { tier: ctx.body.tier },
+    };
+  }),
+
+  extend: (ctx) => changeSubscription(ctx, 'billing.extended', (current) => {
+    const { days } = ctx.body;
+    if (current.grantedBySuperadmin === true) throw new ApiError(409, 'comp', 'A gifted plan has no end to extend.');
+    if (cardRenewing(current)) throw cardActive();
+    if (![STATUS.TRIALING, STATUS.ACTIVE, STATUS.CANCELLED].includes(current.status)) {
+      throw new ApiError(409, 'not_running', 'The school is not running a trial or period. Use Unlock until, or Record payment.');
+    }
+    const by = days * DAY_MS;
+    const patch = { remindersSent: [] };
+    if (current.status === STATUS.TRIALING && current.trialEndsAt != null) patch.trialEndsAt = shift(current.trialEndsAt, by);
+    if (current.currentPeriodEnd != null) patch.currentPeriodEnd = shift(current.currentPeriodEnd, by);
+    if (current.nextPeriodStart != null) patch.nextPeriodStart = shift(current.nextPeriodStart, by);
+    return {
+      patch,
+      audit: { before: { currentPeriodEnd: toIso(current.currentPeriodEnd) }, after: { days, currentPeriodEnd: toIso(patch.currentPeriodEnd) } },
+      result: { days, currentPeriodEnd: toMillis(patch.currentPeriodEnd) },
+    };
+  }),
+
+  lock: (ctx) => changeSubscription(ctx, 'billing.locked', (current, now) => ({
+    patch: {
+      status: STATUS.LOCKED,
+      // A gift short-circuits the state machine: kept, Unlock could never end.
+      grantedBySuperadmin: false,
+      lockedBySuperadmin: true,
+      lockedAt: new Date(now),
+      graceEndsAt: null,
+    },
+    audit: { before: { comp: current.grantedBySuperadmin === true } },
+  })),
+
+  unlock: (ctx) => changeSubscription(ctx, 'billing.unlocked', (current, now) => {
+    const { until } = ctx.body;
+    if (until <= now) throw badRequest('Choose a date in the future.', 'bad_date');
+    if (until > now + 366 * DAY_MS) throw badRequest('Choose a date within a year.', 'bad_date');
+    if (current.status !== STATUS.LOCKED && current.status !== STATUS.EXPIRED) {
+      throw new ApiError(409, 'not_locked', 'The school is not locked.');
+    }
+    const common = {
+      status: STATUS.ACTIVE,
+      grantedBySuperadmin: false,
+      lockedBySuperadmin: false,
+      graceEndsAt: null,
+      paymentFailedAt: null,
+      trialEndsAt: null,
+      cancelAtPeriodEnd: false,
+      remindersSent: [],
+    };
+    const queued = toMillis(current.nextPeriodStart);
+    if (queued != null && queued > now) {
+      // A paid month is waiting: open until it begins; the rollover does the rest.
+      return { patch: common, audit: { after: { until: new Date(queued).toISOString(), queued: true } }, result: { until: queued, queued: true } };
+    }
+    return {
+      // The period start is kept: a new one would open a fresh SMS window.
+      patch: { ...common, renewalMode: 'manual', currentPeriodEnd: new Date(until), nextPeriodStart: null, nextTier: null },
+      audit: { after: { until: new Date(until).toISOString() } },
+      result: { until, queued: false },
+    };
+  }),
+
+  notes: async ({ db }) => {
+    const ref = db.doc('config/accountNotes');
+    const [snap, hist] = await Promise.all([
+      ref.get(),
+      ref.collection('history').orderBy('at', 'desc').limit(10).get(),
+    ]);
+    const n = snap.exists ? snap.data() : null;
+    return {
+      notes: n ? { ...pick(n), updatedAt: toMillis(n.updatedAt), updatedBy: n.updatedBy ?? null } : null,
+      history: hist.docs.map((d) => {
+        const h = d.data();
+        return { at: toMillis(h.at), actor: h.actor ?? null, before: h.before ?? {}, after: h.after ?? {} };
+      }),
+    };
+  },
+
+  saveNotes: async ({ db, body, user, log, waitUntil }) => {
+    const ref = db.doc('config/accountNotes');
+    const next = pick(body);
+    const changed = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const before = snap.exists ? pick(snap.data()) : pick({});
+      const fields = NOTE_FIELDS.filter((k) => before[k] !== next[k]);
+      if (fields.length === 0) return [];
+      tx.set(ref, { ...next, updatedAt: FieldValue.serverTimestamp(), updatedBy: user.uid });
+      tx.create(ref.collection('history').doc(), {
+        at: FieldValue.serverTimestamp(),
+        actor: user.uid,
+        before: Object.fromEntries(fields.map((k) => [k, before[k]])),
+        after: Object.fromEntries(fields.map((k) => [k, next[k]])),
+      });
+      return fields;
+    });
+    if (changed.length > 0) {
+      // Which fields changed, never their text (contact details, prices).
+      waitUntil(tryWriteAudit({
+        action: 'billing.notes_changed', actor: user.uid, actorRole: user.role, target: 'config/accountNotes',
+        after: { fields: changed }, context: { requestId: log.requestId },
+      }, log));
+    }
+    return { ok: true, changed };
+  },
+
+  saveOverrides: async ({ db, body, user, log, waitUntil }) => {
+    const ref = db.doc('subscription/current');
+    const snap = await ref.get();
+    if (!snap.exists) throw new ApiError(409, 'no_subscription', 'This school has no subscription yet. Start a trial first.');
+    const before = cleanSchoolOverrides(snap.data().schoolOverrides);
+    const next = cleanSchoolOverrides({ limits: body.limits, features: body.features });
+    // update(), not a merge-set: the whole map is replaced, so a key taken out is gone.
+    await ref.update({
+      schoolOverrides: hasSchoolOverrides(next) ? next : FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    invalidatePlanCache();
+    const after = (await ref.get()).data();
+    await db.doc('subscription/public').set(publicProjection(after, await readBillingSettings(db)) ?? {}, { merge: false });
+    waitUntil(tryWriteAudit({
+      action: 'billing.overrides_changed', actor: user.uid, actorRole: user.role, target: 'subscription/current',
+      before, after: next, context: { requestId: log.requestId },
+    }, log));
+    log.info('School overrides changed', { custom: hasSchoolOverrides(next) });
+    return { ok: true, schoolOverrides: next, custom: hasSchoolOverrides(next) };
+  },
+};
+
+function pick(source) {
+  return Object.fromEntries(NOTE_FIELDS.map((k) => [k, typeof source?.[k] === 'string' ? source[k].trim() : '']));
 }

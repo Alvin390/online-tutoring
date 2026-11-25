@@ -95,6 +95,8 @@ async function planView(user) {
   const catalog = Object.fromEntries(PLAN_IDS.map((id) => [id, { limits: all[id].limits, card: all[id].card }]));
   return {
     tier: plan.tier, comp: plan.comp, features: plan.features, limits: plan.limits, trialSmsUnits: TRIAL_SMS_UNITS, catalog,
+    // 013Fixes / 22: the school has its own limits or features on top of its plan.
+    custom: plan.custom === true,
     // 013Fixes / 10: whether this login is the school owner (the logins screen).
     isOwner: Boolean(user?.uid) && user.uid === plan.ownerUid,
     usage: usageView(usageSnap),
