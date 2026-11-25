@@ -19,7 +19,7 @@ const FIELDS = [
   { id: 'shortCode', label: 'Till or paybill number', secret: false },
 ];
 const EMPTY = { consumerKey: '', consumerSecret: '', passkey: '', shortCode: '', shortCodeType: 'till' };
-const POLL_MS = 5000;
+const POLL_MS = 10_000;
 const when = (ms) => new Date(ms).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Nairobi' });
 
 function badge(m) {
@@ -37,6 +37,8 @@ export default function MpesaCard() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [phone, setPhone] = useState('');
+  // 013Fixes / 32: in sandbox mode, switching on takes a second, explicit step.
+  const [confirmSandbox, setConfirmSandbox] = useState(false);
   const timer = useRef(null);
 
   const run = useCallback(async (fn, okNote = '') => {
@@ -103,9 +105,29 @@ export default function MpesaCard() {
 
         <div className="form-check form-switch mb-2">
           <input id="mpesa-switch" className="form-check-input" type="checkbox" role="switch" checked={m.enabled} disabled={busy}
-            onChange={(e) => run(() => setMpesaEnabled(e.target.checked), e.target.checked ? 'Switched on. Send a test payment to bring it online.' : 'Switched off. Pay now is hidden everywhere.')} />
+            onChange={(e) => {
+              if (e.target.checked && !live) { setConfirmSandbox(true); return; }
+              run(() => setMpesaEnabled(e.target.checked), e.target.checked ? 'Switched on. Send a test payment to bring it online.' : 'Switched off. Pay now is hidden everywhere.');
+            }} />
           <label className="form-check-label" htmlFor="mpesa-switch">Students can pay by M-Pesa (Pay now)</label>
         </div>
+        {!live && (
+          <p className="small text-danger mb-2" data-testid="mpesa-sandbox-warning">
+            Sandbox: payments are not real money. Switched on and online, students could &quot;pay&quot; with test M-Pesa and be unblocked.
+          </p>
+        )}
+        {confirmSandbox && (
+          <div className="alert alert-warning small py-2" data-testid="mpesa-sandbox-confirm">
+            Switch on in sandbox? Payments here are not real money: once online, students could &quot;pay&quot; with test M-Pesa and be unblocked without paying. Use this only to try it out.
+            <div className="d-flex gap-2 mt-2">
+              <button type="button" className="btn btn-sm btn-warning" disabled={busy}
+                onClick={() => { setConfirmSandbox(false); run(() => setMpesaEnabled(true), 'Switched on (sandbox). Send a test payment to bring it online.'); }}>
+                Switch on in sandbox
+              </button>
+              <button type="button" className="btn btn-sm btn-link" onClick={() => setConfirmSandbox(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
         <ul className="small text-muted mb-3" data-testid="mpesa-ready">
           {!data.ready.gold && <li className="text-danger">Gold only: this school's plan doesn't include it.</li>}
           {!data.ready.flag && <li className="text-danger">The payments.daraja feature flag is off.</li>}

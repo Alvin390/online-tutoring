@@ -46,6 +46,8 @@ describe('the M-Pesa card', () => {
     expect(screen.getByTestId('mpesa-badge').textContent).toBe('Off');
     expect(screen.queryByRole('button', { name: /Send test payment/ })).toBeNull();
     await act(async () => { fireEvent.click(screen.getByRole('switch')); });
+    // Sandbox mode (the default here): the second, explicit step (013Fixes / 32).
+    await click('Switch on in sandbox');
     expect(api.setMpesaEnabled).toHaveBeenCalledWith(true);
     expect(screen.getByTestId('mpesa-badge').textContent).toBe('Not tested');
   });
@@ -107,5 +109,29 @@ describe('the M-Pesa card', () => {
     await flush();
     expect(screen.getByTestId('mpesa-ready').textContent).toMatch(/Gold only/);
     expect(screen.getByTestId('mpesa-ready').textContent).toMatch(/payments\.daraja feature flag is off/);
+  });
+});
+
+// 013Fixes / 32 (release review): in sandbox mode, payments are not real money.
+describe('sandbox mode', () => {
+  it('says so in red, and switching on needs a second, explicit step', async () => {
+    api.getMpesaSetup.mockResolvedValueOnce(base({ mode: 'dev' }));
+    render(<MpesaCard />);
+    await flush();
+    expect(screen.getByTestId('mpesa-sandbox-warning').textContent).toMatch(/not real money/);
+    await act(async () => { fireEvent.click(screen.getByRole('switch')); });
+    expect(api.setMpesaEnabled).not.toHaveBeenCalled();
+    expect(screen.getByTestId('mpesa-sandbox-confirm').textContent).toMatch(/students .*unblocked/i);
+    await click('Switch on in sandbox');
+    expect(api.setMpesaEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('live mode: no warning, the switch acts at once', async () => {
+    api.getMpesaSetup.mockResolvedValueOnce(base({ mode: 'live', source: 'stored' }));
+    render(<MpesaCard />);
+    await flush();
+    expect(screen.queryByTestId('mpesa-sandbox-warning')).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('switch')); });
+    expect(api.setMpesaEnabled).toHaveBeenCalledWith(true);
   });
 });

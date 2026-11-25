@@ -217,3 +217,17 @@ describe('a real payment once online: posted once, even when Safaricom repeats t
     expect((await db.collection('mpesa/transactions/items').get()).size).toBe(1);
   });
 });
+
+// 013Fixes / 32 (release review): the card's polling never floods Safaricom.
+describe('asking Safaricom about the test is throttled', () => {
+  it('two checks a few seconds apart, past 20 s: one status query', async () => {
+    await startTest();
+    await db.doc('config/mpesaStatus').update({ testStartedAt: new Date(Date.now() - 30_000) });
+    (await import('../../../api/_lib/mpesaStatus.js')).__resetMpesaStatus();
+    fakes.daraja.queryResultCode = null; // not final yet
+    const queries = () => externalCalls.filter((c) => /stkpushquery/.test(c.url)).length;
+    await daraja({ action: 'testResult' });
+    await daraja({ action: 'testResult' });
+    expect(queries()).toBe(1);
+  });
+});

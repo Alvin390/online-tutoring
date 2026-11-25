@@ -13,7 +13,7 @@ import {
 } from '../_lib/daraja.js';
 import {
   readMpesaStatus, statusView, setSwitch, markKeysChanged, beginTest, settleTest, maskPhone,
-  QUERY_AFTER_MS, TEST_TIMEOUT_MS,
+  QUERY_AFTER_MS, QUERY_EVERY_MS, TEST_TIMEOUT_MS,
 } from '../_lib/mpesaStatus.js';
 import { keysView, saveKeys, clearKeys, SECRET_FIELDS } from '../_lib/darajaKeys.js';
 
@@ -72,7 +72,8 @@ export default createHandler({
   auth: true,
   role: 'superadmin',
   schema,
-  rateLimit: { bucket: 'admin_daraja', limit: 60, windowSeconds: 3600, keyBy: 'ip' },
+  // 013Fixes / 32: the card polls the test's result (a read) every 10 s.
+  rateLimit: { bucket: 'admin_daraja', limit: 300, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, user, log, waitUntil }) => {
     const db = getDb();
 
@@ -158,7 +159,11 @@ async function testResult({ db, log }) {
     const started = status.testStartedAt?.toMillis?.() ?? (status.testStartedAt instanceof Date ? status.testStartedAt.getTime() : 0);
     const age = Date.now() - started;
     let settled = false;
-    if (age >= QUERY_AFTER_MS) {
+    // 013Fixes / 32: Safaricom is asked at most every QUERY_EVERY_MS, however
+    // often the card polls (or how many tabs are open).
+    const lastQueried = status.testLastQueriedAt?.toMillis?.() ?? (status.testLastQueriedAt instanceof Date ? status.testLastQueriedAt.getTime() : 0);
+    if (age >= QUERY_AFTER_MS && Date.now() - lastQueried >= QUERY_EVERY_MS) {
+      await db.doc('config/mpesaStatus').set({ testLastQueriedAt: new Date() }, { merge: true });
       try {
         const response = await queryStkStatus({ credentials: await loadCredentials(), checkoutRequestId: id });
         const code = response?.ResultCode;

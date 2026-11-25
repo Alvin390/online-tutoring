@@ -27,6 +27,8 @@ const DOC = 'config/mpesaStatus';
 const CACHE_MS = 30_000;
 export const TEST_TIMEOUT_MS = 2 * 60_000;
 export const QUERY_AFTER_MS = 20_000;
+// 013Fixes / 32: at most one status query to Safaricom this often.
+export const QUERY_EVERY_MS = 25_000;
 export const TIMEOUT_MESSAGE = 'No answer from M-Pesa within 2 minutes. Try again.';
 
 let cache = null; // { at, value }
