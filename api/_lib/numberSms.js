@@ -25,7 +25,8 @@ import { sessionName } from './sessions.js';
  */
 
 export function numberSmsMessage({ kind, digits, session }) {
-  const what = kind === 'staff' ? `staff number for ${session} class is S-${digits}` : `admission number for ${session} class is ${digits}`;
+  // The session's own name (live: "Morning Session"), never followed by "class".
+  const what = kind === 'staff' ? `staff number for ${session} is S-${digits}` : `admission number for ${session} is ${digits}`;
   return `Your ${what}. Use it with this phone number every time you check in. Keep it safe.`;
 }
 

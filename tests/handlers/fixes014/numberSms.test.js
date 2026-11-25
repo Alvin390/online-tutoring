@@ -48,7 +48,7 @@ describe('the number by SMS', () => {
     expect(fakes.hashback.sent).toHaveLength(1);
     expect(fakes.hashback.sent[0].to).toBe(P(1));
     expect(fakes.hashback.sent[0].message).toBe(
-      `Your admission number for Evening class is ${res.body.number}. Use it with this phone number every time you check in. Keep it safe.`,
+      `Your admission number for Evening is ${res.body.number}. Use it with this phone number every time you check in. Keep it safe.`,
     );
     expect((await record(P(1))).numberSmsAt).toBeTruthy();
   });
@@ -57,7 +57,7 @@ describe('the number by SMS', () => {
     await seed(P(2), { staff: true });
     const res = await assign(P(2));
     expect(fakes.hashback.sent[0].message).toBe(
-      `Your staff number for Evening class is S-${res.body.number}. Use it with this phone number every time you check in. Keep it safe.`,
+      `Your staff number for Evening is S-${res.body.number}. Use it with this phone number every time you check in. Keep it safe.`,
     );
   });
 

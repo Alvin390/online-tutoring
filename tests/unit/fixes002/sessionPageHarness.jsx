@@ -67,6 +67,8 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     chooseNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '4071', display: '4071' }),
     // 014Fixes / 04: the number the school gives.
     assignNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '7319', display: '7319' }),
+    // 014Fixes / 07: the settings re-read when an answer looks out of date.
+    getPublicBootstrap: vi.fn().mockResolvedValue({ flags: {}, sessions: [] }),
     // 009Fixes / 03: fix my number.
     fixNumberRequest: vi.fn().mockResolvedValue({ ok: true, deliveryChannel: 'sms', retryAfterSeconds: 60 }),
     fixNumberConfirm: vi.fn().mockResolvedValue({ ok: true, phone: '+254733000007', ticket: 'v1.fix', next: 'chooseNumber', numberKind: 'student' }),
@@ -91,11 +93,17 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     fixNumberRequest: (...a) => api.fixNumberRequest(...a),
     fixNumberConfirm: (...a) => api.fixNumberConfirm(...a),
   }));
-  vi.doMock('@services/api/public', () => ({ registerStudentApi: (...a) => api.registerStudentApi(...a) }));
+  vi.doMock('@services/api/public', () => ({
+    registerStudentApi: (...a) => api.registerStudentApi(...a),
+    getPublicBootstrap: (...a) => api.getPublicBootstrap(...a),
+  }));
   vi.doMock('@/context/ToastContext', () => ({ useToast: () => toast, useOptionalToast: () => null }));
   vi.doMock('@utils/analytics', () => ({ trackRegistration: vi.fn(), trackZoomRedirect: vi.fn() }));
   // 009Fixes: `flags` turns on others (e.g. checkin.admissionNumbers, student.fixNumber).
-  vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (key) => (key === 'registration.requireApproval' ? requireApproval : flags[key] === true) }));
+  vi.doMock('@shared/config/FlagsContext', () => ({
+    useFlag: (key) => (key === 'registration.requireApproval' ? requireApproval : flags[key] === true),
+    flagsStore: { setFromRemote: vi.fn() },
+  }));
   // 007Fixes / 01: a test may supply its own card to see the props it is given.
   vi.doMock('@/features/registration/components/CheckinCard', () => ({
     default: checkinCard

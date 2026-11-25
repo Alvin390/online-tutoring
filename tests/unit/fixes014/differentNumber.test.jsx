@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, act, cleanup, within } from '@testing-library/react';
 import { renderSessionPage, unmockSessionPage, PHONE, OTHER_PHONE } from '../fixes002/sessionPageHarness';
 
@@ -19,6 +19,9 @@ const typeTel = async (value) => {
 
 // Each test walks the whole page, cold modules included: up to ~8 s on a
 // loaded machine, so 20 s rather than the default 5.
+// The admission-number steps are a lazy chunk; compile it once up front (the
+// compile cache outlives vi.resetModules), so no test pays for it cold.
+beforeAll(async () => { await import('@/features/registration/components/numbers'); }, 60_000);
 beforeEach(() => vi.resetModules());
 afterEach(() => { cleanup(); unmockSessionPage(); });
 
@@ -44,7 +47,7 @@ describe('moving to the phone they have', { timeout: 20_000 }, () => {
 
     let dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('This will be your new number')).toBeTruthy();
-    expect(dialog.textContent).toContain('From now on, 07•• ••• 008 will be your number for checking in to Evening class, and for messages from your teacher. 07•• ••• 009 will stop working.');
+    expect(dialog.textContent).toContain('From now on, 07•• ••• 008 will be your number for checking in to Evening, and for messages from your teacher. 07•• ••• 009 will stop working.');
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Go back' })); });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(api.fixNumberRequest).not.toHaveBeenCalled();

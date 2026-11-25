@@ -54,7 +54,11 @@ export default createHandler({
   method: 'POST',
   schema,
   // 008Fixes / 01: 10 → 120 an hour. A class behind one carrier address.
-  rateLimit: { bucket: 'otp_request_ip', limit: 120, windowSeconds: 3600, keyBy: 'ip' },
+  // 014Fixes / 07: 120 → 240 an hour per address — the first class after
+  // admission numbers are switched on: about 40 first-timers behind one
+  // carrier address, a code each and a resend or two. Each number stays
+  // bounded at CODES_PER_HOUR (6), and only registered numbers get codes.
+  rateLimit: { bucket: 'otp_request_ip', limit: 240, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, req, log, waitUntil }) => {
     const { session, phone } = body;
     const db = getDb();

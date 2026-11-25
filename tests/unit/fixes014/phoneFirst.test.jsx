@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, act, cleanup, render, within } from '@testing-library/react';
 import { renderSessionPage, unmockSessionPage, PHONE } from '../fixes002/sessionPageHarness';
 
@@ -14,6 +14,9 @@ const refusal = (code, message, status = 409) => Object.assign(new Error(message
 const approved = { studentName: 'Amina', approvalStatus: 'approved', blocked: false, receiptStatus: 'approved' };
 const NOTE = 'Once you check in on a device, no other device can check in with your number until this class ends. You can use a different device next class. If your phone stops working, ask your teacher.';
 
+// The admission-number steps are a lazy chunk; compile it once up front (the
+// compile cache outlives vi.resetModules), so no test pays for it cold.
+beforeAll(async () => { await import('@/features/registration/components/numbers'); }, 60_000);
 beforeEach(() => vi.resetModules());
 afterEach(() => { cleanup(); unmockSessionPage(); });
 
@@ -60,7 +63,7 @@ describe('"Type your admission number"', () => {
     const { onChangePhone } = await renderStep();
     expect(screen.getByRole('heading', { name: 'Type your admission number' })).toBeTruthy();
     const line = screen.getByTestId('number-step-phone');
-    expect(line.textContent).toContain('for Evening class');
+    expect(line.textContent).toContain('for Evening');
     expect(line.textContent).toContain('07•• ••• 009');
     expect(line.textContent).not.toContain('711000009');
     fireEvent.click(within(line).getByRole('button', { name: 'Change' }));
@@ -95,7 +98,7 @@ describe('"Type your admission number"', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Forgot your admission number?' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('You already have an admission number')).toBeTruthy();
-    expect(within(dialog).getByText('You have an admission number for Evening class. Ask your teacher for it, then come back and check in.')).toBeTruthy();
+    expect(within(dialog).getByText('You have an admission number for Evening. Ask your teacher for it, then come back and check in.')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'OK' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
@@ -113,7 +116,7 @@ describe('the page: phone → number → in', () => {
     });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check in' })); });
     const step = await screen.findByTestId('number-step');
-    expect(step.textContent).toContain('for Evening class');
+    expect(step.textContent).toContain('for Evening');
     fireEvent.change(screen.getByLabelText('Admission number'), { target: { value: '4071' } });
     await act(async () => { fireEvent.click(within(step).getByRole('button', { name: 'Check in' })); });
     expect(api.checkinStudent).toHaveBeenLastCalledWith('evening', PHONE, undefined, '4071');

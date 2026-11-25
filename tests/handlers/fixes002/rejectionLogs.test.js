@@ -60,15 +60,15 @@ describe('rate-limit refusals say which limiter refused', () => {
     expect(JSON.stringify(rejections())).not.toContain(phone.slice(1));
   });
 
-  it('the per-IP limiter', async () => {
+  it('the per-IP limiter', { timeout: 120_000 }, async () => {
     const ip = '198.51.100.77';
     let res;
-    // 120 an hour since 002Fixes / 06 (was 30).
-    for (let i = 0; i < 121; i += 1) {
+    // 120 an hour since 002Fixes / 06 (was 30); 240 since 014Fixes / 07.
+    for (let i = 0; i < 241; i += 1) {
       res = await call('/api/student/checkin', { ip, body: { session: 'evening', phone: phoneN(5000 + i) } });
     }
     expect(res.status).toBe(429);
-    expect(rejections().at(-1).meta.detail).toMatchObject({ bucket: 'student_checkin', limit: 120, windowSeconds: 3600 });
+    expect(rejections().at(-1).meta.detail).toMatchObject({ bucket: 'student_checkin', limit: 240, windowSeconds: 3600 });
     expect(JSON.stringify(rejections())).not.toContain(ip);
   });
 });

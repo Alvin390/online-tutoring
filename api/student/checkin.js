@@ -117,10 +117,13 @@ export default createHandler({
   method: 'POST',
   // 002Fixes / 06: 30 → 120 an hour. Everyone behind one carrier NAT or family
   // router shares this budget; at class time one address sent 34 check-ins in
-  // an hour on 26 Oct. Probing many numbers stays bounded at 120 an hour.
+  // an hour on 26 Oct. 014Fixes / 07: 120 → 240 — with admission numbers each
+  // student checks in twice before the pass (phone, then number), so 40
+  // first-timers behind one address are 80; 240 keeps 3x headroom. Probing
+  // ONE number stays bounded by the per-phone limit below (20 per 10 min).
   rateLimit: {
     bucket: 'student_checkin',
-    limit: 120,
+    limit: 240,
     windowSeconds: 3600,
     keyBy: 'ip',
     // 002Fixes / 07: a valid check-in pass skips this (and the phone limit).

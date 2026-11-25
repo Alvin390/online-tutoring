@@ -8,3 +8,4 @@ export { default as ConfirmPhoneStep } from './ConfirmPhoneStep';
 export { default as NumberPopup } from './NumberPopup';
 export { default as DifferentNumber } from './DifferentNumber';
 export { default as RegisterCode } from './RegisterCode';
+export { default as NotRegistered } from './NotRegistered';

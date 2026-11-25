@@ -17,8 +17,9 @@ import NumberPopup from './NumberPopup';
  * isn't near me" moves the registration to the phone they have; everything
  * after uses the NEW phone.
  *
- * `onRefresh(message)`: the page's settings are out of date (the switch
- * changed); `onBack()`: back to the phone.
+ * `onRefresh(phone)`: the page's settings are out of date (the switch
+ * changed): the page checks in again and follows the server; `onBack()`:
+ * back to the phone.
  */
 export default function FirstTimeFlow({
   session, sessionName, phone: startPhone, allowDifferent = false, onCheckin, onHasNumber, onRefresh, onBack,
@@ -44,7 +45,7 @@ export default function FirstTimeFlow({
       if (!mounted.current) return;
       if (err?.code === 'already_has_number') { onHasNumber(forPhone); return; }
       if (err?.code === 'verification_required') { setTicket(null); setStage('confirm'); setConfirmKey((k) => k + 1); return; }
-      if (err?.code === 'refresh_needed') { onRefresh(err.message); return; }
+      if (err?.code === 'refresh_needed') { onRefresh(forPhone); return; }
       setError(err?.message || 'We could not give you a number just now. Please try again.');
     } finally {
       if (mounted.current) setAssigning(false);

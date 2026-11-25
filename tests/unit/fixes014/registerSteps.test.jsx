@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, act, cleanup, within, render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderSessionPage, unmockSessionPage, PHONE, OTHER_PHONE } from '../fixes002/sessionPageHarness';
@@ -16,12 +16,16 @@ const approved = { studentName: 'New', approvalStatus: 'approved', blocked: fals
 const saved = (student = pending) => vi.fn().mockResolvedValue({
   ok: true, next: 'checkin', student, number: { kind: 'student', digits: '7319', display: '7319' },
 });
-const click = async (name) => { await act(async () => { fireEvent.click(await screen.findByRole('button', { name })); }); };
+// The steps are a lazy chunk: a file's first test loads it cold (over 1 s on a loaded machine).
+const click = async (name) => { await act(async () => { fireEvent.click(await screen.findByRole('button', { name }, { timeout: 5000 })); }); };
 const enterCode = async () => {
   await act(async () => { fireEvent.change(await screen.findByLabelText('Code'), { target: { value: '123456' } }); });
   await click('Confirm');
 };
 
+// The admission-number steps are a lazy chunk; compile it once up front (the
+// compile cache outlives vi.resetModules), so no test pays for it cold.
+beforeAll(async () => { await import('@/features/registration/components/numbers'); }, 60_000);
 beforeEach(() => vi.resetModules());
 afterEach(() => { cleanup(); unmockSessionPage(); });
 
@@ -35,6 +39,7 @@ describe('form → code → saved with a given number → pop-up', { timeout: 20
       },
     });
     await click('Check in');
+    await click('Register'); // 014Fixes / 07: "We couldn't find this number" first
     await click('Register');
     expect(api.registerStudentApi).not.toHaveBeenCalled(); // nothing saved before the code
     expect(await screen.findByTestId('confirm-step')).toBeTruthy();
@@ -49,7 +54,7 @@ describe('form → code → saved with a given number → pop-up', { timeout: 20
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByTestId('number-popup-number').textContent).toBe('7319');
-    expect(dialog.textContent).toContain('for Evening class');
+    expect(dialog.textContent).toContain('for Evening');
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: "I've saved it" })); });
     expect(api.checkinStudent).toHaveBeenLastCalledWith('evening', PHONE, undefined, '7319');
     expect(await screen.findByTestId('pending')).toBeTruthy();
@@ -65,6 +70,7 @@ describe('form → code → saved with a given number → pop-up', { timeout: 20
       },
     });
     await click('Check in');
+    await click('Register'); // 014Fixes / 07: "We couldn't find this number" first
     await click('Register');
     await click('Send code');
     await enterCode();
@@ -81,6 +87,7 @@ describe('form → code → saved with a given number → pop-up', { timeout: 20
       },
     });
     await click('Check in');
+    await click('Register'); // 014Fixes / 07: "We couldn't find this number" first
     await click('Register');
     await click("That phone isn't near me. Use a different number.");
     await act(async () => {
@@ -88,7 +95,7 @@ describe('form → code → saved with a given number → pop-up', { timeout: 20
     });
     await click('Send code');
     const dialog = screen.getByRole('dialog');
-    expect(dialog.textContent).toContain('From now on, 07•• ••• 008 will be your number for checking in to Evening class, and for messages from your teacher.');
+    expect(dialog.textContent).toContain('From now on, 07•• ••• 008 will be your number for checking in to Evening, and for messages from your teacher.');
     expect(api.requestCode).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Yes, use this number' })); });
     expect(api.requestCode).toHaveBeenCalledWith('evening', OTHER_PHONE, 'register');
@@ -111,6 +118,7 @@ describe('form → code → saved with a given number → pop-up', { timeout: 20
       },
     });
     await click('Check in');
+    await click('Register'); // 014Fixes / 07: "We couldn't find this number" first
     await click('Register');
     await click('Send code');
     expect((await screen.findByTestId('notice')).textContent).toBe('That number is already registered for this class. Check in instead.');

@@ -136,7 +136,7 @@ export default function ConfirmPhoneStep({
           {sending ? <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true" />{COPY.sending}</> : COPY.send}
         </button>
         {onDifferentNumber && (
-          <button type="button" className="btn btn-link w-100 mb-2" onClick={onDifferentNumber}>{COPY.notNear}</button>
+          <button type="button" className="btn btn-link w-100 mb-2 text-white fw-semibold" onClick={onDifferentNumber}>{COPY.notNear}</button>
         )}
         <button type="button" className="btn btn-outline-secondary w-100" onClick={onBack}>
           <i className="bi bi-arrow-left me-2" aria-hidden="true" />

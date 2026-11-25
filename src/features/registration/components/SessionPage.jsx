@@ -14,6 +14,7 @@ import { retiredMessage } from '@utils/retiredMessage';
 import { providerLabel } from '@utils/classLink';
 import { formatSchedule, formatTime } from '@utils/formatSchedule';
 import { addFlowBreadcrumb, reportApiFailure } from '@utils/monitoring';
+import { resyncSettings } from '../staleSettings';
 import { useRetryWait } from '../hooks/useRetryWait';
 import RetryWaitNotice from './RetryWaitNotice';
 
@@ -36,6 +37,7 @@ const NumberStep = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.Nu
 const FirstTimeFlow = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.FirstTimeFlow })));
 const RegisterCode = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.RegisterCode })));
 const NumberPopup = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.NumberPopup })));
+const NotRegistered = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.NotRegistered })));
 /** 014Fixes / 03: refusals of a typed admission number, shown on the number step. */
 const NUMBER_REFUSALS = Object.freeze(['number_mismatch', 'other_device', 'duplicate_records', 'invalid_number']);
 const stepFallback = (
@@ -136,7 +138,8 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
       setStep('retired');
       return;
     }
-    setStep(GATE.REGISTER);
+    // 014Fixes / 07: with admission numbers on, say what to do first (N1).
+    setStep(numbers ? 'notFound' : GATE.REGISTER);
   };
 
   const routeTo = useCallback(
@@ -261,9 +264,9 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     routeTo(result.data);
   };
 
-  const handleRegistration = async (formData, confirmedPhone = null) => {
+  const handleRegistration = async (formData, confirmedPhone = null, { codeFirst = numbers } = {}) => {
     // 009Fixes / 01: code-first — confirm the phone before anything is saved.
-    if (numbers && !formData.ticket) {
+    if (codeFirst && !formData.ticket) {
       setPendingForm(formData);
       if (regTicket) return handleRegistration({ ...formData, ticket: regTicket.ticket }, regTicket.phone);
       setStep('registerCode');
@@ -498,13 +501,10 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                     phone={phoneNumber}
                     allowDifferent={firstTimeFrom === 'verify_required'}
                     onCheckin={(number, phone) => handled('checkin', handleCheckin)(phone ?? phoneNumber, number)}
-                    onHasNumber={(phone) => {
-                      // Moved to a new phone: check in with it (the number step follows).
-                      if (phone && phone !== phoneNumber) { handled('checkin', handleCheckin)(phone); return; }
-                      setNumberRefusal(null);
-                      setStep('number');
-                    }}
-                    onRefresh={(message) => backToCard({ tone: 'error', text: message })}
+                    // 014Fixes / 07: check in again with the phone and follow the server —
+                    // the number step when it has one, straight in if the switch went off.
+                    onHasNumber={(phone) => handled('checkin', handleCheckin)(phone ?? phoneNumber)}
+                    onRefresh={(phone) => handled('checkin', handleCheckin)(phone ?? phoneNumber)}
                     onBack={handleBack}
                   />
                 </Suspense>
@@ -544,8 +544,29 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                       }}
                       onRefused={(message) => backToCard({ tone: 'error', text: message })}
                       onBack={() => setStep(GATE.REGISTER)}
+                      onStale={async () => {
+                        // 014Fixes / 07: switched off while registering? Then save the form
+                        // already typed, without a code (nothing is retyped).
+                        const now = await resyncSettings();
+                        if (!now || now.numbers) return false;
+                        setNumbersSeen(false);
+                        setRegTicket(null);
+                        await handled('register', handleRegistration)(pendingForm, null, { codeFirst: false });
+                        return true;
+                      }}
                     />
                   )}
+                </Suspense>
+              )}
+
+              {/* 014Fixes / 07: an unknown number, with numbers on — what to do now. */}
+              {step === 'notFound' && (
+                <Suspense key="notFound" fallback={stepFallback}>
+                  <NotRegistered
+                    phone={phoneNumber}
+                    onRegister={() => setStep(GATE.REGISTER)}
+                    onBack={() => backToCard(null, phoneNumber)}
+                  />
                 </Suspense>
               )}
 

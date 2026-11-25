@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, act, cleanup, render, within } from '@testing-library/react';
 import { renderSessionPage, unmockSessionPage, PHONE } from '../fixes002/sessionPageHarness';
 
@@ -13,6 +13,9 @@ import { renderSessionPage, unmockSessionPage, PHONE } from '../fixes002/session
 const refusal = (code, message, status = 409) => Object.assign(new Error(message), { name: 'ApiError', code, status });
 const approved = { studentName: 'Amina', approvalStatus: 'approved', blocked: false, receiptStatus: 'approved' };
 
+// The admission-number steps are a lazy chunk; compile it once up front (the
+// compile cache outlives vi.resetModules), so no test pays for it cold.
+beforeAll(async () => { await import('@/features/registration/components/numbers'); }, 60_000);
 beforeEach(() => vi.resetModules());
 afterEach(() => {
   cleanup();
@@ -98,11 +101,11 @@ describe('the number pop-up', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('Your admission number')).toBeTruthy();
     expect(screen.getByTestId('number-popup-number').textContent).toBe('7319');
-    expect(dialog.textContent).toContain('This is your admission number for Evening class.');
+    expect(dialog.textContent).toContain('This is your admission number for Evening.');
     expect(dialog.textContent).toContain("Don't forget it. Every time you check in, you'll enter your phone number, then this number. We've also sent it to you by SMS.");
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: /Copy number/ })); });
     expect(writeText).toHaveBeenCalledWith('7319');
-    expect(within(dialog).getByRole('button', { name: /Copied ✓/ })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /Copied/ })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: "I've saved it. Go to class" }));
     expect(onDone).toHaveBeenCalled();
   });
@@ -126,7 +129,7 @@ describe('the number pop-up', () => {
   it('staff: the staff number; after approval: "I\'ve saved it"', async () => {
     await renderPopup({ kind: 'staff', display: 'S-7319', afterApproval: true });
     expect(screen.getByText('Your staff number')).toBeTruthy();
-    expect(screen.getByRole('dialog').textContent).toContain('This is your staff number for Evening class.');
+    expect(screen.getByRole('dialog').textContent).toContain('This is your staff number for Evening.');
     expect(screen.getByRole('button', { name: "I've saved it" })).toBeTruthy();
   });
 });
@@ -152,7 +155,7 @@ describe('the page: phone → confirm → number given → in', { timeout: 20_00
     expect(api.assignNumber).toHaveBeenCalledWith('evening', PHONE, 'v1.t');
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByTestId('number-popup-number').textContent).toBe('7319');
-    expect(dialog.textContent).toContain('for Evening class');
+    expect(dialog.textContent).toContain('for Evening');
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: "I've saved it. Go to class" })); });
     expect(api.checkinStudent).toHaveBeenLastCalledWith('evening', PHONE, undefined, '7319');
     expect(await screen.findByTestId('welcome')).toBeTruthy();
@@ -160,7 +163,10 @@ describe('the page: phone → confirm → number given → in', { timeout: 20_00
 
   it('a number already, phone unconfirmed: after the code, type the number', async () => {
     const { api } = await flow({
-      checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.')),
+      // 014Fixes / 07: after the code the page checks in again by phone; the server leads on.
+      checkinStudent: vi.fn()
+        .mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.'))
+        .mockRejectedValueOnce(refusal('number_required', 'Enter your admission number too.')),
       verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.t', next: 'checkin', numberKind: 'student' }),
     });
     expect(await screen.findByTestId('number-step')).toBeTruthy();
@@ -180,7 +186,9 @@ describe('the page: phone → confirm → number given → in', { timeout: 20_00
 
   it('the school says a number exists already: the number step (ask your teacher)', async () => {
     await flow({
-      checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.')),
+      checkinStudent: vi.fn()
+        .mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.'))
+        .mockRejectedValueOnce(refusal('number_required', 'Enter your admission number too.')),
       verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.t', next: 'assignNumber', numberKind: 'student' }),
       assignNumber: vi.fn().mockRejectedValue(refusal('already_has_number', 'You already have an admission number for this class. Ask your teacher for it.')),
     });

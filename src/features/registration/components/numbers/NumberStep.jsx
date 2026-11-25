@@ -47,7 +47,7 @@ export default function NumberStep({
           {' · '}
           <strong>{maskPhone(phone)}</strong>
           {' · '}
-          <button type="button" className="btn btn-link p-0 align-baseline" onClick={onChangePhone}>{COPY.change}</button>
+          <button type="button" className="btn btn-link p-0 align-baseline text-white fw-semibold" onClick={onChangePhone}>{COPY.change}</button>
         </p>
       </div>
       <form onSubmit={submit} noValidate>
@@ -71,7 +71,7 @@ export default function NumberStep({
         </button>
       </form>
       <div className="text-center">
-        <button type="button" className="btn btn-link small" onClick={() => setForgot(true)}>{COPY.forgotLink}</button>
+        <button type="button" className="btn btn-link small text-white fw-semibold" onClick={() => setForgot(true)}>{COPY.forgotLink}</button>
       </div>
       {forgot && (
         <Modal

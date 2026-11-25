@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, act, cleanup, waitFor, within } from '@testing-library/react';
 import { renderSessionPage, unmockSessionPage, PHONE } from '../fixes002/sessionPageHarness';
 
@@ -16,7 +16,8 @@ const REAL = '+254733000007';
 const ON = { 'checkin.admissionNumbers': true, 'student.fixNumber': true };
 const refusal = (code, message, status = 409) => Object.assign(new Error(message), { name: 'ApiError', code, status });
 const pending = { studentName: 'Amina', approvalStatus: 'pending', blocked: false, receiptStatus: 'pending' };
-const click = async (name) => { await act(async () => { fireEvent.click(await screen.findByRole('button', { name })); }); };
+// The steps are a lazy chunk: a file's first test loads it cold (over 1 s on a loaded machine).
+const click = async (name) => { await act(async () => { fireEvent.click(await screen.findByRole('button', { name }, { timeout: 5000 })); }); };
 const type = async (label, value) => { await act(async () => { fireEvent.change(await screen.findByLabelText(label), { target: { value } }); }); };
 const probeCard = ({ submit, notice, initialPhone }) => (
   <div data-testid="card">
@@ -26,13 +27,16 @@ const probeCard = ({ submit, notice, initialPhone }) => (
   </div>
 );
 
+// The admission-number steps are a lazy chunk; compile it once up front (the
+// compile cache outlives vi.resetModules), so no test pays for it cold.
+beforeAll(async () => { await import('@/features/registration/components/numbers'); }, 60_000);
 beforeEach(() => vi.resetModules());
 afterEach(() => { cleanup(); unmockSessionPage(); });
 
 // 014Fixes / 06: registering is form → code → saved with a GIVEN number →
 // the pop-up (tests/unit/fixes014/registerSteps.test.jsx walks it, with the
 // "nothing saved before the code" and "cannot register" cases).
-describe('code-first registration', () => {
+describe('code-first registration', { timeout: 20_000 }, () => {
   it('a save refused after the code: back to the form (still there), and a retry needs no new code', async () => {
     const register = vi.fn()
       .mockRejectedValueOnce(refusal('invalid_class', 'Please choose a class from the list.', 400))
@@ -46,6 +50,7 @@ describe('code-first registration', () => {
       },
     });
     await click('Check in');
+    await click('Register'); // 014Fixes / 07: N1 first
     await click('Register');
     // The code step is a lazy chunk; this test is the first to load it.
     await screen.findByTestId('confirm-step', {}, { timeout: 5000 });
@@ -61,7 +66,7 @@ describe('code-first registration', () => {
   });
 });
 
-describe('fix my number', () => {
+describe('fix my number', { timeout: 20_000 }, () => {
   // 014Fixes / 04: "Use my real number" left the code step; phase 05 brings
   // it back as "That phone isn't near me" (tests/unit/fixes014/differentNumber.test.jsx).
   it('registered before with another number: by name and class, moved to the number typed', async () => {
@@ -73,6 +78,7 @@ describe('fix my number', () => {
       },
     });
     await click('Check in');
+    await click('Register'); // 014Fixes / 07: N1 first (this link goes in phase 08)
     await click('Registered before with a different phone number? Find your registration');
     const fix = await screen.findByTestId('fix-number');
     expect(fix.textContent).toMatch(/move your registration to the number ending in 009/);
@@ -98,6 +104,7 @@ describe('fix my number', () => {
       },
     });
     await click('Check in');
+    await click('Register'); // 014Fixes / 07: N1 first (this link goes in phase 08)
     await click('Registered before with a different phone number? Find your registration');
     await type('Your full name (as you registered)', 'Wanjiru Akinyi');
     await act(async () => { fireEvent.change(screen.getByLabelText('Your class'), { target: { value: 'Form 3' } }); });

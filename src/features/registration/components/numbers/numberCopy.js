@@ -1,7 +1,8 @@
 /**
  * Every word of the admission-number steps — 014Fixes (owner, 2026-11-24).
  * The approved wording is issues/014Fixes/plan/copy.md; change it there and
- * here together. `{session}` is the session's name ("Evening").
+ * here together. `{session}` is the session's own name ("Morning Session",
+ * "Evening"): never followed by "class", which would read "Morning Session class".
  *
  * The first screen's one-device note lives in CheckinCard (every student
  * loads it); everything here is in the lazy admission-number chunk.
@@ -9,7 +10,7 @@
 
 export const NUMBER_STEP = Object.freeze({
   title: 'Type your admission number',
-  forSession: (session) => `for ${session} class`,
+  forSession: (session) => `for ${session}`,
   change: 'Change',
   label: 'Admission number',
   placeholder: 'e.g. 4071 (staff: S-4071)',
@@ -17,7 +18,7 @@ export const NUMBER_STEP = Object.freeze({
   checking: 'Checking…',
   forgotLink: 'Forgot your admission number?',
   forgotTitle: 'You already have an admission number',
-  forgotBody: (session) => `You have an admission number for ${session} class. Ask your teacher for it, then come back and check in.`,
+  forgotBody: (session) => `You have an admission number for ${session}. Ask your teacher for it, then come back and check in.`,
   ok: 'OK',
   // The server's own words for these (api/student/checkin.js), kept in step.
   mismatch: "That admission number and phone don't match. Check both, or ask your teacher.",
@@ -50,9 +51,9 @@ export const CONFIRM_STEP = Object.freeze({
 /** The number pop-up (copy.md §3). */
 export const NUMBER_POPUP = Object.freeze({
   title: (kind) => (kind === 'staff' ? 'Your staff number' : 'Your admission number'),
-  forSession: (kind, session) => `This is your ${kind === 'staff' ? 'staff' : 'admission'} number for **${session} class**.`,
+  forSession: (kind, session) => `This is your ${kind === 'staff' ? 'staff' : 'admission'} number for **${session}**.`,
   copy: 'Copy number',
-  copied: 'Copied ✓',
+  copied: 'Copied', // the button's icon is the tick
   copyFallback: 'Select the number above and copy it, or write it down.',
   remember: "**Don't forget it.** Every time you check in, you'll enter your phone number, then this number. We've also sent it to you by SMS.",
   goToClass: "I've saved it. Go to class",
@@ -66,7 +67,7 @@ export const DIFFERENT_NUMBER = Object.freeze({
   send: 'Send code',
   sending: 'Sending…',
   confirmTitle: 'This will be your new number',
-  confirmBody: (next, old, session) => `From now on, **${next}** will be your number for checking in to ${session} class, and for messages from your teacher. **${old}** will stop working.`,
+  confirmBody: (next, old, session) => `From now on, **${next}** will be your number for checking in to ${session}, and for messages from your teacher. **${old}** will stop working.`,
   yes: 'Yes, use this number',
   goBack: 'Go back',
   same: 'That is the number you started with. Enter the phone you have with you now.',
@@ -76,5 +77,20 @@ export const DIFFERENT_NUMBER = Object.freeze({
 
 /** Registering with a different phone (copy.md §5): nothing to move yet. */
 export const REGISTER_PHONE = Object.freeze({
-  confirmBody: (next, session) => `From now on, **${next}** will be your number for checking in to ${session} class, and for messages from your teacher.`,
+  confirmBody: (next, session) => `From now on, **${next}** will be your number for checking in to ${session}, and for messages from your teacher.`,
+});
+
+/** "We couldn't find this number" (copy.md §6; 012Fixes N1, option 2 reworded). */
+export const NOT_REGISTERED = Object.freeze({
+  title: "We couldn't find this number",
+  why: (phone) => `${phone} isn't registered in this class.`,
+  todoTitle: 'What to do now (choose one):',
+  todo: [
+    '**New student?** Tap **Register** to join this class.',
+    '**Registered with a different number?** Tap **Back** and enter that number. When we offer to send the code, tap "That phone isn\'t near me" to switch to this number.',
+    '**Typed it wrong?** Tap **Back** and fix the number.',
+  ],
+  ask: "If you don't remember which number you registered with, ask your teacher.",
+  register: 'Register',
+  back: 'Back',
 });

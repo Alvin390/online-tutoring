@@ -62,10 +62,11 @@ describe('per phone: 20 per 10 minutes', () => {
   });
 });
 
-describe('per IP: 120 per hour', () => {
-  it('check-in: 120 different numbers from one address are fine; the 121st is refused', async () => {
+describe('per IP: check-in 240, class link 120 per hour', () => {
+  // 014Fixes / 07: check-in 120 → 240 (two check-ins per student with admission numbers).
+  it('check-in: 240 different numbers from one address are fine; the 241st is refused', { timeout: 120_000 }, async () => {
     const ip = '198.51.100.120';
-    for (let i = 0; i < 120; i += 1) {
+    for (let i = 0; i < 240; i += 1) {
       const res = await checkin(phoneN(8000 + i), ip);
       expect(res.status, `request ${i + 1}`).toBe(200);
     }

@@ -65,7 +65,7 @@ describe('registering gives a number', () => {
     const numberSms = fakes.hashback.sent.filter((m) => m.message.startsWith('Your admission number'));
     expect(numberSms).toEqual([expect.objectContaining({
       to: P(1),
-      message: `Your admission number for Evening class is ${res.body.number.digits}. Use it with this phone number every time you check in. Keep it safe.`,
+      message: `Your admission number for Evening is ${res.body.number.digits}. Use it with this phone number every time you check in. Keep it safe.`,
     })]);
   });
 
