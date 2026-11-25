@@ -2,29 +2,27 @@ import { getDb, FieldValue } from './firebaseAdmin.js';
 import { interpretResultCode } from './daraja.js';
 
 /**
- * The STK switch and its test — 013Fixes / 30 (owner answer 5, round 3).
+ * M-Pesa (STK) — 013Fixes / 30b (owner, 2026-11-25). One setting, three
+ * positions, in config/mpesaStatus:
  *
- *   config/mpesaStatus = {
- *     enabled         the superadmin's switch (off = hidden everywhere)
- *     online          true only after Safaricom confirmed the KES 1 test
- *     configVersion   bumped by ANY change to the keys or the switch
- *     testCheckoutId, testVersion, testStartedAt, testPhoneMasked   the test in flight
- *     testedAt, lastError
- *   }
+ *   mode   'off'  hidden everywhere
+ *          'demo' Pay now for every blocked student, through the SANDBOX; a
+ *                 demo payment never touches fees or blocks (mpesa/demo)
+ *          'live' the school's live keys: UNTESTED (hidden) until the KES 1
+ *                 test is confirmed, then TESTED (shown)
+ *   testedFingerprint   the live keys' fingerprint when the test was confirmed
+ *                       (credentialsFingerprint: a hash, never the values);
+ *                       "tested" holds only while the keys in use match it
+ *   the test in flight: testCheckoutId, testFingerprint, testStartedAt,
+ *     testPhoneMasked, testLastQueriedAt; then testedAt / lastError
  *
- * "Any change to the keys turns it offline until a new test passes": a change
- * bumps configVersion and clears online and the test in flight; a test result
- * marks online only when it is the test in flight AND the version it started
- * with is still current — decided in a transaction, so a change during the
- * test always wins.
- *
- * The test itself lives in mpesa/tests/items/{checkoutRequestId}, never in
- * mpesa/transactions, so nothing that posts money (the callback's payment
- * path, the reconcile sweep, the Fees screens) can ever see it.
+ * The test lives in mpesa/tests/items/{checkoutRequestId}, never in
+ * mpesa/transactions, so nothing that posts money ever sees it.
  */
 
 const DOC = 'config/mpesaStatus';
 const CACHE_MS = 30_000;
+export const MODES = ['off', 'demo', 'live'];
 export const TEST_TIMEOUT_MS = 2 * 60_000;
 export const QUERY_AFTER_MS = 20_000;
 // 013Fixes / 32: at most one status query to Safaricom this often.
@@ -52,11 +50,17 @@ export async function readMpesaStatus(db = getDb(), { fresh = false, now = Date.
   return value;
 }
 
+export const modeOf = (s) => (MODES.includes(s?.mode) ? s.mode : 'off');
+
+/** Live is tested while the live keys in use have the confirmed fingerprint. */
+export const isLiveTested = (s, currentFingerprint) => Boolean(currentFingerprint) && s?.testedFingerprint === currentFingerprint;
+
 /** What the superadmin card shows. */
-export function statusView(s = {}) {
+export function statusView(s = {}, currentFingerprint = null) {
+  const mode = modeOf(s);
   return {
-    enabled: s.enabled === true,
-    online: s.enabled === true && s.online === true,
+    mode,
+    liveTested: isLiveTested(s, currentFingerprint),
     testPending: Boolean(s.testCheckoutId),
     testStartedAt: s.testCheckoutId ? toMs(s.testStartedAt) : null,
     testedAt: toMs(s.testedAt),
@@ -65,45 +69,28 @@ export function statusView(s = {}) {
   };
 }
 
-async function change(db, patch) {
-  await db.runTransaction(async (tx) => {
-    const ref = db.doc(DOC);
-    const snap = await tx.get(ref);
-    const version = (snap.exists ? snap.data().configVersion ?? 0 : 0) + 1;
-    tx.set(ref, {
-      ...patch, configVersion: version, online: false, testCheckoutId: null, testVersion: null,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-  });
+/** The setting. Doesn't touch "tested": that belongs to the keys. */
+export async function setMode(db, mode) {
+  await db.doc(DOC).set({ mode, lastError: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   invalidateMpesaStatus();
 }
 
-/** The switch. Any change (on or off) means offline until a new test passes. */
-export const setSwitch = (db, enabled) => change(db, { enabled, lastError: null });
-
-/** The keys were saved or cleared: offline until a new test passes. */
-export const markKeysChanged = (db) => change(db, {});
-
-/** A test push went out: it is now the test in flight, at the current version. */
-export async function beginTest(db, { checkoutRequestId, phoneMasked, now = Date.now() }) {
-  await db.runTransaction(async (tx) => {
-    const ref = db.doc(DOC);
-    const snap = await tx.get(ref);
-    const s = snap.exists ? snap.data() : {};
-    tx.set(ref, {
-      testCheckoutId: checkoutRequestId, testVersion: s.configVersion ?? 0, testStartedAt: new Date(now),
-      testPhoneMasked: phoneMasked, lastError: null, online: false, updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-  });
+/** A test push went out (live keys with this fingerprint). */
+export async function beginTest(db, { checkoutRequestId, phoneMasked, fingerprint, now = Date.now() }) {
+  await db.doc(DOC).set({
+    testCheckoutId: checkoutRequestId, testFingerprint: fingerprint, testStartedAt: new Date(now),
+    testPhoneMasked: phoneMasked, lastError: null, updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
   invalidateMpesaStatus();
 }
 
 /**
  * A test's outcome (Safaricom's callback, the status query, or the timeout).
- * Online only when it is the test in flight and nothing changed since it began.
- * @returns {Promise<{applied: boolean, online: boolean}>}
+ * Tested only when it is the test in flight AND the live keys in use now are
+ * the ones it was made with (`currentFingerprint`), decided in a transaction.
+ * @returns {Promise<{applied: boolean, tested: boolean}>}
  */
-export async function settleTest(db, { checkoutRequestId, resultCode, resultDesc = null, timedOut = false, now = Date.now() }) {
+export async function settleTest(db, { checkoutRequestId, resultCode, resultDesc = null, timedOut = false, currentFingerprint = null, now = Date.now() }) {
   const outcome = timedOut ? { status: 'timeout', userFacing: TIMEOUT_MESSAGE } : interpretResultCode(resultCode);
   const success = outcome.status === 'success';
   const testRef = db.doc(`mpesa/tests/items/${checkoutRequestId}`);
@@ -117,19 +104,18 @@ export async function settleTest(db, { checkoutRequestId, resultCode, resultDesc
         resultDesc: resultDesc ?? null, completedAt: new Date(now),
       }, { merge: true });
     }
-    if (s.testCheckoutId !== checkoutRequestId) return { applied: false, online: s.online === true };
-    const current = (s.testVersion ?? -1) === (s.configVersion ?? 0) && s.enabled === true;
-    const online = success && current;
+    if (s.testCheckoutId !== checkoutRequestId) return { applied: false, tested: false };
+    const sameKeys = Boolean(currentFingerprint) && s.testFingerprint === currentFingerprint;
+    const tested = success && sameKeys;
     tx.set(ref, {
-      online,
       testCheckoutId: null,
-      testVersion: null,
-      ...(online ? { testedAt: new Date(now), lastError: null } : {
-        lastError: success ? 'The settings changed during the test. Run it again.' : outcome.userFacing,
+      testFingerprint: null,
+      ...(tested ? { testedFingerprint: currentFingerprint, testedAt: new Date(now), lastError: null } : {
+        lastError: success ? 'The keys changed during the test. Run it again.' : outcome.userFacing,
       }),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    return { applied: true, online };
+    return { applied: true, tested };
   });
   invalidateMpesaStatus();
   return result;

@@ -189,7 +189,7 @@ describe('M-Pesa auto-unblock for students blocked by a bulk fee block', () => {
   // server's availability (the superadmin's switch, online, keys, Gold, flag).
   it('the STK push screen is in the code, shown only when the server offers M-Pesa', () => {
     const screen = readFileSync(path.join(process.cwd(), 'src/features/registration/components/BlockedStudentScreen.jsx'), 'utf8');
-    expect(screen).toMatch(/^import \{ useMpesaAvailable \} from/m);
+    expect(screen).toMatch(/^import \{ useMpesaOffer \} from/m);
     expect(screen).toMatch(/^const PayNowPanel = lazy/m);
     expect(screen).toMatch(/\{mpesaAvailable && blockState\.balance > 0 && \(/);
     expect(readFileSync(path.join(process.cwd(), 'docs/STK_PUSH_PILOT.md'), 'utf8')).toMatch(/Superadmin → Settings → \*\*M-Pesa\s+payments \(STK\)\*\*/);

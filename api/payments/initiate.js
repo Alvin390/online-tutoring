@@ -15,6 +15,7 @@ import {
   callbackBaseUrl,
   isUnreachableCallback,
   stkCallbackUrl,
+  callbackModeFor,
 } from '../_lib/daraja.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { mpesaAvailability } from '../_lib/mpesaAvailability.js';
@@ -104,7 +105,9 @@ export default createHandler({
       );
     }
 
-    const credentials = await loadCredentials();
+    // 013Fixes / 30b: Demo → the sandbox; Live (tested) → the live keys.
+    const credentials = await loadCredentials({ environment: availability.environment });
+    const demo = availability.demo === true;
 
     if (!credentials.verifiedAt) {
       throw forbidden(
@@ -120,10 +123,11 @@ export default createHandler({
     // only if the credentials form had been submitted — with env credentials
     // this built `…/callback/`, which no route matches), and the URL is checked
     // against the rules Safaricom enforces before an STK push can go out.
-    const realCallbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db));
+    const cbMode = callbackModeFor(credentials.environment);
+    const realCallbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db), { mode: cbMode });
     // Sandbox + localhost: Safaricom rejects a loopback CallBackURL outright,
     // so a public placeholder is sent instead (see stkCallbackUrl).
-    const { url: callbackUrl, placeholder } = stkCallbackUrl(realCallbackUrl);
+    const { url: callbackUrl, placeholder } = stkCallbackUrl(realCallbackUrl, { mode: cbMode });
     if (placeholder || isUnreachableCallback(callbackUrl)) {
       log.warn('STK callback cannot reach this machine — after paying, confirm with `npm run mpesa:reconcile`, or set DARAJA_CALLBACK_BASE_URL to an HTTPS tunnel', { placeholder });
     }
@@ -154,7 +158,10 @@ export default createHandler({
     // `mpesa/transactions/items/{id}` — four segments. A Firestore document
     // path must have an EVEN segment count; appendix A's
     // `mpesa/transactions/{id}` is three and would throw at runtime.
-    await db.doc(`mpesa/transactions/items/${checkoutRequestId}`).set({
+    // 013Fixes / 30b: a DEMO payment lives apart (mpesa/demo): nothing that
+    // posts money — the callback's payment path, the reconcile sweep — reads it.
+    await db.doc(`mpesa/${demo ? 'demo' : 'transactions'}/items/${checkoutRequestId}`).set({
+      ...(demo ? { demo: true } : {}),
       checkoutRequestId,
       merchantRequestId: response.MerchantRequestID ?? null,
       phone,
@@ -200,6 +207,7 @@ export default createHandler({
       // Surfaced so the UI can show an unmissable sandbox banner — a teacher
       // accidentally live in sandbox sees payments silently vanish.
       environment: credentials.environment,
+      demo,
       customerMessage: response.CustomerMessage ?? 'Check your phone for the M-Pesa prompt.',
     };
   },

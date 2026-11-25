@@ -47,6 +47,12 @@ export const TEST_ENV = Object.freeze({
   DARAJA_SANDBOX_CONSUMER_SECRET: 'cs_harness',
   DARAJA_SANDBOX_PASSKEY: 'pk_harness',
   DARAJA_CALLBACK_IPS: '196.201.214.200',
+  // 013Fixes / 30b: placeholder LIVE keys (the card's Live mode; never real).
+  DARAJA_LIVE_SHORTCODE: '600123',
+  DARAJA_LIVE_SHORTCODE_TYPE: 'till',
+  DARAJA_LIVE_CONSUMER_KEY: 'ck_live_harness',
+  DARAJA_LIVE_CONSUMER_SECRET: 'cs_live_harness',
+  DARAJA_LIVE_PASSKEY: 'pk_live_harness',
   SUBREQUEST_BUDGET: '200',
   GMAIL_CLIENT_ID: 'gmail-client-harness',
   GMAIL_CLIENT_SECRET: 'gmail-secret-harness',
@@ -369,11 +375,14 @@ export async function setFlags(db, flags) {
 }
 
 /**
- * 013Fixes / 30: M-Pesa (STK) switched on and ONLINE (the KES 1 test passed),
- * for suites that start real payments; availability needs both now.
+ * 013Fixes / 30b: M-Pesa (STK) on LIVE and TESTED (the KES 1 test confirmed
+ * with the live keys in use — here the placeholder DARAJA_LIVE_* above), for
+ * suites that start real payments.
  */
 export async function mpesaOnline(db) {
-  await db.doc('config/mpesaStatus').set({ enabled: true, online: true, configVersion: 1, testCheckoutId: null });
+  const daraja = await import('../../api/_lib/daraja.js');
+  const live = await daraja.loadCredentials({ environment: 'production' });
+  await db.doc('config/mpesaStatus').set({ mode: 'live', testedFingerprint: daraja.credentialsFingerprint(live), testCheckoutId: null });
   (await import('../../api/_lib/mpesaStatus.js')).__resetMpesaStatus();
 }
 

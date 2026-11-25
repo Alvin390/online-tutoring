@@ -83,7 +83,7 @@ describe('config/planPrices is closed to every client', () => {
 describe('config/darajaCredentials and config/mpesaStatus are closed to every client', () => {
   beforeEach(async () => {
     await seed(env, 'config/darajaCredentials', { live: { consumerKey: 'v1.x.y.z' } });
-    await seed(env, 'config/mpesaStatus', { enabled: true, online: true });
+    await seed(env, 'config/mpesaStatus', { mode: 'live', testedFingerprint: 'f' });
   });
 
   it('nobody reads or writes them', async () => {

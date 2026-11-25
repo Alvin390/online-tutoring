@@ -121,13 +121,14 @@ export default async function handler(req, res) {
       (a, b) => (a.data().initiatedAt?.toMillis?.() ?? 0) - (b.data().initiatedAt?.toMillis?.() ?? 0)
     );
 
-    let credentials = null;
-    try {
-      credentials = await loadCredentials();
-    } catch (err) {
-      log.warn('Cannot reconcile: Daraja credentials unavailable', { code: err?.code });
-      return res.status(200).json({ ok: true, ...result, skipped: 'no_credentials' });
-    }
+    // 013Fixes / 30b: each transaction is asked about with the keys of ITS
+    // environment (a live payment is recovered whatever the card's mode now).
+    const credentialsByEnv = new Map();
+    const credentialsFor = async (environment) => {
+      const env = environment === 'production' ? 'production' : 'sandbox';
+      if (!credentialsByEnv.has(env)) credentialsByEnv.set(env, await loadCredentials({ environment: env }).catch(() => null));
+      return credentialsByEnv.get(env);
+    };
 
     let handled = 0;
 
@@ -165,6 +166,12 @@ export default async function handler(req, res) {
       }
 
       // Net 1: actively ask Daraja what happened.
+      // eslint-disable-next-line no-await-in-loop
+      const credentials = await credentialsFor(tx.environment);
+      if (!credentials) {
+        log.warn('Cannot reconcile a payment: no Daraja keys for its environment', { environment: tx.environment ?? null });
+        continue;
+      }
       try {
         // eslint-disable-next-line no-await-in-loop
         const response = await queryStkStatus({

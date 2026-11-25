@@ -73,6 +73,16 @@ export function darajaVar(base) {
   return process.env[scoped] || process.env[base] || '';
 }
 
+/**
+ * 013Fixes / 30b: a Daraja variable for an EXPLICIT environment ('sandbox' or
+ * 'production'), by its exact split name — no unsplit fallback, so the
+ * card's Demo can never pick up a live key (or Live a sandbox one).
+ */
+export function darajaVarFor(base, environment) {
+  const infix = environment === 'production' ? 'LIVE' : 'SANDBOX';
+  return process.env[base.replace(/^DARAJA_/, `DARAJA_${infix}_`)] || '';
+}
+
 /** One-line summary for the health check and the startup banner. */
 export function describeModes() {
   return {

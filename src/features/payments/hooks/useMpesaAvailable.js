@@ -9,6 +9,26 @@ import { getPublicBootstrap } from '@services/api/public';
  * the "Pay now" button is never offered where the payment would be refused.
  * Starts false: until the answer arrives, only the manual receipt route shows.
  */
+/**
+ * 013Fixes / 30b: { available, demo } — `demo` when the card is on Demo
+ * (sandbox: a payment doesn't pay fees), so the panel can say so up front.
+ */
+export function useMpesaOffer() {
+  const [offer, setOffer] = useState({ available: false, demo: false });
+
+  useEffect(() => {
+    let cancelled = false;
+    getPublicBootstrap()
+      .then((data) => {
+        if (!cancelled) setOffer({ available: data?.payments?.mpesa === true, demo: data?.payments?.demo === true });
+      })
+      .catch(() => { if (!cancelled) setOffer({ available: false, demo: false }); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return offer;
+}
+
 export function useMpesaAvailable() {
   const [available, setAvailable] = useState(false);
 

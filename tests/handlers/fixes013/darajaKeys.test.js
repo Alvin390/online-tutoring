@@ -116,6 +116,8 @@ describe('which keys M-Pesa uses', () => {
 
   it('cleared: back to the environment (or not set up at all)', async () => {
     live();
+    // No server live keys either (the harness has placeholder ones; afterEach restores them).
+    for (const k of ['DARAJA_LIVE_CONSUMER_KEY', 'DARAJA_LIVE_CONSUMER_SECRET', 'DARAJA_LIVE_PASSKEY', 'DARAJA_LIVE_SHORTCODE', 'DARAJA_LIVE_SHORTCODE_TYPE']) delete process.env[k];
     await daraja({ action: 'save', ...KEYS });
     const res = await daraja({ action: 'clear' });
     expect(res.status).toBe(200);

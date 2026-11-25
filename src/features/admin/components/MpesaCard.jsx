@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  getMpesaSetup, saveMpesaKeys, clearMpesaKeys, setMpesaEnabled, sendMpesaTest, checkMpesaTest,
+  getMpesaSetup, saveMpesaKeys, clearMpesaKeys, setMpesaMode, sendMpesaTest, checkMpesaTest,
 } from '@services/api/adminDaraja';
 
 /**
- * Superadmin → M-Pesa payments (STK) — 013Fixes / 29-30 (owner answer 5).
+ * Superadmin → M-Pesa payments (STK) — 013Fixes / 29-30b (owner answer 5;
+ * owner, 2026-11-25). One setting, three positions:
  *
- * The switch (off = Pay now hidden everywhere), the school's own live keys
- * (write-only: only the last 4 characters come back), and the KES 1 test
- * push. Online only after Safaricom confirms the test; any change to the keys
- * or the switch turns it offline until a new test passes. Gold only.
+ *   Off   Pay now hidden everywhere.
+ *   Demo  Pay now for every blocked student, through Safaricom's sandbox. A
+ *         demo payment runs the whole flow but never pays fees or unblocks.
+ *   Live  the school's live keys (write-only: only the last 4 characters come
+ *         back). Untested → hidden; once the KES 1 test is confirmed →
+ *         tested and shown. Changing the keys makes it untested again.
+ * Gold only.
  */
 
+const MODES = [
+  { id: 'off', label: 'Off' },
+  { id: 'demo', label: 'Demo' },
+  { id: 'live', label: 'Live' },
+];
 const FIELDS = [
   { id: 'consumerKey', label: 'Consumer key', secret: true },
   { id: 'consumerSecret', label: 'Consumer secret', secret: true },
@@ -23,10 +32,11 @@ const POLL_MS = 10_000;
 const when = (ms) => new Date(ms).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Nairobi' });
 
 function badge(m) {
-  if (!m?.enabled) return { text: 'Off', tone: 'secondary' };
-  if (m.testPending) return { text: 'Testing…', tone: 'info' };
-  if (m.online) return { text: 'Online', tone: 'success' };
-  return { text: 'Not tested', tone: 'warning' };
+  if (m.mode === 'off') return { text: 'Off', tone: 'secondary' };
+  if (m.mode === 'demo') return { text: 'Demo', tone: 'info' };
+  if (m.testPending) return { text: 'Live — testing…', tone: 'info' };
+  if (m.liveTested) return { text: 'Live — tested', tone: 'success' };
+  return { text: 'Live — untested', tone: 'warning' };
 }
 
 export default function MpesaCard() {
@@ -37,8 +47,6 @@ export default function MpesaCard() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [phone, setPhone] = useState('');
-  // 013Fixes / 32: in sandbox mode, switching on takes a second, explicit step.
-  const [confirmSandbox, setConfirmSandbox] = useState(false);
   const timer = useRef(null);
 
   const run = useCallback(async (fn, okNote = '') => {
@@ -59,7 +67,7 @@ export default function MpesaCard() {
 
   useEffect(() => { run(getMpesaSetup); }, [run]);
 
-  // While a test is in flight, ask for its result every few seconds.
+  // While a test is in flight, ask for its result now and then.
   const pending = data?.mpesa?.testPending === true;
   useEffect(() => {
     if (!pending) return undefined;
@@ -79,14 +87,20 @@ export default function MpesaCard() {
 
   const m = data.mpesa;
   const b = badge(m);
-  const live = data.mode === 'live';
-  const keysMissing = live && !data.keys.saved && data.source !== 'env';
-  const formOpen = showForm || (m.enabled && keysMissing);
+  const live = m.mode === 'live';
+  const liveKeysMissing = !data.sources?.live;
+  const formOpen = showForm || (live && liveKeysMissing);
   const formOk = FIELDS.every((f) => form[f.id].trim()) && /^\d{5,8}$/.test(form.shortCode.trim());
+
+  const MODE_NOTES = {
+    off: 'Switched off. Pay now is hidden everywhere.',
+    demo: 'Demo on. Every blocked student sees Pay now, through the sandbox; it doesn’t pay fees.',
+    live: 'Live on. Pay now appears once the live keys are tested.',
+  };
 
   const save = async (e) => {
     e.preventDefault();
-    const res = await run(() => saveMpesaKeys({ ...form, shortCode: form.shortCode.trim() }), 'Keys saved. M-Pesa is offline until a new test passes.');
+    const res = await run(() => saveMpesaKeys({ ...form, shortCode: form.shortCode.trim() }), 'Keys saved. Live is untested until the KES 1 test passes.');
     if (res) { setForm(EMPTY); setShowForm(false); }
   };
 
@@ -97,65 +111,53 @@ export default function MpesaCard() {
           <i className="bi bi-phone me-2" aria-hidden="true" />M-Pesa payments (STK){' '}
           <span className={`badge text-bg-${b.tone} ms-1`} data-testid="mpesa-badge">{b.text}</span>
         </h2>
-        <span className="small text-muted" data-testid="mpesa-mode">{live ? 'Live' : 'Sandbox (test)'}</span>
       </div>
       <div className="card-body">
         {error && <div className="alert alert-danger small py-2" role="alert">{error}</div>}
         {note && <div className="alert alert-success small py-2" role="status">{note}</div>}
 
-        <div className="form-check form-switch mb-2">
-          <input id="mpesa-switch" className="form-check-input" type="checkbox" role="switch" checked={m.enabled} disabled={busy}
-            onChange={(e) => {
-              if (e.target.checked && !live) { setConfirmSandbox(true); return; }
-              run(() => setMpesaEnabled(e.target.checked), e.target.checked ? 'Switched on. Send a test payment to bring it online.' : 'Switched off. Pay now is hidden everywhere.');
-            }} />
-          <label className="form-check-label" htmlFor="mpesa-switch">Students can pay by M-Pesa (Pay now)</label>
+        <div className="btn-group mb-2" role="radiogroup" aria-label="M-Pesa mode">
+          {MODES.map((x) => (
+            <button key={x.id} type="button" role="radio" aria-checked={m.mode === x.id} disabled={busy}
+              className={`btn btn-sm ${m.mode === x.id ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => m.mode !== x.id && run(() => setMpesaMode(x.id), MODE_NOTES[x.id])}>
+              {x.label}
+            </button>
+          ))}
         </div>
-        {!live && (
-          <p className="small text-danger mb-2" data-testid="mpesa-sandbox-warning">
-            Sandbox: payments are not real money. Switched on and online, students could &quot;pay&quot; with test M-Pesa and be unblocked.
-          </p>
-        )}
-        {confirmSandbox && (
-          <div className="alert alert-warning small py-2" data-testid="mpesa-sandbox-confirm">
-            Switch on in sandbox? Payments here are not real money: once online, students could &quot;pay&quot; with test M-Pesa and be unblocked without paying. Use this only to try it out.
-            <div className="d-flex gap-2 mt-2">
-              <button type="button" className="btn btn-sm btn-warning" disabled={busy}
-                onClick={() => { setConfirmSandbox(false); run(() => setMpesaEnabled(true), 'Switched on (sandbox). Send a test payment to bring it online.'); }}>
-                Switch on in sandbox
-              </button>
-              <button type="button" className="btn btn-sm btn-link" onClick={() => setConfirmSandbox(false)}>Cancel</button>
-            </div>
-          </div>
-        )}
+        <p className="small text-muted mb-2" data-testid="mpesa-mode-help">
+          {m.mode === 'off' && 'Students only see the receipt route.'}
+          {m.mode === 'demo' && 'Every blocked student sees Pay now, through Safaricom’s sandbox (test M-Pesa). A demo payment shows success but doesn’t pay fees or unblock anyone. For showing how it works.'}
+          {live && 'The school’s own till or paybill. Students see Pay now once the live keys pass the KES 1 test.'}
+        </p>
         <ul className="small text-muted mb-3" data-testid="mpesa-ready">
-          {!data.ready.gold && <li className="text-danger">Gold only: this school's plan doesn't include it.</li>}
+          {!data.ready.gold && <li className="text-danger">Gold only: this school&apos;s plan doesn&apos;t include it.</li>}
           {!data.ready.flag && <li className="text-danger">The payments.daraja feature flag is off.</li>}
-          {m.online && m.testedAt && <li>Confirmed by M-Pesa on {when(m.testedAt)}{m.testPhoneMasked ? ` (${m.testPhoneMasked})` : ''}.</li>}
-          {!m.online && m.lastError && <li className="text-danger" data-testid="mpesa-last-error">Last test: {m.lastError}</li>}
+          {m.mode === 'demo' && !data.sources?.sandbox && <li className="text-danger">No sandbox keys in the server settings.</li>}
+          {live && m.liveTested && m.testedAt && <li>Tested: confirmed by M-Pesa on {when(m.testedAt)}{m.testPhoneMasked ? ` (${m.testPhoneMasked})` : ''}.</li>}
+          {live && !m.liveTested && m.lastError && <li className="text-danger" data-testid="mpesa-last-error">Last test: {m.lastError}</li>}
         </ul>
 
-        <h3 className="h6">Keys</h3>
+        <h3 className="h6">Live keys</h3>
         {data.keys.saved ? (
           <p className="small mb-2" data-testid="mpesa-keys">
             Saved {when(data.keys.savedAt)}: {data.keys.shortCodeType === 'paybill' ? 'Paybill' : 'Till'} ••••{data.keys.last4.shortCode},
             consumer key ••••{data.keys.last4.consumerKey}, secret ••••{data.keys.last4.consumerSecret}, passkey ••••{data.keys.last4.passkey}.
-            {!live && ' Used once M-Pesa is in live mode; the sandbox uses the server’s test keys.'}
           </p>
         ) : (
           <p className="small text-muted mb-2" data-testid="mpesa-keys">
-            {data.source === 'env' ? 'Using the keys from the server settings.' : live ? 'No keys yet: enter the school’s M-Pesa keys.' : 'The sandbox uses the server’s test keys. Keys saved here are for live mode.'}
+            {data.sources?.live === 'env' ? 'Using the live keys from the server settings.' : 'No live keys yet: enter the school’s M-Pesa keys (after Safaricom Go-Live).'}
           </p>
         )}
         {!formOpen && (
           <div className="d-flex gap-2 mb-3">
             <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => setShowForm(true)} disabled={busy}>{data.keys.saved ? 'Replace keys' : 'Enter keys'}</button>
-            {data.keys.saved && <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => run(clearMpesaKeys, 'Keys removed. M-Pesa is offline.')} disabled={busy}>Remove keys</button>}
+            {data.keys.saved && <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => run(clearMpesaKeys, 'Keys removed. Live is untested.')} disabled={busy}>Remove keys</button>}
           </div>
         )}
         {formOpen && (
           <form className="border rounded p-3 mb-3 bg-light" onSubmit={save} aria-label="M-Pesa keys" data-testid="mpesa-form">
-            <p className="small text-muted">Never shown again after saving (only the last 4 characters). Saving turns M-Pesa offline until a new test passes.</p>
+            <p className="small text-muted">Never shown again after saving (only the last 4 characters). New keys make Live untested until the KES 1 test passes.</p>
             <div className="row g-2">
               {FIELDS.map((f) => (
                 <div className="col-md-6" key={f.id}>
@@ -174,15 +176,15 @@ export default function MpesaCard() {
             </div>
             <div className="d-flex gap-2 mt-3">
               <button type="submit" className="btn btn-sm btn-primary" disabled={!formOk || busy}>Save keys</button>
-              {(showForm || !keysMissing) && <button type="button" className="btn btn-sm btn-link" onClick={() => { setShowForm(false); setForm(EMPTY); }}>Cancel</button>}
+              {(showForm || !(live && liveKeysMissing)) && <button type="button" className="btn btn-sm btn-link" onClick={() => { setShowForm(false); setForm(EMPTY); }}>Cancel</button>}
             </div>
           </form>
         )}
 
-        {m.enabled && (
+        {live && !liveKeysMissing && (
           <>
             <h3 className="h6">Test payment</h3>
-            <p className="small text-muted mb-2">KES 1 from the phone you type, to the school's till or paybill. Online once M-Pesa confirms it.</p>
+            <p className="small text-muted mb-2">KES 1 from the phone you type, to the school&apos;s till or paybill. Tested once M-Pesa confirms it.</p>
             <div className="d-flex gap-2 flex-wrap align-items-center">
               <label className="visually-hidden" htmlFor="mpesa-test-phone">Phone for the test</label>
               <input id="mpesa-test-phone" className="form-control form-control-sm w-auto" type="tel" placeholder="07XX XXX XXX" value={phone} onChange={(e) => setPhone(e.target.value)} />

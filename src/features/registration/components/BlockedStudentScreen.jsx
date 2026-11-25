@@ -7,7 +7,7 @@ import { useState, useMemo, lazy, Suspense } from 'react';
 import { m } from 'framer-motion';
 import { resolveBlockReason, formatKes } from '@utils/blockReason';
 import { useFlag } from '@shared/config/FlagsContext';
-import { useMpesaAvailable } from '@features/payments/hooks/useMpesaAvailable';
+import { useMpesaOffer } from '@features/payments/hooks/useMpesaAvailable';
 
 // Lazy: only a school with M-Pesa online and a student with a balance ever
 // renders this, so the payment code is not in every student's first paint.
@@ -30,7 +30,8 @@ export default function BlockedStudentScreen({
   const feesEnabled = useFlag('fees.enabled') && studentData?.feesShown !== false;
   // Decided on the server (switch + online + keys + Gold + flag), so the
   // screen never offers an STK push the server would refuse.
-  const mpesaAvailable = useMpesaAvailable();
+  // 013Fixes / 30b: and whether it's the Demo (the panel says it doesn't pay fees).
+  const { available: mpesaAvailable, demo: mpesaDemo } = useMpesaOffer();
 
   // Shared with the dashboard's blocked badge, so the teacher sees exactly
   // what the student sees.
@@ -144,6 +145,7 @@ export default function BlockedStudentScreen({
               phone={phoneNumber ?? studentData.parentPhone ?? studentData.id}
               balance={blockState.balance}
               onPaid={onPaid}
+              demo={mpesaDemo}
             />
           </Suspense>
         )}

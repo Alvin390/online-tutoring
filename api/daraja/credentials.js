@@ -8,7 +8,9 @@ import {
   ensureCallbackSecret,
   buildCallbackUrl,
   callbackBaseUrl,
+  callbackModeFor,
 } from '../_lib/daraja.js';
+import { readMpesaStatus, modeOf } from '../_lib/mpesaStatus.js';
 import { ApiError } from '../_lib/errors.js';
 
 /**
@@ -51,19 +53,22 @@ export default createHandler({
 
     const db = getDb();
     const ref = db.doc('integrations/daraja');
+    // 013Fixes / 30b: the card's setting decides the keys (Live → live, else the sandbox).
+    const environment = modeOf(await readMpesaStatus(db)) === 'live' ? 'production' : 'sandbox';
+    const cbMode = callbackModeFor(environment);
 
     if (body.action === 'status') {
       let callbackUrl = null;
       try {
-        callbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db));
+        callbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db), { mode: cbMode });
       } catch (err) {
         log.warn('Callback URL unavailable', { reason: err?.cause?.message ?? err?.message });
       }
 
-      const source = await credentialSource();
+      const source = await credentialSource({ environment });
       if (!source) return { ok: true, configured: false, source: null, callbackUrl };
 
-      const creds = await loadCredentials();
+      const creds = await loadCredentials({ environment });
       const data = (await ref.get()).data() ?? {};
       return {
         ok: true,
@@ -80,7 +85,7 @@ export default createHandler({
 
     // test — catches misconfiguration before the first parent's payment does.
     try {
-      const credentials = await loadCredentials();
+      const credentials = await loadCredentials({ environment });
       await getAccessToken(credentials);
       await ref.set({ verifiedAt: FieldValue.serverTimestamp(), lastTestError: null }, { merge: true });
       log.info('Daraja connection test succeeded', { environment: credentials.environment });

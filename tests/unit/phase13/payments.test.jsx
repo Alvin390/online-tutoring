@@ -124,6 +124,29 @@ describe('D2 student payment screen', () => {
     expect(screen.getByRole('status').textContent).toMatch(/Paid .*700/);
     vi.useRealTimers();
   });
+
+  // 013Fixes / 30b: the card's Demo (sandbox) — said before paying; success
+  // shown, but fees are untouched, so no "access restored" and no onPaid.
+  it('demo: says it does not pay fees, before and after; no onPaid', async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    vi.doMock('@services/api/payments', () => ({
+      initiatePayment: vi.fn().mockResolvedValue({ checkoutRequestId: 'demo1', environment: 'sandbox', demo: true, customerMessage: 'Check your phone' }),
+      getPaymentStatus: vi.fn().mockResolvedValue({ status: 'success', demo: true, amount: 700, receivedAmount: 700, balanceAfter: 700, mpesaReceipt: 'SBX0000001' }),
+    }));
+    const { default: PayNowPanel } = await import('@/features/payments/components/PayNowPanel.jsx');
+    const onPaid = vi.fn();
+    render(<PayNowPanel session="morning" phone="+254711000001" balance={700} onPaid={onPaid} demo />);
+    expect(screen.getByTestId('pay-now-demo').textContent).toMatch(/doesn't pay your fees/);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Pay/ })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+    const status = screen.getByRole('status').textContent;
+    expect(status).toMatch(/Demo payment received/);
+    expect(status).toMatch(/doesn't pay your fees/);
+    expect(status).not.toMatch(/access has been restored/);
+    expect(onPaid).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -189,13 +212,13 @@ describe('D5 block modal default (B12)', () => {
 // only when the server says M-Pesa is available (flag + Gold + credentials);
 // otherwise only the manual receipt route remains.
 describe('blocked student: Pay now only when the server offers M-Pesa', () => {
-  async function renderBlocked({ mpesa }) {
+  async function renderBlocked({ mpesa, demo = false }) {
     vi.resetModules();
     vi.doMock('@services/api/public', () => ({
-      getPublicBootstrap: vi.fn().mockResolvedValue({ flags: {}, sessions: [], payments: { mpesa } }),
+      getPublicBootstrap: vi.fn().mockResolvedValue({ flags: {}, sessions: [], payments: { mpesa, demo } }),
     }));
     vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (k) => k === 'fees.enabled' || k === 'payments.daraja' }));
-    vi.doMock('@features/payments/components/PayNowPanel', () => ({ default: () => <div data-testid="pay-now">Pay now</div> }));
+    vi.doMock('@features/payments/components/PayNowPanel', () => ({ default: ({ demo: d }) => <div data-testid="pay-now" data-demo={String(d)}>Pay now</div> }));
     const { default: BlockedStudentScreen } = await import('@/features/registration/components/BlockedStudentScreen.jsx');
     const student = { studentName: 'Amina', parentPhone: '+254711000009', blocked: true, feeBalance: 1500, receiptStatus: 'approved' };
     render(<BlockedStudentScreen session="morning" studentData={student} phoneNumber="+254711000009" onSubmitReceipt={vi.fn()} onBack={vi.fn()} />);
@@ -207,6 +230,11 @@ describe('blocked student: Pay now only when the server offers M-Pesa', () => {
     await renderBlocked({ mpesa: true });
     expect(await screen.findByTestId('pay-now')).toBeTruthy();
     expect(screen.getByPlaceholderText(/Please Paste Entire M-PESA receipt message here/)).toBeTruthy();
+  });
+
+  it('Demo (013Fixes / 30b): Pay now is shown, and told it is the demo', async () => {
+    await renderBlocked({ mpesa: true, demo: true });
+    expect((await screen.findByTestId('pay-now')).dataset.demo).toBe('true');
   });
 
   it('switched off, or not online yet (server says no): no Pay now; the receipt box stays', async () => {

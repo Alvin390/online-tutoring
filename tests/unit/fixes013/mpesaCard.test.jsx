@@ -3,9 +3,10 @@ import { render, screen, fireEvent, act, cleanup } from '@testing-library/react'
 import MpesaCard from '@/features/admin/components/MpesaCard';
 
 /**
- * 013Fixes / 30 — the superadmin's M-Pesa (STK) card: the switch, the keys
- * (only the last 4 characters shown; the form up front in live mode when none
- * are set), the KES 1 test and its result, Gold and the flag as notes.
+ * 013Fixes / 30b — the superadmin's M-Pesa (STK) card: one setting with three
+ * positions (Off / Demo / Live; owner, 2026-11-25), the live keys (only the
+ * last 4 characters shown; the form up front on Live when none are set), the
+ * KES 1 test (Live only) and its result, Gold and the flag as notes.
  */
 
 const api = vi.hoisted(() => ({}));
@@ -13,74 +14,89 @@ vi.mock('@services/api/adminDaraja', () => ({
   getMpesaSetup: (...a) => api.getMpesaSetup(...a),
   saveMpesaKeys: (...a) => api.saveMpesaKeys(...a),
   clearMpesaKeys: (...a) => api.clearMpesaKeys(...a),
-  setMpesaEnabled: (...a) => api.setMpesaEnabled(...a),
+  setMpesaMode: (...a) => api.setMpesaMode(...a),
   sendMpesaTest: (...a) => api.sendMpesaTest(...a),
   checkMpesaTest: (...a) => api.checkMpesaTest(...a),
 }));
 
 const base = (over = {}) => ({
-  mode: 'dev', source: 'env', ready: { flag: true, gold: true },
+  sources: { sandbox: 'env', live: 'env' }, ready: { flag: true, gold: true },
   keys: { saved: false, shortCodeType: null, last4: null, savedAt: null },
-  mpesa: { enabled: false, online: false, testPending: false, testedAt: null, testPhoneMasked: null, lastError: null },
+  mpesa: { mode: 'off', liveTested: false, testPending: false, testedAt: null, testPhoneMasked: null, lastError: null },
   ...over,
 });
 const withMpesa = (m, over = {}) => base({ ...over, mpesa: { ...base().mpesa, ...m } });
 
 beforeEach(() => {
   api.getMpesaSetup = vi.fn().mockResolvedValue(base());
-  api.setMpesaEnabled = vi.fn(async (enabled) => withMpesa({ enabled }));
+  api.setMpesaMode = vi.fn(async (mode) => withMpesa({ mode }));
   api.saveMpesaKeys = vi.fn();
   api.clearMpesaKeys = vi.fn();
-  api.sendMpesaTest = vi.fn(async () => withMpesa({ enabled: true, testPending: true }));
-  api.checkMpesaTest = vi.fn(async () => withMpesa({ enabled: true, online: true, testedAt: Date.parse('2026-11-26T07:00:00Z'), testPhoneMasked: '+2547••••0123' }));
+  api.sendMpesaTest = vi.fn(async () => withMpesa({ mode: 'live', testPending: true }));
+  api.checkMpesaTest = vi.fn(async () => withMpesa({ mode: 'live', liveTested: true, testedAt: Date.parse('2026-11-26T07:00:00Z'), testPhoneMasked: '+2547••••0123' }));
 });
 afterEach(() => cleanup());
 
 const flush = () => act(async () => {});
 const click = async (name) => { await act(async () => { fireEvent.click(screen.getByRole('button', { name })); }); };
+const pick = async (name) => { await act(async () => { fireEvent.click(screen.getByRole('radio', { name })); }); };
+const badge = () => screen.getByTestId('mpesa-badge').textContent;
 
 describe('the M-Pesa card', () => {
-  it('off: says so, and the switch turns it on (not yet online)', async () => {
+  it('Off → Demo → Live: one setting, the badge follows; Live starts untested', async () => {
     render(<MpesaCard />);
     await flush();
-    expect(screen.getByTestId('mpesa-badge').textContent).toBe('Off');
+    expect(badge()).toBe('Off');
+    expect(screen.getByRole('radio', { name: 'Off' }).getAttribute('aria-checked')).toBe('true');
+    await pick('Demo');
+    expect(api.setMpesaMode).toHaveBeenCalledWith('demo');
+    expect(badge()).toBe('Demo');
+    expect(screen.getByTestId('mpesa-mode-help').textContent).toMatch(/sandbox.*doesn.t pay fees/);
+    // Demo has no KES 1 test: that is for the live keys.
     expect(screen.queryByRole('button', { name: /Send test payment/ })).toBeNull();
-    await act(async () => { fireEvent.click(screen.getByRole('switch')); });
-    // Sandbox mode (the default here): the second, explicit step (013Fixes / 32).
-    await click('Switch on in sandbox');
-    expect(api.setMpesaEnabled).toHaveBeenCalledWith(true);
-    expect(screen.getByTestId('mpesa-badge').textContent).toBe('Not tested');
+    await pick('Live');
+    expect(api.setMpesaMode).toHaveBeenLastCalledWith('live');
+    expect(badge()).toBe('Live — untested');
   });
 
-  it('the test: KES 1 to the phone typed, then the result → Online, with when and the masked phone', async () => {
-    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ enabled: true }));
+  it('no sandbox-money warning any more (Demo never touches fees)', async () => {
+    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ mode: 'demo' }));
+    render(<MpesaCard />);
+    await flush();
+    expect(screen.queryByTestId('mpesa-sandbox-warning')).toBeNull();
+    expect(screen.queryByTestId('mpesa-sandbox-confirm')).toBeNull();
+  });
+
+  it('the test (Live): KES 1 to the phone typed, then the result → Live — tested, with when and the masked phone', async () => {
+    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ mode: 'live' }));
     render(<MpesaCard />);
     await flush();
     fireEvent.change(screen.getByLabelText('Phone for the test'), { target: { value: '0700000123' } });
     await click('Send test payment (KES 1)');
     expect(api.sendMpesaTest).toHaveBeenCalledWith('0700000123');
-    expect(screen.getByTestId('mpesa-badge').textContent).toBe('Testing…');
+    expect(badge()).toBe('Live — testing…');
     await click('Check result');
-    expect(screen.getByTestId('mpesa-badge').textContent).toBe('Online');
-    expect(screen.getByTestId('mpesa-ready').textContent).toMatch(/Confirmed by M-Pesa on .*\(\+2547••••0123\)/);
+    expect(badge()).toBe('Live — tested');
+    expect(screen.getByTestId('mpesa-ready').textContent).toMatch(/confirmed by M-Pesa on .*\(\+2547••••0123\)/);
   });
 
   it('a failed test shows M-Pesa\'s reason', async () => {
-    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ enabled: true, lastError: 'You cancelled the payment request.' }));
+    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ mode: 'live', lastError: 'You cancelled the payment request.' }));
     render(<MpesaCard />);
     await flush();
     expect(screen.getByTestId('mpesa-last-error').textContent).toBe('Last test: You cancelled the payment request.');
   });
 
-  it('live, on, no keys: the form is up front; saving sends every field; only the last 4 come back', async () => {
-    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ enabled: true }, { mode: 'live', source: null }));
-    api.saveMpesaKeys.mockResolvedValueOnce(withMpesa({ enabled: true }, {
-      mode: 'live', source: 'stored',
+  it('Live, no live keys: the form is up front; saving sends every field; only the last 4 come back; untested', async () => {
+    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ mode: 'live' }, { sources: { sandbox: 'env', live: null } }));
+    api.saveMpesaKeys.mockResolvedValueOnce(withMpesa({ mode: 'live' }, {
+      sources: { sandbox: 'env', live: 'stored' },
       keys: { saved: true, shortCodeType: 'till', last4: { consumerKey: '1111', consumerSecret: '2222', passkey: '3333', shortCode: '0999' }, savedAt: Date.now() },
     }));
     render(<MpesaCard />);
     await flush();
     expect(screen.getByTestId('mpesa-form')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Send test payment/ })).toBeNull();
     expect(screen.getByLabelText('Consumer secret').type).toBe('password');
     for (const [label, value] of [['Consumer key', 'CK-placeholder-1111'], ['Consumer secret', 'CS-placeholder-2222'], ['Passkey', 'PK-placeholder-3333'], ['Till or paybill number', '600999']]) {
       fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -89,11 +105,12 @@ describe('the M-Pesa card', () => {
     expect(api.saveMpesaKeys).toHaveBeenCalledWith({ consumerKey: 'CK-placeholder-1111', consumerSecret: 'CS-placeholder-2222', passkey: 'PK-placeholder-3333', shortCode: '600999', shortCodeType: 'till' });
     expect(screen.getByTestId('mpesa-keys').textContent).toMatch(/Till ••••0999, consumer key ••••1111, secret ••••2222, passkey ••••3333/);
     expect(screen.queryByTestId('mpesa-form')).toBeNull();
+    expect(badge()).toBe('Live — untested');
+    expect(screen.getByRole('button', { name: 'Send test payment (KES 1)' })).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/placeholder-/);
   });
 
   it('a till/paybill number that isn\'t digits: Save stays off', async () => {
-    api.getMpesaSetup.mockResolvedValueOnce(base());
     render(<MpesaCard />);
     await flush();
     await click('Enter keys');
@@ -103,35 +120,13 @@ describe('the M-Pesa card', () => {
     expect(screen.getByRole('button', { name: 'Save keys' }).disabled).toBe(true);
   });
 
-  it('Gold only and the flag, as notes', async () => {
-    api.getMpesaSetup.mockResolvedValueOnce(base({ ready: { flag: false, gold: false } }));
+  it('Gold only, the flag, and Demo without sandbox keys, as notes', async () => {
+    api.getMpesaSetup.mockResolvedValueOnce(withMpesa({ mode: 'demo' }, { ready: { flag: false, gold: false }, sources: { sandbox: null, live: null } }));
     render(<MpesaCard />);
     await flush();
-    expect(screen.getByTestId('mpesa-ready').textContent).toMatch(/Gold only/);
-    expect(screen.getByTestId('mpesa-ready').textContent).toMatch(/payments\.daraja feature flag is off/);
-  });
-});
-
-// 013Fixes / 32 (release review): in sandbox mode, payments are not real money.
-describe('sandbox mode', () => {
-  it('says so in red, and switching on needs a second, explicit step', async () => {
-    api.getMpesaSetup.mockResolvedValueOnce(base({ mode: 'dev' }));
-    render(<MpesaCard />);
-    await flush();
-    expect(screen.getByTestId('mpesa-sandbox-warning').textContent).toMatch(/not real money/);
-    await act(async () => { fireEvent.click(screen.getByRole('switch')); });
-    expect(api.setMpesaEnabled).not.toHaveBeenCalled();
-    expect(screen.getByTestId('mpesa-sandbox-confirm').textContent).toMatch(/students .*unblocked/i);
-    await click('Switch on in sandbox');
-    expect(api.setMpesaEnabled).toHaveBeenCalledWith(true);
-  });
-
-  it('live mode: no warning, the switch acts at once', async () => {
-    api.getMpesaSetup.mockResolvedValueOnce(base({ mode: 'live', source: 'stored' }));
-    render(<MpesaCard />);
-    await flush();
-    expect(screen.queryByTestId('mpesa-sandbox-warning')).toBeNull();
-    await act(async () => { fireEvent.click(screen.getByRole('switch')); });
-    expect(api.setMpesaEnabled).toHaveBeenCalledWith(true);
+    const notes = screen.getByTestId('mpesa-ready').textContent;
+    expect(notes).toMatch(/Gold only/);
+    expect(notes).toMatch(/payments\.daraja feature flag is off/);
+    expect(notes).toMatch(/No sandbox keys/);
   });
 });
