@@ -3,7 +3,7 @@ import { getDb } from '../_lib/firebaseAdmin.js';
 import { z } from '../_lib/validate.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { ApiError } from '../_lib/errors.js';
-import { paystackMode, paystackModeSource } from '../_lib/mode.js';
+import { paystackMode, paystackModeSource, smsMode, smsModeSource } from '../_lib/mode.js';
 import { hasLivePaystackKeys } from '../_lib/paystack.js';
 import { refreshRuntimeModes, writeRuntimeModes } from '../_lib/runtimeModes.js';
 import { invalidateBootstrap } from '../_lib/publicBootstrap.js';
@@ -15,6 +15,7 @@ import { invalidateBootstrap } from '../_lib/publicBootstrap.js';
  *   setPayments  Paystack 'live' | 'test' (M-Pesa STK has its own setting).
  *                To live: only with live keys configured. To test while the
  *                school is in a PAID period: only with confirm "TEST".
+ *   setSms       'real' | 'fake' (33b): fake sends nothing and uses no units.
  *
  * Every change is audited and takes effect at once on this isolate, within
  * 30 s elsewhere (config/mode is read once per isolate per 30 s), and within
@@ -28,6 +29,7 @@ const schema = z.discriminatedUnion('action', [
     mode: z.enum(['live', 'test']),
     confirm: z.string().max(10).optional(),
   }).strict(),
+  z.object({ action: z.literal('setSms'), mode: z.enum(['real', 'fake']) }).strict(),
 ]);
 
 /** In a period the school paid for (not a gift or a trial), and not over. */
@@ -46,6 +48,7 @@ async function view(db) {
       source: paystackModeSource(),
       liveKeys: hasLivePaystackKeys(),
     },
+    sms: { mode: smsMode(), source: smsModeSource() },
     paidPeriod: await inPaidPeriod(db),
   };
 }
@@ -61,6 +64,21 @@ export default createHandler({
     await refreshRuntimeModes(db, { force: true });
     if (body.action === 'status') return view(db);
 
+    const changed = async (patch, action, before, after) => {
+      await writeRuntimeModes(db, patch);
+      invalidateBootstrap();
+      waitUntil(tryWriteAudit({
+        action, actor: user.uid, actorRole: user.role, target: 'config/mode',
+        before, after, context: { requestId: log.requestId },
+      }, log));
+      log.info('Mode changed', { action, ...after });
+      return { ok: true, ...(await view(db)) };
+    };
+
+    if (body.action === 'setSms') {
+      return changed({ sms: body.mode }, 'mode.sms_changed', { mode: smsMode() }, { mode: body.mode });
+    }
+
     const before = paystackMode() === 'live' ? 'live' : 'test';
     if (body.mode === 'live' && !hasLivePaystackKeys()) {
       throw new ApiError(409, 'no_live_keys', 'There are no live Paystack keys in the server settings yet.');
@@ -68,13 +86,6 @@ export default createHandler({
     if (body.mode === 'test' && before === 'live' && body.confirm !== 'TEST' && (await inPaidPeriod(db))) {
       throw new ApiError(409, 'confirm_required', 'The school is in a paid period. Type TEST to switch payments to test.');
     }
-    await writeRuntimeModes(db, { payments: body.mode });
-    invalidateBootstrap();
-    waitUntil(tryWriteAudit({
-      action: 'mode.payments_changed', actor: user.uid, actorRole: user.role, target: 'config/mode',
-      before: { mode: before }, after: { mode: body.mode }, context: { requestId: log.requestId },
-    }, log));
-    log.info('Payments mode', { mode: body.mode });
-    return { ok: true, ...(await view(db)) };
+    return changed({ payments: body.mode }, 'mode.payments_changed', { mode: before }, { mode: body.mode });
   },
 });

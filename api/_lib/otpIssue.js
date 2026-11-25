@@ -2,7 +2,7 @@ import { FieldValue } from './firebaseAdmin.js';
 import { randomNumericCode, sha256, encrypt, decrypt } from './crypto.js';
 import { ApiError, tooManyRequests } from './errors.js';
 import { tryWriteAudit, AuditAction } from './audit.js';
-import { sendSms, smsAvailable, recordSmsBalance } from './sms.js';
+import { sendSms, smsAvailable, smsFake, recordSmsBalance } from './sms.js';
 
 /**
  * Issuing a one-time code — shared by POST /api/student/requestCode and
@@ -90,7 +90,9 @@ export async function issueCode({ otpRef, otpSnap, session, phone, purpose = nul
 
   // Delivery. A failure never loses the code: the teacher can read it.
   let deliveryChannel = 'teacher';
-  if (smsAvailable()) {
+  // 013Fixes / 33b: on fake SMS a real student would wait for a code that
+  // never comes — the teacher reads it out, as when SMS is unavailable.
+  if (smsAvailable() && !smsFake()) {
     try {
       const sent = await sendSms({ to: phone, message: codeMessage(code) });
       deliveryChannel = 'sms';

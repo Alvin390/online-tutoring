@@ -40,7 +40,7 @@ describe('GET /api/public/bootstrap', () => {
     expect(res.status).toBe(200);
     expect(Object.keys(res.body).sort()).toEqual(['flags', 'modes', 'payments', 'sessions']);
     // 013Fixes / 33: only what the banners need (PAYSTACK_MODE=test here).
-    expect(res.body.modes).toEqual({ paymentsTest: true });
+    expect(res.body.modes).toEqual({ paymentsTest: true, smsFake: false });
     expect(res.body.payments).toEqual({ mpesa: false, demo: false }); // flag off in this suite
     expect(res.body.flags['fees.enabled']).toBe(true);
     expect(res.body.sessions.map((s) => s.slug)).toEqual(['morning', 'evening']);

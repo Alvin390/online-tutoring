@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getModes, setPaymentsMode } from '@services/api/adminModes';
+import { getModes, setPaymentsMode, setSmsMode } from '@services/api/adminModes';
 
 /**
  * Superadmin → Settings → Modes — 013Fixes / 33 (owner answer 4).
@@ -8,6 +8,9 @@ import { getModes, setPaymentsMode } from '@services/api/adminModes';
  * Live setting (the card below). With nothing chosen here, the server's
  * PAYSTACK_MODE decides. To live: only with live keys. To test while the
  * school is in a paid period: type TEST first.
+ *
+ * SMS (33b): real or fake. Fake sends nothing and uses no SMS units; check-in
+ * codes are then read out by the teacher, and the teacher's test SMS waits.
  */
 
 const SOURCE = { setting: 'chosen here', env: 'from the server settings' };
@@ -54,6 +57,8 @@ export default function ModesCard() {
     const res = await run(() => setPaymentsMode(mode), `Payments are now ${mode}. ${applied}`);
     if (res) { setConfirming(false); setTyped(''); }
   };
+  const s = data.sms;
+  const chooseSms = (mode) => mode !== s.mode && run(() => setSmsMode(mode), `SMS are now ${mode}. ${applied}`);
   const confirmTest = async () => {
     const res = await run(() => setPaymentsMode('test', typed.trim()), `Payments are now test. ${applied}`);
     if (res) { setConfirming(false); setTyped(''); }
@@ -85,6 +90,24 @@ export default function ModesCard() {
           {!p.liveKeys && ' No live Paystack keys in the server settings yet.'}
         </p>
         <p className="small text-muted mb-0">M-Pesa &ldquo;Pay now&rdquo; for students has its own setting (M-Pesa payments, below).</p>
+
+        <h3 className="h6 mt-4">SMS{' '}
+          <span className={`badge text-bg-${s.mode === 'real' ? 'success' : 'warning'}`} data-testid="sms-badge">{s.mode === 'real' ? 'Real' : 'Fake'}</span>
+        </h3>
+        <div className="btn-group mb-2" role="radiogroup" aria-label="SMS mode">
+          {['real', 'fake'].map((m) => (
+            <button key={m} type="button" role="radio" aria-checked={s.mode === m} disabled={busy}
+              className={`btn btn-sm ${s.mode === m ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => chooseSms(m)}>
+              {m === 'real' ? 'Real' : 'Fake'}
+            </button>
+          ))}
+        </div>
+        <p className="small text-muted mb-0" data-testid="sms-help">
+          {s.mode === 'real'
+            ? 'Messages go out through HashBack and use SMS units.'
+            : 'Nothing is sent and no SMS units are used; messages are recorded as fake. Check-in codes are read out by the teacher. Teachers see a banner saying so.'}
+          {' '}Currently {SOURCE[s.source] ?? s.source}.
+        </p>
 
         {confirming && (
           <div className="border rounded p-3 mt-3 bg-light" data-testid="payments-confirm">

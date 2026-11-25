@@ -158,7 +158,7 @@ describe('a webhook for the other mode is refused', () => {
 
 describe('the bootstrap tells the screens', () => {
   it('payments on test: paymentsTest true; on live: false', async () => {
-    expect((await bootstrap()).modes).toMatchObject({ paymentsTest: true });
+    expect((await bootstrap()).modes).toMatchObject({ paymentsTest: true, smsFake: false });
     await modes({ action: 'setPayments', mode: 'live' });
     expect((await bootstrap()).modes).toMatchObject({ paymentsTest: false });
   });

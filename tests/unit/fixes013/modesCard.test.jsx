@@ -13,14 +13,16 @@ const api = vi.hoisted(() => ({}));
 vi.mock('@services/api/adminModes', () => ({
   getModes: (...a) => api.getModes(...a),
   setPaymentsMode: (...a) => api.setPaymentsMode(...a),
+  setSmsMode: (...a) => api.setSmsMode(...a),
 }));
 
-const view = (payments = {}, over = {}) => ({ payments: { mode: 'test', source: 'env', liveKeys: true, ...payments }, paidPeriod: false, ...over });
+const view = (payments = {}, over = {}) => ({ payments: { mode: 'test', source: 'env', liveKeys: true, ...payments }, sms: { mode: 'real', source: 'env' }, paidPeriod: false, ...over });
 const confirmErr = () => Object.assign(new Error('The school is in a paid period. Type TEST to switch payments to test.'), { code: 'confirm_required' });
 
 beforeEach(() => {
   api.getModes = vi.fn().mockResolvedValue(view());
   api.setPaymentsMode = vi.fn(async (mode) => view({ mode, source: 'setting' }));
+  api.setSmsMode = vi.fn(async (mode) => view({}, { sms: { mode, source: 'setting' } }));
   modesStore.__reset();
 });
 afterEach(() => cleanup());
@@ -71,6 +73,13 @@ describe('the Modes card: payments', () => {
 });
 
 describe('the teachers\' banners', () => {
+  it('fake SMS: says they are not being sent', () => {
+    render(<ModeBanners />);
+    act(() => modesStore.setFromRemote({ paymentsTest: false, smsFake: true }));
+    expect(screen.getByTestId('mode-banner-sms').textContent).toMatch(/SMS are not being sent/);
+    expect(screen.queryByTestId('mode-banner-payments')).toBeNull();
+  });
+
   it('nothing on a normal school (or before the bootstrap arrives)', () => {
     render(<ModeBanners />);
     expect(screen.queryByTestId('mode-banners')).toBeNull();
@@ -82,5 +91,17 @@ describe('the teachers\' banners', () => {
     render(<ModeBanners />);
     act(() => modesStore.setFromRemote({ paymentsTest: true }));
     expect(screen.getByTestId('mode-banner-payments').textContent).toMatch(/Test payments: no real money/);
+  });
+});
+
+describe('the Modes card: SMS', () => {
+  it('Real by default; Fake switches and says what it means', async () => {
+    render(<ModesCard />);
+    await flush();
+    expect(screen.getByTestId('sms-badge').textContent).toBe('Real');
+    await pick('Fake');
+    expect(api.setSmsMode).toHaveBeenCalledWith('fake');
+    expect(screen.getByTestId('sms-badge').textContent).toBe('Fake');
+    expect(screen.getByTestId('sms-help').textContent).toMatch(/no SMS units are used.*read out by the teacher/);
   });
 });

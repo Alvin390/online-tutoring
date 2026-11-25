@@ -43,6 +43,24 @@ export function paystackModeSource() {
   return paystackSetting() ? 'setting' : 'env';
 }
 
+/**
+ * 013Fixes / 33b: SMS 'real' or 'fake' — the superadmin's switch
+ * (config/mode.sms), then SMS_MODE, then real (today's behaviour). Fake sends
+ * nothing to the provider and uses no SMS units.
+ */
+function smsSetting() {
+  const v = runtimeModes().sms;
+  return v === 'real' || v === 'fake' ? v : null;
+}
+
+export function smsMode() {
+  return smsSetting() ?? (normalise(process.env.SMS_MODE) === 'fake' ? 'fake' : 'real');
+}
+
+export function smsModeSource() {
+  return smsSetting() ? 'setting' : 'env';
+}
+
 export function darajaMode() {
   return normalise(process.env.DARAJA_MODE) === 'live' ? 'live' : 'dev';
 }

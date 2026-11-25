@@ -13,7 +13,7 @@ import {
 } from '../_lib/smsCampaign.js';
 import { lastKnownBalance, SMS_RESERVE_KES, recordSmsBalance, recordSmsUsage } from '../_lib/smsCredit.js';
 import { SMS_MAX_CHARS, SMS_RATE_KES, unsupportedChars, normalizeSmsText } from '../_lib/smsText.js';
-import { sendSms, SmsError, smsAvailable } from '../_lib/sms.js';
+import { sendSms, SmsError, smsAvailable, smsFake } from '../_lib/sms.js';
 
 /**
  * SMS to parents (and staff) through HashBack — 008Fixes / 07.
@@ -159,6 +159,8 @@ export default createHandler({
     }
 
     if (body.action === 'sendTest') {
+      // 013Fixes / 33b: a fake test would unlock real sending without proof.
+      if (smsFake()) throw new ApiError(409, 'sms_fake', 'SMS are switched to fake by the owner, so a test SMS cannot be sent now.');
       if (!smsAvailable()) throw new ApiError(503, 'sms_unavailable', 'SMS is not available right now. Ask the owner to check the SMS setup.');
       const setup = await readSetup();
       const message = `Test from ${setup.schoolName || 'your school'}: SMS is working.`;
@@ -224,15 +226,20 @@ export default createHandler({
           recipients: prepared.messages.length,
           units: prepared.units,
           unitsLeft: credits.available,
-          enoughUnits: credits.available >= prepared.units,
+          enoughUnits: smsFake() || credits.available >= prepared.units,
+          // 013Fixes / 33b: the screen can say these won't really be sent.
+          fake: smsFake(),
           longest: prepared.longest,
           maxChars: SMS_MAX_CHARS,
           enoughCredit: balance == null ? null : balance - prepared.cost >= SMS_RESERVE_KES,
           sample: prepared.messages.slice(0, 3).map((m) => ({ studentName: m.studentName ?? null, text: m.text, units: m.units })),
         };
       }
-      if (credits.available < prepared.units) throw unitsExhausted();
-      await assertAboveReserve(db, prepared.cost, log);
+      // 013Fixes / 33b: fake SMS use no units and no wallet.
+      if (!smsFake()) {
+        if (credits.available < prepared.units) throw unitsExhausted();
+        await assertAboveReserve(db, prepared.cost, log);
+      }
       const ref = await createCampaign({
         db, user, kind: 'campaign', template: body.template, filter: body.filter, title: body.title, schoolName, prepared,
       });
@@ -269,8 +276,10 @@ export default createHandler({
       };
       const prepared = prepareMessages(body.template, [person], await schoolNameOf(db));
       // 013Fixes / 15: one message is charged like any other (in sendChunk); refuse early when short.
-      if ((await readCredits(db, await creditContext(db))).available < prepared.units) throw unitsExhausted();
-      await assertAboveReserve(db, prepared.cost, log);
+      if (!smsFake()) {
+        if ((await readCredits(db, await creditContext(db))).available < prepared.units) throw unitsExhausted();
+        await assertAboveReserve(db, prepared.cost, log);
+      }
       const ref = await createCampaign({ db, user, kind: 'one', template: body.template, filter: null, schoolName: null, prepared });
       const result = await sendChunk({ db, user, campaignId: ref.id, log });
       waitUntil(tryWriteAudit({

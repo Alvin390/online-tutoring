@@ -1,6 +1,6 @@
 import { getDb } from './firebaseAdmin.js';
 import { getFlags } from './flags.js';
-import { paystackMode } from './mode.js';
+import { paystackMode, smsMode } from './mode.js';
 import { mpesaAvailability } from './mpesaAvailability.js';
 import { sessionClasses } from './sessions.js';
 import { resolveSubjectsByClass } from './subjects.js';
@@ -56,7 +56,7 @@ async function load() {
  * (and, from 34, the maintenance message). Read from the cached config/mode.
  */
 function publicModes() {
-  return { paymentsTest: paystackMode() !== 'live' };
+  return { paymentsTest: paystackMode() !== 'live', smsFake: smsMode() === 'fake' };
 }
 
 /** The cached payload, reloading it when older than TTL_MS. */
