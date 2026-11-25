@@ -241,13 +241,13 @@ export const useRegistration = (session) => {
       // The response carries the created record (the same projection as
       // check-in), so the caller routes on the real approval state without a
       // second request.
-      const { student, pass, held, next } = await registerStudentApi({ session, phone, ...formData });
+      const { student, pass, held, next, number } = await registerStudentApi({ session, phone, ...formData });
       // Registered either way; but if the student has left this flow, the
       // screens must not move on its account.
       if (flow !== flowRef.current) return STALE;
       keepPass(phone, pass);
-      // 008Fixes / 03: the number chosen on the form is this flow's number.
-      if (formData?.number) numberRef.current = formData.number;
+      // 014Fixes / 02: the number the school gave is this flow's number.
+      if (number?.display) numberRef.current = number.display;
       trackRegistration(session);
       // 003Fixes / 11: a registration held as a possible duplicate is received, not done.
       // 008Fixes / 03: with admission numbers, the phone is confirmed next.
@@ -256,7 +256,7 @@ export const useRegistration = (session) => {
       }
       setStudentData(student);
 
-      return { success: true, student, ...(next ? { next } : {}) };
+      return { success: true, student, ...(next ? { next } : {}), ...(number ? { number } : {}) };
     } catch (error) {
       if (flow !== flowRef.current) return STALE;
       if (quiet.includes(error.code)) return { success: false, error };

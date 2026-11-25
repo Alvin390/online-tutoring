@@ -21,10 +21,18 @@ import { DIFFERENT_NUMBER as COPY } from './numberCopy';
  *
  * `onMoved({ phone, ticket, next, numberKind })` with the new phone. A move
  * that stopped half-way (`partial`) is finished with its ticket first.
+ *
+ * 014Fixes / 06: registration uses the same screen with its own calls —
+ * `sendFor(newPhone)`, `checkFor(newPhone, code)` and `confirmText(newMasked)`
+ * (nothing to move yet: the code just confirms the phone being registered).
  */
 const MAX_RESUMES = 5;
 
-export default function DifferentNumber({ session, sessionName, oldPhone, onMoved, onBack }) {
+export default function DifferentNumber({
+  session, sessionName, oldPhone, onMoved, onBack, sendFor, checkFor, confirmText,
+}) {
+  const request = (newPhone) => (sendFor ? sendFor(newPhone) : fixNumberRequest(session, newPhone, { oldPhone }));
+  const check = (newPhone, code) => (checkFor ? checkFor(newPhone, code) : fixNumberConfirm(session, newPhone, { oldPhone }, { code }));
   const {
     selectedCountry, phoneNumber, isValid, handleCountryChange, handlePhoneChange, getFullPhoneNumber,
   } = usePhoneValidation();
@@ -59,7 +67,7 @@ export default function DifferentNumber({ session, sessionName, oldPhone, onMove
     const newPhone = asking;
     setSending(true);
     try {
-      const res = await fixNumberRequest(session, newPhone, { oldPhone });
+      const res = await request(newPhone);
       if (!mounted.current) return;
       setAsking(null);
       setSent({ phone: newPhone, deliveryChannel: res.deliveryChannel, retryAfterSeconds: res.retryAfterSeconds });
@@ -106,8 +114,8 @@ export default function DifferentNumber({ session, sessionName, oldPhone, onMove
         session={session}
         phone={sent.phone}
         sent={sent}
-        sendCode={() => fixNumberRequest(session, sent.phone, { oldPhone })}
-        checkCode={(code) => fixNumberConfirm(session, sent.phone, { oldPhone }, { code })}
+        sendCode={() => request(sent.phone)}
+        checkCode={(code) => check(sent.phone, code)}
         onVerified={moved}
         onBack={() => setSent(null)}
       />
@@ -143,7 +151,9 @@ export default function DifferentNumber({ session, sessionName, oldPhone, onMove
             </>
           )}
         >
-          <p className="mb-0"><Rich text={COPY.confirmBody(maskPhone(asking), maskPhone(oldPhone), sessionName)} /></p>
+          <p className="mb-0">
+            <Rich text={confirmText ? confirmText(maskPhone(asking)) : COPY.confirmBody(maskPhone(asking), maskPhone(oldPhone), sessionName)} />
+          </p>
         </Modal>
       )}
     </m.div>

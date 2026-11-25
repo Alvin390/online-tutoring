@@ -73,3 +73,8 @@ export const DIFFERENT_NUMBER = Object.freeze({
   back: 'Back',
   finishing: 'Moving your registration to the new number…',
 });
+
+/** Registering with a different phone (copy.md §5): nothing to move yet. */
+export const REGISTER_PHONE = Object.freeze({
+  confirmBody: (next, session) => `From now on, **${next}** will be your number for checking in to ${session} class, and for messages from your teacher.`,
+});

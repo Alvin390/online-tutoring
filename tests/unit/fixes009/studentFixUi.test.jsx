@@ -29,37 +29,15 @@ const probeCard = ({ submit, notice, initialPhone }) => (
 beforeEach(() => vi.resetModules());
 afterEach(() => { cleanup(); unmockSessionPage(); });
 
+// 014Fixes / 06: registering is form → code → saved with a GIVEN number →
+// the pop-up (tests/unit/fixes014/registerSteps.test.jsx walks it, with the
+// "nothing saved before the code" and "cannot register" cases).
 describe('code-first registration', () => {
-  it('form → code to that number → saved with the ticket → checked in with the chosen number', async () => {
-    const checkin = vi.fn().mockResolvedValueOnce({ exists: false, student: null }).mockResolvedValue({ exists: true, student: pending });
-    const { api, typed } = await renderSessionPage({
-      checkinCard: probeCard, flags: ON,
-      api: {
-        checkinStudent: checkin,
-        verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.reg', next: 'register' }),
-        registerStudentApi: vi.fn().mockResolvedValue({ ok: true, next: 'checkin', student: pending }),
-      },
-    });
-    await click('Check in');
-    typed.regNumber = '5820';
-    await click('Register');
-    expect(api.registerStudentApi).not.toHaveBeenCalled(); // nothing saved before the code
-    expect(await screen.findByTestId('code-step')).toBeTruthy();
-    expect(api.requestCode).toHaveBeenCalledWith('evening', PHONE, 'register');
-    await type('Code', '123456');
-    await click('Confirm');
-    expect(api.verifyCode).toHaveBeenCalledWith('evening', PHONE, '123456', 'register');
-    await waitFor(() => expect(api.registerStudentApi).toHaveBeenCalledTimes(1));
-    expect(api.registerStudentApi.mock.calls[0][0]).toMatchObject({ number: '5820', ticket: 'v1.reg' });
-    expect(await screen.findByTestId('pending')).toBeTruthy();
-    expect(checkin.mock.calls.at(-1)[3]).toBe('5820');
-  });
-
   it('a save refused after the code: back to the form (still there), and a retry needs no new code', async () => {
     const register = vi.fn()
-      .mockRejectedValueOnce(refusal('number_taken', 'That admission number is taken. Choose another.'))
-      .mockResolvedValue({ ok: true, next: 'checkin', student: pending });
-    const { api, typed } = await renderSessionPage({
+      .mockRejectedValueOnce(refusal('invalid_class', 'Please choose a class from the list.', 400))
+      .mockResolvedValue({ ok: true, next: 'checkin', student: pending, number: { kind: 'student', digits: '7319', display: '7319' } });
+    const { api } = await renderSessionPage({
       checkinCard: probeCard, flags: ON,
       api: {
         checkinStudent: vi.fn().mockResolvedValueOnce({ exists: false, student: null }).mockResolvedValue({ exists: true, student: pending }),
@@ -68,29 +46,18 @@ describe('code-first registration', () => {
       },
     });
     await click('Check in');
-    typed.regNumber = '5820';
     await click('Register');
+    // The code step is a lazy chunk; this test is the first to load it.
+    await screen.findByTestId('confirm-step', {}, { timeout: 5000 });
+    await click('Send code');
     await type('Code', '123456');
     await click('Confirm');
     await waitFor(() => expect(screen.getByTestId('register').closest('[hidden]')).toBeNull());
-    typed.regNumber = '7419';
     await click('Register');
     await waitFor(() => expect(register).toHaveBeenCalledTimes(2));
-    expect(register.mock.calls[1][0]).toMatchObject({ number: '7419', ticket: 'v1.reg' });
+    expect(register.mock.calls[1][0]).toMatchObject({ ticket: 'v1.reg' });
+    expect(register.mock.calls[1][0].number).toBeUndefined();
     expect(api.requestCode).toHaveBeenCalledTimes(1);
-  });
-
-  it('a number that cannot register (already registered): back to the card with the reason', async () => {
-    await renderSessionPage({
-      checkinCard: probeCard, flags: ON,
-      api: {
-        checkinStudent: vi.fn().mockResolvedValue({ exists: false, student: null }),
-        requestCode: vi.fn().mockRejectedValue(refusal('already_registered', 'That number is already registered for this class. Check in instead.')),
-      },
-    });
-    await click('Check in');
-    await click('Register');
-    expect((await screen.findByTestId('notice')).textContent).toBe('That number is already registered for this class. Check in instead.');
   });
 });
 

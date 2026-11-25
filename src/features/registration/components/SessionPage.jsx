@@ -27,15 +27,15 @@ const RegistrationForm = lazy(loadRegistrationForm);
 // different number" (009Fixes) — loaded only when a student reaches them.
 // (014Fixes / 04: the check-in first-time steps moved to ./numbers.)
 const loadAdmissionSteps = () => import('./AdmissionSteps');
-// 009Fixes / 01 and 03: the code before registering, and "registered before
-// with a different number" — the same lazy chunk.
-const RegisterCodeStep = lazy(() => loadAdmissionSteps().then((mod) => ({ default: mod.RegisterCodeStep })));
+// 009Fixes / 03: "registered before with a different number" (014Fixes / 08 removes it).
 const FixNumberByName = lazy(() => loadAdmissionSteps().then((mod) => ({ default: mod.FixNumberByName })));
 // 014Fixes: the admission-number steps (type your number; confirm the phone;
 // the number given) — one lazy chunk, prefetched when a phone is submitted.
 const loadNumberSteps = () => import('./numbers');
 const NumberStep = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.NumberStep })));
 const FirstTimeFlow = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.FirstTimeFlow })));
+const RegisterCode = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.RegisterCode })));
+const NumberPopup = lazy(() => loadNumberSteps().then((mod) => ({ default: mod.NumberPopup })));
 /** 014Fixes / 03: refusals of a typed admission number, shown on the number step. */
 const NUMBER_REFUSALS = Object.freeze(['number_mismatch', 'other_device', 'duplicate_records', 'invalid_number']);
 const stepFallback = (
@@ -87,16 +87,15 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const numbersFlag = useFlag('checkin.admissionNumbers');
   const [numbersSeen, setNumbersSeen] = useState(false);
   const numbers = numbersFlag || numbersSeen;
-  // 009Fixes: code-first registration and the one-time number fix.
-  const fixFlag = useFlag('student.fixNumber');
-  // 010Fixes / 01: the server asked for the code first though this page's
-  // switches said otherwise (they were a few minutes old): code-first from now on.
-  const [codeFirstSeen, setCodeFirstSeen] = useState(false);
-  const fixOn = numbers && (fixFlag || codeFirstSeen);
-  // The form waiting for its code (kept, so a failed save keeps the typing),
-  // and the confirmed phone's ticket (valid 30 minutes: a retry needs no new code).
+  // 009Fixes / 01, 014Fixes / 06: with admission numbers on, registration is
+  // code first (one switch). The form waiting for its code (kept, so a failed
+  // save keeps the typing), and the confirmed phone's ticket with that phone
+  // (valid 30 minutes: a retry needs no new code; the phone may be one typed
+  // at the code step instead of the form's).
   const [pendingForm, setPendingForm] = useState(null);
-  const [regTicket, setRegTicket] = useState(null);
+  const [regTicket, setRegTicket] = useState(null); // { ticket, phone }
+  // 014Fixes / 06: the number the school gave on registering (the pop-up).
+  const [registered, setRegistered] = useState(null); // { display, kind, phone }
   // What the check-in card shows next time: a notice, the phone refilled.
   // `key` remounts the card so the refill takes.
   const [cardView, setCardView] = useState({ key: 0, notice: null, initialPhone: '' });
@@ -160,6 +159,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     setJoinTried(false);
     setPendingForm(null);
     setRegTicket(null);
+    setRegistered(null);
     setNumberRefusal(null);
     setCardView((v) => ({ key: v.key + 1, notice: null, initialPhone: '' }));
     setStep('checkin');
@@ -261,32 +261,29 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     routeTo(result.data);
   };
 
-  const handleRegistration = async (formData) => {
+  const handleRegistration = async (formData, confirmedPhone = null) => {
     // 009Fixes / 01: code-first — confirm the phone before anything is saved.
-    if (fixOn && !formData.ticket) {
+    if (numbers && !formData.ticket) {
       setPendingForm(formData);
-      if (regTicket) return handleRegistration({ ...formData, ticket: regTicket });
+      if (regTicket) return handleRegistration({ ...formData, ticket: regTicket.ticket }, regTicket.phone);
       setStep('registerCode');
       return undefined;
     }
-    addFlowBreadcrumb('action', { action: 'register', ...numberShape(phoneNumber) });
-    const result = settle(await register(phoneNumber, formData, { quiet: formData.ticket ? [] : ['refresh_needed', 'verify_first'] }));
+    // 014Fixes / 06: the phone confirmed at the code step (it may differ from the card's).
+    const regPhone = confirmedPhone ?? phoneNumber;
+    addFlowBreadcrumb('action', { action: 'register', ...numberShape(regPhone) });
+    const result = settle(await register(regPhone, formData, { quiet: formData.ticket ? [] : ['refresh_needed', 'verify_first'] }));
     const refusedFor = result?.error?.code;
     if (!result?.success && !formData.ticket && (refusedFor === 'refresh_needed' || refusedFor === 'verify_first')) {
       // 010Fixes / 01: this page's switches were out of date — the server
-      // wants an admission number and the code first. No "refresh": go on.
+      // wants the code first. No "refresh": go on to the code.
       setNumbersSeen(true);
-      setCodeFirstSeen(true);
-      if (formData.number) {
-        setPendingForm(formData);
-        setStep('registerCode');
-      } else {
-        setStep(GATE.REGISTER); // the form now asks for an admission number
-      }
+      setPendingForm(formData);
+      setStep('registerCode');
       return undefined;
     }
     if (!result?.success) {
-      if (fixOn) {
+      if (numbers) {
         // Back to the form, typing kept; a refused ticket asks for a new code.
         if (result?.error?.code === 'verify_first') setRegTicket(null);
         if (result) setStep(GATE.REGISTER);
@@ -295,13 +292,17 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     }
     setPendingForm(null);
     setRegTicket(null);
-    // 009Fixes / 01: saved already confirmed — check in with the chosen number.
-    if (result.next === 'checkin') {
-      await handleCheckin(phoneNumber, formData.number ?? '');
+    // 014Fixes / 06: saved and confirmed, with the number the school gave —
+    // the pop-up, then checked in with it (the waiting screen if approval is on).
+    if (result.number) {
+      setRegistered({ display: result.number.display, kind: result.number.kind ?? 'student', phone: regPhone });
+      setStep('registered');
       return undefined;
     }
-    // (014Fixes / 02: registration no longer answers next 'verify'; with
-    // admission numbers on it is always code-first.)
+    if (result.next === 'checkin') {
+      await handleCheckin(regPhone);
+      return undefined;
+    }
 
     // Route on the record that was actually written, not on an assumption.
     // With approval on, a new registration goes to the pending screen and the
@@ -512,7 +513,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
               {(step === GATE.REGISTER || step === 'registerCode') && (
                 <Suspense key="register" fallback={stepFallback}>
                   {/* 009Fixes / 03: registered before with a number that never worked. */}
-                  {fixOn && step === GATE.REGISTER && (
+                  {numbers && step === GATE.REGISTER && (
                     <p className="text-center small mb-3">
                       <button type="button" className="btn btn-link text-white p-0" onClick={() => setStep('fixByName')}>
                         Registered before with a different phone number? Find your registration
@@ -533,14 +534,31 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                     />
                   </div>
                   {step === 'registerCode' && (
-                    <RegisterCodeStep
+                    <RegisterCode
                       session={session}
+                      sessionName={label}
                       phone={phoneNumber}
-                      onVerified={(ticket) => { setRegTicket(ticket); handled('register', handleRegistration)({ ...pendingForm, ticket }); }}
+                      onVerified={(ticket, confirmed) => {
+                        setRegTicket({ ticket, phone: confirmed });
+                        handled('register', handleRegistration)({ ...pendingForm, ticket }, confirmed);
+                      }}
                       onRefused={(message) => backToCard({ tone: 'error', text: message })}
                       onBack={() => setStep(GATE.REGISTER)}
                     />
                   )}
+                </Suspense>
+              )}
+
+              {/* 014Fixes / 06: registered — the number the school gave. */}
+              {step === 'registered' && registered && (
+                <Suspense key="registered" fallback={stepFallback}>
+                  <NumberPopup
+                    kind={registered.kind}
+                    display={registered.display}
+                    session={label}
+                    afterApproval={requireApproval}
+                    onDone={() => handled('checkin', handleCheckin)(registered.phone, registered.display)}
+                  />
                 </Suspense>
               )}
 
