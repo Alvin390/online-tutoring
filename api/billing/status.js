@@ -91,7 +91,8 @@ async function planView(user, school) {
     // page and as a notice at 100%. One document, no counting here.
     getDb().doc('config/usage').get().catch(() => null),
     // 013Fixes / 25: each plan's price, from the shared Paystack plans.
-    planPrices(getDb()),
+    // 013Fixes / 28: never waits on Paystack when a stored copy exists.
+    planPrices(getDb(), { background: true }),
   ]);
   // 013Fixes / 07: every plan's limits and card words (superadmin settings
   // included), so the billing page's three cards match what each plan holds.

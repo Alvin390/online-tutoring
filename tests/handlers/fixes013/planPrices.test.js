@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import {
   pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, setFlags, resetFakes,
-  fakes, externalCalls,
+  fakes, externalCalls, drainWaitUntil,
 } from '../_worker.js';
 
 /**
@@ -120,5 +120,23 @@ describe('the Accounts list carries the prices', () => {
     const res = await call('/api/admin/users', { token: admin, body: { action: 'list' } });
     expect(res.status).toBe(200);
     expect(res.body.prices).toEqual({ bronze: 5000, silver: 8000, gold: 12000 });
+  });
+});
+
+// 013Fixes / 28 (release review): a slow Paystack never holds up a dashboard.
+describe('the dashboard never waits on Paystack', () => {
+  it('a stored copy: the status answers at once while Paystack is slow', async () => {
+    await db.doc('config/planPrices').set({ dev: { prices: { bronze: 5000, silver: 8000, gold: 12000 }, fetchedAt: new Date(Date.now() - 3_600_000) } });
+    let release;
+    fakes.paystack.hold = new Promise((r) => { release = r; });
+    const t0 = Date.now();
+    // The response itself (the background Paystack read is drained after).
+    const res = await call('/api/billing/status', { method: 'GET', token: teacher, drain: false });
+    const took = Date.now() - t0;
+    release();
+    await drainWaitUntil();
+    expect(res.status).toBe(200);
+    expect(res.body.plan.prices.silver).toBe(8000);
+    expect(took).toBeLessThan(2000);
   });
 });

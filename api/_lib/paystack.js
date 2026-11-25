@@ -94,9 +94,9 @@ function secretKey() {
   return key;
 }
 
-async function paystackFetch(path, { method = 'GET', body } = {}) {
+async function paystackFetch(path, { method = 'GET', body, timeoutMs = 15_000 } = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     countExternalSubrequest();
@@ -223,8 +223,8 @@ export async function updatePlanAmount(code, amountKes) {
 }
 
 /** 013Fixes / 25: one plan (its `amount` is in cents). Read-only. */
-export async function fetchPlan(code) {
-  return paystackFetch(`/plan/${encodeURIComponent(code)}`);
+export async function fetchPlan(code, { timeoutMs } = {}) {
+  return paystackFetch(`/plan/${encodeURIComponent(code)}`, { ...(timeoutMs ? { timeoutMs } : {}) });
 }
 
 export async function verifyTransaction(reference) {

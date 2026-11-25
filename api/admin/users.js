@@ -170,7 +170,7 @@ export default createHandler({
         windowKind: u.windowKind ?? null, countedAt: u.countedAtMs ? new Date(u.countedAtMs).toISOString() : null,
       } : null;
       // 013Fixes / 27: each plan's price (the shared Paystack plans; cached).
-      const { prices } = await planPrices(db);
+      const { prices } = await planPrices(db, { background: true });
       return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats, usage, plans, sms, prices };
     }
 

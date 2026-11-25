@@ -75,7 +75,8 @@ export const externalCalls = [];
  */
 export const fakes = {
   daraja: { queryResultCode: '0', seq: 0 },
-  paystack: { fail: {}, verify: {}, plans: {}, seq: 0 },
+  // hold: a promise every Paystack call awaits first (a slow Paystack; 013Fixes / 28).
+  paystack: { fail: {}, verify: {}, plans: {}, hold: null, seq: 0 },
   // hold: a promise the fake Gmail send awaits before answering.
   gmail: { fail: null, oauthError: null, seq: 0, hold: null },
   storage: { fail: null, objects: new Map() },
@@ -91,6 +92,7 @@ export function resetFakes() {
   fakes.paystack.fail = {};
   fakes.paystack.verify = {};
   fakes.paystack.plans = {};
+  fakes.paystack.hold = null;
   fakes.gmail.fail = null;
   fakes.gmail.oauthError = null;
   fakes.gmail.hold = null;
@@ -163,6 +165,7 @@ export function installFetchGuard() {
     }
 
     if (hostname === 'api.paystack.co') {
+      if (fakes.paystack.hold) await fakes.paystack.hold;
       for (const [fragment, status] of Object.entries(fakes.paystack.fail)) {
         if (pathname.includes(fragment)) return json({ status: false, message: 'fake failure' }, status);
       }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { planPrices, __resetPlanPrices, FALLBACK_PRICE_KES, acceptedPrices } from '../../../api/_lib/planPrices.js';
+import { planPrices, __resetPlanPrices, FALLBACK_PRICE_KES, acceptedPrices, priceChangeFor } from '../../../api/_lib/planPrices.js';
 
 /**
  * 013Fixes / 25 — prices come from the shared Paystack plans (owner, round
@@ -114,5 +114,40 @@ describe('which charged amounts are the plan\'s price', () => {
     expect(acceptedPrices('silver', prices, null)).toEqual(new Set([8000, 7499]));
     expect(acceptedPrices('silver', prices, 7600)).toEqual(new Set([8000, 7499, 7600]));
     expect(acceptedPrices('silver', { prices: { silver: 8000 } }, null)).toEqual(new Set([8000]));
+  });
+});
+
+// 013Fixes / 28 (release review): the screens never wait on Paystack.
+describe('for the screens (background): the stored copy at once, Paystack asked behind it', () => {
+  it('a stored copy is answered without waiting; Paystack\'s answer replaces it for the next call', async () => {
+    const db = fakeDb({ 'config/planPrices': { dev: { prices: { bronze: 4999, silver: 7499, gold: 9999 }, fetchedAt: new Date(T0 - 60 * MIN) } } });
+    // Each read answers on its own a moment later (after the first call returned).
+    const slow = vi.fn((tier) => new Promise((r) => { setTimeout(() => r({ bronze: 5000, silver: 8000, gold: 12000 }[tier]), 0); }));
+    const first = await planPrices(db, { fetchPlanKes: slow, mode: 'dev', now: T0, background: true });
+    expect(first.prices.silver).toBe(7499); // not waited for
+    await new Promise((r) => setTimeout(r, 10));
+    const next = await planPrices(db, { fetchPlanKes: slow, mode: 'dev', now: T0 + 1000, background: true });
+    expect(next.prices.silver).toBe(8000);
+  });
+
+  it('nothing stored yet: it reads Paystack (there is nothing else to show)', async () => {
+    const p = await planPrices(fakeDb(), { fetchPlanKes: paystack({ bronze: 5000, silver: 8000, gold: 12000 }), mode: 'dev', now: T0, background: true });
+    expect(p.source).toBe('paystack');
+  });
+});
+
+// 013Fixes / 28 (release review): the new-price notice can't stay forever.
+describe("the school's new-price notice", () => {
+  const info = { prices: { silver: 8000 }, previous: { silver: 7499 }, changedAt: T0 };
+  const sub = (extra) => ({ tier: 'silver', status: 'active', currentPeriodStart: new Date(T0 - 20 * 24 * 60 * MIN), ...extra });
+
+  it('shown until the school pays after the change', () => {
+    expect(priceChangeFor(sub(), info, T0 + 1)).toMatchObject({ from: 7499, to: 8000 });
+    expect(priceChangeFor(sub({ lastPaymentAt: new Date(T0 + MIN) }), info, T0 + 1)).toBeNull();
+  });
+
+  it("not shown when the school's period or trial began after the change (it never had the old price)", () => {
+    expect(priceChangeFor(sub({ currentPeriodStart: new Date(T0 + MIN) }), info, T0 + 1)).toBeNull();
+    expect(priceChangeFor(sub({ status: 'trialing', currentPeriodStart: new Date(T0 + MIN), trialEndsAt: new Date(T0 + 14 * 24 * 60 * MIN) }), info, T0 + 1)).toBeNull();
   });
 });

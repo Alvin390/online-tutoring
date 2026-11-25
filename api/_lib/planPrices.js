@@ -1,5 +1,6 @@
 import { getDb } from './firebaseAdmin.js';
 import { currentMode, fetchPlan, planCodeForTier, FALLBACK_PRICE_KES } from './paystack.js';
+import { deferToBackground } from './requestContext.js';
 
 /**
  * Plan prices — 013Fixes / 25 (owner, round 3: keep the Paystack plans,
@@ -25,6 +26,11 @@ const FALLBACK_CACHE_MS = 60 * 1000;
 const DOC = 'config/planPrices';
 
 let cache = null; // { mode, at, ttl, value }
+let inflight = null; // one background Paystack read at a time
+
+// 013Fixes / 28: a plan read never holds a request for long (the default
+// Paystack timeout is 15 s); past this, Paystack counts as not answering.
+const PLAN_READ_TIMEOUT_MS = 2500;
 
 /** Forget the cached prices (after a price change, and in tests). */
 export function invalidatePlanPrices() { cache = null; }
@@ -32,7 +38,7 @@ export const __resetPlanPrices = invalidatePlanPrices;
 
 /** The amount on a package's Paystack plan, in whole shillings (or throws). */
 async function paystackPlanKes(tier) {
-  const plan = await fetchPlan(planCodeForTier(tier));
+  const plan = await fetchPlan(planCodeForTier(tier), { timeoutMs: PLAN_READ_TIMEOUT_MS });
   return typeof plan?.amount === 'number' ? plan.amount / 100 : null;
 }
 
@@ -51,13 +57,41 @@ async function readStored(db, mode) {
   return null;
 }
 
+const storedValue = (stored, mode) => ({
+  prices: { ...stored.prices }, previous: stored.previous ?? null, source: 'stored', mode,
+  fetchedAt: toMs(stored.fetchedAt), changedAt: toMs(stored.changedAt),
+});
+
 /**
+ * @param {object} [opts]
+ * @param {boolean} [opts.background] 013Fixes / 28 — for the SCREENS (status,
+ *   the Accounts list): with a stored copy, answer with it at once and ask
+ *   Paystack behind the request (its answer replaces the cache for the next
+ *   call), so a slow Paystack never holds up a dashboard. The money paths
+ *   (checkout, the webhook's check) leave it off and read Paystack directly.
  * @returns {Promise<{ prices: Record<string, number>, previous: Record<string, number>|null,
- *   source: 'paystack'|'stored'|'code', mode: string, fetchedAt: number|null }>}
+ *   source: 'paystack'|'stored'|'code', mode: string, fetchedAt: number|null, changedAt: number|null }>}
  */
-export async function planPrices(db = getDb(), { fetchPlanKes = paystackPlanKes, mode = currentMode(), now = Date.now(), force = false } = {}) {
+export async function planPrices(db = getDb(), { fetchPlanKes = paystackPlanKes, mode = currentMode(), now = Date.now(), force = false, background = false } = {}) {
   if (!force && cache && cache.mode === mode && now - cache.at < cache.ttl) return cache.value;
 
+  if (background && !force) {
+    const stored = await readStored(db, mode);
+    if (stored) {
+      const value = storedValue(stored, mode);
+      cache = { mode, at: now, ttl: FALLBACK_CACHE_MS, value };
+      if (!inflight) {
+        inflight = readAndRemember(db, { fetchPlanKes, mode, now }).catch(() => null).finally(() => { inflight = null; });
+        deferToBackground(inflight);
+      }
+      return value;
+    }
+  }
+  return readAndRemember(db, { fetchPlanKes, mode, now });
+}
+
+/** Paystack now (then the stored copy, then the code prices); cached and stored. */
+async function readAndRemember(db, { fetchPlanKes, mode, now }) {
   let fresh = null;
   try {
     const amounts = await Promise.all(TIERS.map((t) => fetchPlanKes(t)));
@@ -83,7 +117,7 @@ export async function planPrices(db = getDb(), { fetchPlanKes = paystackPlanKes,
     }
     value = { prices: fresh, previous, source: 'paystack', mode, fetchedAt: now, changedAt };
   } else if (stored) {
-    value = { prices: { ...stored.prices }, previous: stored.previous ?? null, source: 'stored', mode, fetchedAt: toMs(stored.fetchedAt), changedAt: toMs(stored.changedAt) };
+    value = storedValue(stored, mode);
   } else {
     value = { prices: { ...FALLBACK_PRICE_KES }, previous: null, source: 'code', mode, fetchedAt: null, changedAt: null };
   }
@@ -108,7 +142,8 @@ export async function recordPriceChange(db, { mode, prices, previous, actor, now
 /**
  * The school's own package's new price, for its billing page: from its next
  * payment (the end the school's countdown shows), until it pays after the
- * change. None for a gifted school, or when its package's price didn't change.
+ * change. None for a gifted school, when its package's price didn't change,
+ * or when its period or trial began after the change.
  */
 export function priceChangeFor(sub, priceInfo, endsAt) {
   const tier = sub?.tier;
@@ -119,6 +154,10 @@ export function priceChangeFor(sub, priceInfo, endsAt) {
   const changedAt = priceInfo.changedAt ?? null;
   const paidAt = toMs(sub.lastPaymentAt);
   if (changedAt != null && paidAt != null && paidAt > changedAt) return null;
+  // 013Fixes / 28: a period or trial that began after the change never had
+  // the old price, so there is nothing to tell (and nothing to hide later).
+  const startedAt = toMs(sub.currentPeriodStart);
+  if (changedAt != null && startedAt != null && startedAt > changedAt) return null;
   return { tier, from, to, changedAt, fromDate: endsAt ?? toMs(sub.currentPeriodEnd) };
 }
 
