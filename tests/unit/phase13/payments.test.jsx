@@ -201,15 +201,16 @@ describe('blocked student: Pay now only when the server offers M-Pesa', () => {
     render(<BlockedStudentScreen session="morning" studentData={student} phoneNumber="+254711000009" onSubmitReceipt={vi.fn()} onBack={vi.fn()} />);
   }
 
-  // STK push is commented out for the pilot (BlockedStudentScreen.jsx, "STK").
-  // Un-skip this, and drop the pilot test below, when it is switched back on.
-  it.skip('Gold deployment: the Pay now panel is shown', async () => {
+  // 013Fixes / 31: switched back on in the code; the superadmin's switch (and
+  // the KES 1 test) decide on the server, which answers `payments.mpesa`.
+  it('Gold deployment, switched on and online: the Pay now panel is shown, beside the receipt box', async () => {
     await renderBlocked({ mpesa: true });
     expect(await screen.findByTestId('pay-now')).toBeTruthy();
+    expect(screen.getByPlaceholderText(/Please Paste Entire M-PESA receipt message here/)).toBeTruthy();
   });
 
-  it('pilot: no Pay now even when the server offers M-Pesa; the receipt box stays', async () => {
-    await renderBlocked({ mpesa: true });
+  it('switched off, or not online yet (server says no): no Pay now; the receipt box stays', async () => {
+    await renderBlocked({ mpesa: false });
     await expect(screen.findByTestId('pay-now', {}, { timeout: 1000 })).rejects.toThrow();
     expect(screen.getByPlaceholderText(/Please Paste Entire M-PESA receipt message here/)).toBeTruthy();
   });

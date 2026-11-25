@@ -1,84 +1,80 @@
-# M-Pesa STK push: switched off for the pilot
+# M-Pesa STK push ("Pay now"): switched on from the superadmin page
 
-**Status (October 2026):** the "Pay now" M-Pesa STK push on the blocked-student
-screen is **commented out**, not removed. During the pilot, a blocked student
-pays manually (till/paybill) and pastes the whole M-PESA confirmation message
-into the receipt box; the teacher approves it from the dashboard, as before.
+**Status (013Fixes Release F, November 2026):** the "Pay now" M-Pesa STK push
+on the blocked-student screen is back in the code. It is **not** commented
+out any more. Whether a student sees it is decided on the server
+(`api/_lib/mpesaAvailability.js`). All of these must hold:
 
-Everything behind the button is still deployed and untouched: the
-`/api/payments/*` endpoints, the Daraja callback, the reconcile cron, the
-ledger posting and the `PayNowPanel` component. Only the screen no longer
-shows it, so nothing can start an STK push.
+1. the `payments.daraja` feature flag is on;
+2. the school's plan includes `mpesaStk` (Gold), and the plan isn't locked or
+   expired;
+3. the superadmin's **switch** is on (Superadmin → Settings → **M-Pesa
+   payments (STK)**);
+4. keys are set for the current mode: the school's saved **live** keys, or
+   the environment's (the sandbox always uses the environment's sandbox
+   keys);
+5. it is **online**: Safaricom confirmed the KES 1 test push, and nothing
+   changed since.
 
-## What was changed
+When any of these is missing, a blocked student sees only the manual route:
+pay to the till or paybill, paste the whole M-PESA message, and the teacher
+approves. `/api/payments/initiate` refuses with the reason (`mpesa_off`,
+`mpesa_offline`, `payments_unavailable`, …). It never sends a push the screen
+wouldn't offer.
 
-| File | Change |
-| --- | --- |
-| `src/features/registration/components/BlockedStudentScreen.jsx` | Three blocks marked `STK (1/3)`, `STK (2/3)`, `STK (3/3)` are commented out; `lazy, Suspense` dropped from the React import; an `eslint-disable no-unused-vars` comment around the props (`session`, `phoneNumber`, `onPaid` are only used by the panel) |
-| `tests/unit/phase13/payments.test.jsx` | `Gold deployment: the Pay now panel is shown` is `it.skip`; a `pilot: no Pay now …` test was added |
-| `tests/unit/phase13/paidRedirect.test.jsx` | `PayNowPanel receives the handler` is `it.skip` |
+## Turning it on for a school
 
-The receipt box placeholder (registration form and blocked screen) was changed
-at the same time to *"Please Paste Entire M-PESA receipt message here. You may
-remove your account balance"*. That is independent of STK and can stay.
+1. **Safaricom first.** Going live needs Safaricom's approval of the
+   production app for the school's till or paybill (Go-Live), which can take
+   days. Start that before anything else.
+2. **Live mode.** Set the Worker secret `DARAJA_MODE` to `live`
+   (`npx wrangler secret put DARAJA_MODE`). This deploys a new version.
+   `PUBLIC_BASE_URL` must be the HTTPS site address, because the callback URL
+   is built from it.
+3. **Superadmin → Settings → M-Pesa payments (STK):**
+   1. **Switch it on.** In live mode with no keys, the keys form appears.
+   2. **Enter the school's keys:** consumer key, consumer secret, passkey, the
+      till or paybill number, and the type. A wrong type means the prompt
+      never reaches the phone.
+      - They are stored encrypted (`APP_ENCRYPTION_KEY`) and never shown
+        again: only the last 4 characters.
+      - They can be replaced or removed there.
+   3. **Send test payment (KES 1)** to a phone you hold, and approve it on the
+      phone.
+      - When M-Pesa confirms, the card shows **Online**, and Pay now appears
+        for blocked students with a balance.
+      - If Safaricom's callback doesn't arrive, the card asks Safaricom's
+        status query after 20 seconds.
+      - With no answer in 2 minutes, it shows a timeout. Try again.
+4. **Any change to the keys or the switch turns it offline** until a new test
+   passes.
 
-## Switching it back on
+The test push is kept apart from real payments (`mpesa/tests`, never
+`mpesa/transactions`), so it is never posted to any ledger.
 
-### 1. Code
+## Switching it off
 
-In `src/features/registration/components/BlockedStudentScreen.jsx`:
+Turn the switch off on the same card. Pay now disappears everywhere at once
+(within the bootstrap cache: about a minute), and new payments are refused.
+Payments already made are still received: the callback and the reconcile
+sweep accept them, so money is never stranded.
 
-1. Change the first import back to
-   `import { useState, useMemo, lazy, Suspense } from 'react';`
-2. Uncomment **STK (1/3)**: the `useMpesaAvailable` import and the
-   `PayNowPanel` lazy import.
-3. Uncomment **STK (2/3)**: `const mpesaAvailable = useMpesaAvailable();`
-4. Uncomment **STK (3/3)**: the `{mpesaAvailable && blockState.balance > 0 && (…)}`
-   block. It sits inside a `{/* … */}` JSX comment; remove the opening
-   `{/* STK (3/3): …` line's comment markers and the closing `*/}` so the
-   explanatory sentence stays a comment and the JSX becomes live again.
-5. Delete the `eslint-disable no-unused-vars` / `eslint-enable` pair around the
-   props, and the "SWITCHED OFF FOR THE PILOT" note at the top of the file.
+## The student flow (unchanged since Phase 09)
 
-In the tests:
+- **The amount** comes from the server balance (a partial amount is allowed,
+  never more than the balance).
+- **The status** is polled.
+- **The ledger** is posted once, even when Safaricom repeats the callback.
+- **The fee block** clears when the balance reaches zero.
+- **A reconcile sweep** every 10 minutes recovers payments whose callback was
+  lost.
 
-6. `tests/unit/phase13/payments.test.jsx`: change `it.skip('Gold deployment: …')`
-   back to `it(…)` and delete the `pilot: no Pay now …` test.
-7. `tests/unit/phase13/paidRedirect.test.jsx`: change
-   `it.skip('PayNowPanel receives the handler', …)` back to `it(…)`.
+## History
 
-Then run `npm run lint` and `npx vitest run`.
-
-### 2. Live Daraja keys (Cloudflare Worker secrets)
-
-The Pay now button only appears when the server says M-Pesa is available:
-the `payments.daraja` flag is on, the plan is Gold, and credentials for the
-current `DARAJA_MODE` exist. Set the live values as Worker secrets (never in
-the repo):
-
-```bash
-npx wrangler secret put DARAJA_MODE                # live
-npx wrangler secret put DARAJA_LIVE_SHORTCODE
-npx wrangler secret put DARAJA_LIVE_SHORTCODE_TYPE # till or paybill (wrong type = prompt never arrives)
-npx wrangler secret put DARAJA_LIVE_CONSUMER_KEY
-npx wrangler secret put DARAJA_LIVE_CONSUMER_SECRET
-npx wrangler secret put DARAJA_LIVE_PASSKEY
-```
-
-`PUBLIC_BASE_URL` must be the HTTPS site address (the callback is built from
-it). `DARAJA_CALLBACK_IPS` and `DARAJA_CALLBACK_SECRET` are optional; see
-`.env.example` and `docs/LAUNCH.md` for every variable.
-
-Going live needs Safaricom's approval of the production app for the teacher's
-till or paybill, which can take days. Start that before the code change.
-
-### 3. Release and check
-
-1. Push to a branch and open a PR; test on the branch preview with a small
-   real payment (KES 1) against a test student.
-2. Merge to `master`, then promote the version built from the merge commit:
-   `npx wrangler versions deploy <version-id>@100% -y`.
-3. On the live site: a blocked student with a balance sees **Pay now**, the
-   prompt reaches the phone, and after paying the statement updates and the
-   student is let into class. The superadmin **Test connection** for Daraja
-   should be green.
+- **October 2026 (pilot):** the panel was commented out (three blocks marked
+  "STK" in `BlockedStudentScreen.jsx`), and the keys could only come from the
+  environment.
+- **Release F (013Fixes, phases 29–31):** owner answer 5 replaced both:
+  - the school's keys are saved on the superadmin page;
+  - a switch and a confirmed KES 1 test control availability;
+  - the panel is back in the code.

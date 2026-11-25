@@ -4,8 +4,8 @@ import { getPublicBootstrap } from '@services/api/public';
 /**
  * Whether this deployment lets students pay by M-Pesa (STK push).
  *
- * Decided on the server (flag + Gold plan + credentials, see
- * api/_lib/mpesaAvailability.js) and delivered with the public bootstrap, so
+ * Decided on the server (flag + Gold plan + the superadmin's switch + keys +
+ * online after the KES 1 test, see api/_lib/mpesaAvailability.js) and delivered with the public bootstrap, so
  * the "Pay now" button is never offered where the payment would be refused.
  * Starts false: until the answer arrives, only the manual receipt route shows.
  */

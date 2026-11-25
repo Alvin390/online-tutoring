@@ -192,3 +192,28 @@ describe('Gold only, superadmin only', () => {
     expect((await daraja({ action: 'testResult' }, gold)).status).toBe(403);
   });
 });
+
+// 013Fixes / 31: Pay now back on — the Phase 09 money path, unchanged.
+describe('a real payment once online: posted once, even when Safaricom repeats the callback', () => {
+  it('one ledger entry, the balance lowered once, the student unblocked', async () => {
+    const t = await startTest();
+    await call(t.path, { ip: SAFARICOM_IP, body: callback(t.id) });
+    expect((await status()).online).toBe(true);
+    await seedPayer(phoneN(74), 500);
+    const init = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(74) } });
+    expect(init.status, JSON.stringify(init.body)).toBe(200);
+    const paid = { Body: { stkCallback: {
+      MerchantRequestID: 'm', CheckoutRequestID: init.body.checkoutRequestId, ResultCode: 0, ResultDesc: 'ok',
+      CallbackMetadata: { Item: [{ Name: 'Amount', Value: 500 }, { Name: 'MpesaReceiptNumber', Value: 'PAY1RCPT23' }, { Name: 'PhoneNumber', Value: 254700000074 }] },
+    } } };
+    const path = new URL(lastStk().body.CallBackURL).pathname;
+    expect((await call(path, { ip: SAFARICOM_IP, body: paid })).status).toBe(200);
+    expect((await call(path, { ip: SAFARICOM_IP, body: paid })).status).toBe(200);
+    const ledger = await db.collection(`fees/accounts/items/morning__${phoneN(74)}/ledger`).get();
+    expect(ledger.size).toBe(1);
+    expect((await db.doc(`fees/accounts/items/morning__${phoneN(74)}`).get()).data().balance).toBe(0);
+    expect((await db.doc(`sessions/morning/students/${phoneN(74)}`).get()).data().blocked).toBe(false);
+    // The test push never became a payment.
+    expect((await db.collection('mpesa/transactions/items').get()).size).toBe(1);
+  });
+});
