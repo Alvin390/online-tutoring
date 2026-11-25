@@ -5,6 +5,7 @@ import ErrorBoundary from '@components/ui/ErrorBoundary';
 import MotionProvider from '@components/MotionProvider';
 import AppRoutes from './routes/AppRoutes';
 import MaintenanceGate from '@components/MaintenanceGate';
+import DemoRibbon from '@components/DemoRibbon';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
                 dashboard and injects its own script, so nothing is needed
                 here. */}
             {/* 013Fixes / 34: "Under maintenance" for everyone but the superadmin page. */}
+            <DemoRibbon />
             <MaintenanceGate>
               <AppRoutes />
             </MaintenanceGate>

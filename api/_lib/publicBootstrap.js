@@ -1,7 +1,7 @@
 import { getDb } from './firebaseAdmin.js';
 import { getFlags } from './flags.js';
 import { paystackMode, smsMode } from './mode.js';
-import { maintenanceState } from './runtimeModes.js';
+import { maintenanceState, runtimeModes } from './runtimeModes.js';
 import { mpesaAvailability } from './mpesaAvailability.js';
 import { sessionClasses } from './sessions.js';
 import { resolveSubjectsByClass } from './subjects.js';
@@ -63,6 +63,8 @@ function publicModes() {
     smsFake: smsMode() === 'fake',
     // 013Fixes / 34: the screens show "Under maintenance" without asking.
     maintenance: m.on ? { message: m.message, until: m.until } : null,
+    // 013Fixes / 35: the DEMO banner for teachers and students.
+    demo: runtimeModes().demo?.on === true,
   };
 }
 

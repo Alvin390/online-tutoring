@@ -1,11 +1,11 @@
 import { createHandler } from '../_lib/handler.js';
-import { getDb } from '../_lib/firebaseAdmin.js';
+import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z } from '../_lib/validate.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { ApiError } from '../_lib/errors.js';
 import { paystackMode, paystackModeSource, smsMode, smsModeSource } from '../_lib/mode.js';
 import { hasLivePaystackKeys } from '../_lib/paystack.js';
-import { refreshRuntimeModes, writeRuntimeModes, maintenanceState } from '../_lib/runtimeModes.js';
+import { refreshRuntimeModes, writeRuntimeModes, maintenanceState, runtimeModes } from '../_lib/runtimeModes.js';
 import { invalidateBootstrap } from '../_lib/publicBootstrap.js';
 
 /**
@@ -19,6 +19,10 @@ import { invalidateBootstrap } from '../_lib/publicBootstrap.js';
  *   setMaintenance  on/off (34), with an optional message and end time:
  *                students and teachers get "under maintenance"; the
  *                superadmin, webhooks, crons and health keep working.
+ *   setDemo      the demo preset (35): on = payments test + SMS fake + a
+ *                DEMO banner; off = the two switches back exactly as they
+ *                were (unset stays unset). The M-Pesa STK setting is never
+ *                touched (its Demo would show Pay now to real students).
  *
  * Every change is audited and takes effect at once on this isolate, within
  * 30 s elsewhere (config/mode is read once per isolate per 30 s), and within
@@ -33,6 +37,11 @@ const schema = z.discriminatedUnion('action', [
     confirm: z.string().max(10).optional(),
   }).strict(),
   z.object({ action: z.literal('setSms'), mode: z.enum(['real', 'fake']) }).strict(),
+  z.object({
+    action: z.literal('setDemo'),
+    on: z.boolean(),
+    confirm: z.string().max(10).optional(),
+  }).strict(),
   z.object({
     action: z.literal('setMaintenance'),
     on: z.boolean(),
@@ -59,6 +68,7 @@ async function view(db) {
     },
     sms: { mode: smsMode(), source: smsModeSource() },
     maintenance: maintenanceState(),
+    demo: { on: runtimeModes().demo?.on === true },
     paidPeriod: await inPaidPeriod(db),
   };
 }
@@ -84,6 +94,26 @@ export default createHandler({
       log.info('Mode changed', { action, ...after });
       return { ok: true, ...(await view(db)) };
     };
+
+    if (body.action === 'setDemo') {
+      const current = runtimeModes();
+      const isOn = current.demo?.on === true;
+      if (body.on) {
+        if (isOn) return view(db); // already on: keep the first "before"
+        const live = paystackMode() === 'live';
+        if (live && body.confirm !== 'TEST' && (await inPaidPeriod(db))) {
+          throw new ApiError(409, 'confirm_required', 'The school is in a paid period. Type TEST to start the demo (payments go to test).');
+        }
+        const previous = { payments: current.payments ?? null, sms: current.sms ?? null };
+        return changed({ payments: 'test', sms: 'fake', demo: { on: true, previous, since: new Date() } },
+          'mode.demo_changed', { on: false }, { on: true, previous });
+      }
+      if (!isOn) return view(db);
+      const previous = current.demo?.previous ?? {};
+      const restore = (v) => (v == null ? FieldValue.delete() : v);
+      return changed({ payments: restore(previous.payments), sms: restore(previous.sms), demo: { on: false, previous: null, since: null } },
+        'mode.demo_changed', { on: true }, { on: false, restored: { payments: previous.payments ?? null, sms: previous.sms ?? null } });
+    }
 
     if (body.action === 'setMaintenance') {
       const m = body.on

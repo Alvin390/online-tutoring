@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getModes, setPaymentsMode, setSmsMode, setMaintenance } from '@services/api/adminModes';
+import { getModes, setPaymentsMode, setSmsMode, setMaintenance, setDemo } from '@services/api/adminModes';
 import { modesStore } from '@shared/config/modesStore';
 
 /**
@@ -26,6 +26,7 @@ function publish(res) {
     paymentsTest: res.payments?.mode !== 'live',
     smsFake: res.sms?.mode === 'fake',
     maintenance: m?.on ? { message: m.message ?? null, until: m.until ?? null } : null,
+    demo: res.demo?.on === true,
   });
 }
 
@@ -36,7 +37,9 @@ export default function ModesCard() {
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  // 'payments' or 'demo': which action the typed TEST is for.
   const [confirming, setConfirming] = useState(false);
+  const [confirmFor, setConfirmFor] = useState('payments');
   const [typed, setTyped] = useState('');
   const [mMessage, setMMessage] = useState('');
   const [mUntil, setMUntil] = useState('');
@@ -73,6 +76,7 @@ export default function ModesCard() {
   const applied = 'Takes effect within a minute or two everywhere.';
   const choose = async (mode) => {
     if (mode === p.mode) return;
+    setConfirmFor('payments');
     const res = await run(() => setPaymentsMode(mode), `Payments are now ${mode}. ${applied}`);
     if (res) { setConfirming(false); setTyped(''); }
   };
@@ -84,8 +88,15 @@ export default function ModesCard() {
     if (res) { setMMessage(''); setMUntil(''); }
   };
   const chooseSms = (mode) => mode !== s.mode && run(() => setSmsMode(mode), `SMS are now ${mode}. ${applied}`);
+  const demoOn = data.demo?.on === true;
+  const toggleDemo = async () => {
+    setConfirmFor('demo');
+    await run(() => setDemo(!demoOn), demoOn ? `Demo is off; payments and SMS are back as they were. ${applied}` : `Demo is on. ${applied}`);
+  };
   const confirmTest = async () => {
-    const res = await run(() => setPaymentsMode('test', typed.trim()), `Payments are now test. ${applied}`);
+    const res = confirmFor === 'demo'
+      ? await run(() => setDemo(true, typed.trim()), `Demo is on. ${applied}`)
+      : await run(() => setPaymentsMode('test', typed.trim()), `Payments are now test. ${applied}`);
     if (res) { setConfirming(false); setTyped(''); }
   };
 
@@ -97,6 +108,23 @@ export default function ModesCard() {
       <div className="card-body">
         {error && <div className="alert alert-danger small py-2" role="alert">{error}</div>}
         {note && <div className="alert alert-success small py-2" role="status">{note}</div>}
+
+        <div className={`border rounded p-3 mb-4 ${demoOn ? 'border-warning bg-warning-subtle' : ''}`} data-testid="demo-preset">
+          <div className="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <div>
+              <h3 className="h6 mb-1">Demo mode{' '}
+                <span className={`badge text-bg-${demoOn ? 'warning' : 'secondary'}`} data-testid="demo-badge">{demoOn ? 'On' : 'Off'}</span>
+              </h3>
+              <p className="small text-muted mb-0">
+                One click: payments to test, SMS to fake, and a DEMO ribbon for teachers and students. Off puts both back as they were.
+                M-Pesa &ldquo;Pay now&rdquo; is not changed.
+              </p>
+            </div>
+            <button type="button" className={`btn btn-sm ${demoOn ? 'btn-outline-dark' : 'btn-warning'}`} disabled={busy} onClick={toggleDemo}>
+              {demoOn ? 'Turn demo off' : 'Turn demo on'}
+            </button>
+          </div>
+        </div>
 
         <h3 className="h6">Payments (Paystack){' '}
           <span className={`badge text-bg-${p.mode === 'live' ? 'success' : 'warning'}`} data-testid="payments-badge">{p.mode === 'live' ? 'Live' : 'Test'}</span>
@@ -164,7 +192,7 @@ export default function ModesCard() {
 
         {confirming && (
           <div className="border rounded p-3 mt-3 bg-light" data-testid="payments-confirm">
-            <p className="small mb-2">The school is in a paid period. Payments made on test are not real. Type <strong>TEST</strong> to switch.</p>
+            <p className="small mb-2">The school is in a paid period. Payments made on test are not real. Type <strong>TEST</strong> to {confirmFor === 'demo' ? 'start the demo' : 'switch'}.</p>
             <div className="d-flex gap-2">
               <label className="visually-hidden" htmlFor="payments-confirm-input">Type TEST</label>
               <input id="payments-confirm-input" className="form-control form-control-sm w-auto" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
