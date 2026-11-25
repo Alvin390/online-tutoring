@@ -19,6 +19,8 @@ const BillingSettings = lazy(() => import('@features/admin/components/BillingSet
 const PriceSettings = lazy(() => import('@features/admin/components/PriceSettings'));
 // 013Fixes / 30: the STK switch, the school's M-Pesa keys and the KES 1 test.
 const MpesaCard = lazy(() => import('@features/admin/components/MpesaCard'));
+// 013Fixes / 33: the mode switches (payments, then SMS, maintenance, demo).
+const ModesCard = lazy(() => import('@features/admin/components/ModesCard'));
 // 013Fixes / 21: every payment, and the fill-in of older in-app ones.
 const PaymentHistory = lazy(() => import('@features/admin/components/PaymentHistory'));
 
@@ -286,7 +288,7 @@ export default function SuperadminPage() {
         )}
         {tab === 'audit' && <AuditLogViewer />}
         {tab === 'sms' && <><SmsCostCard /><SmsUnitsCard /></>}
-        {tab === 'settings' && <><NotificationsSettingsCard /><MpesaCard /></>}
+        {tab === 'settings' && <><ModesCard /><NotificationsSettingsCard /><MpesaCard /></>}
       </Suspense>
     </div>
   );

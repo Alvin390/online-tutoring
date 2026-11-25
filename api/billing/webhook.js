@@ -4,12 +4,14 @@ import { readRawBody } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import {
   verifyWebhookSignature,
+  signedByOtherMode,
   isPaystackIp,
   disableSubscription,
   tierForPlanCode,
 } from '../_lib/paystack.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { clientIp } from '../_lib/rateLimit.js';
+import { paystackMode } from '../_lib/mode.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { STATUS, publicProjection, paymentPatch } from '../_lib/subscription.js';
 import { readBillingSettings } from '../_lib/billingSettings.js';
@@ -77,7 +79,25 @@ export default async function handler(req, res) {
 
   // --- 1. Signature, before parsing.
   const signature = req.headers['x-paystack-signature'];
-  if (!verifyWebhookSignature(raw, signature)) {
+  const verified = verifyWebhookSignature(raw, signature);
+
+  // 013Fixes / 33a: an event for the OTHER Paystack mode (the superadmin's
+  // switch, or PAYSTACK_MODE) — signed with the other mode's key, or carrying
+  // the other domain. Refused (409) and never processed, so a test event can
+  // never grant a plan on live; Paystack retries, so a real event that reaches
+  // an isolate still on the old mode (≤ 30 s) is not lost.
+  const wrongMode = async (detail) => {
+    log.warn('Webhook for the other Paystack mode refused', { mode: paystackMode(), detail });
+    await tryWriteAudit({
+      action: AuditAction.WEBHOOK_REJECTED,
+      actor: 'paystack',
+      context: { reason: 'wrong_mode', mode: paystackMode() === 'live' ? 'live' : 'test', detail, ip: clientIp(req), requestId },
+    }, log);
+    return res.status(409).json({ error: { code: 'wrong_mode' } });
+  };
+  if (!verified && signedByOtherMode(raw, signature)) return wrongMode('key');
+
+  if (!verified) {
     log.warn('Webhook signature verification failed', { ip: clientIp(req) });
 
     await tryWriteAudit(
@@ -111,6 +131,12 @@ export default async function handler(req, res) {
     event = JSON.parse(raw.toString('utf8'));
   } catch {
     return res.status(400).json({ error: { code: 'invalid_json' } });
+  }
+
+  // `domain` is inside the signed body: 'live' or 'test'.
+  const domain = event?.data?.domain;
+  if ((domain === 'live' || domain === 'test') && domain !== (paystackMode() === 'live' ? 'live' : 'test')) {
+    return wrongMode('domain');
   }
 
   const eventId = String(

@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { getPublicBootstrap } from '@services/api/public';
 import { DEFAULT_FLAGS, resolveFlags } from './flags';
+import { modesStore } from './modesStore';
 import logger from '@utils/logger';
 
 /**
@@ -59,7 +60,11 @@ export const flagsStore = {
 export function FlagsProvider({ children }) {
   useEffect(() => {
     getPublicBootstrap()
-      .then((data) => flagsStore.setFromRemote(data?.flags))
+      .then((data) => {
+        flagsStore.setFromRemote(data?.flags);
+        // 013Fixes / 33: the mode switches ride in the same answer.
+        modesStore.setFromRemote(data?.modes);
+      })
       .catch((error) => {
         // Non-fatal: the app runs on defaults.
         logger.warn('Flags unavailable; using defaults', { code: error?.code });

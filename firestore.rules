@@ -624,6 +624,9 @@ service cloud.firestore {
     // switch and its test result: through /api/admin/daraja only.
     match /config/darajaCredentials    { allow read, write: if false; }
     match /config/mpesaStatus          { allow read, write: if false; }
+    // 013Fixes / 33-35: the superadmin's mode switches (payments, SMS,
+    // maintenance, demo): through /api/admin/modes only.
+    match /config/mode                 { allow read, write: if false; }
     // 008Fixes / 07: SMS campaigns, credit, usage, pending delivery checks and
     // the setup are the server's (read through /api/messages/sms and the
     // superadmin endpoint).

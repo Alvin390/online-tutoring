@@ -13,6 +13,7 @@ import StudentsTab from '../tabs/StudentsTab';
 import DashboardNav from '../nav/DashboardNav';
 import BottomNav from '../nav/BottomNav';
 import WaitingBanner from '../nav/WaitingBanner';
+import ModeBanners from '../nav/ModeBanners';
 import { visibleTabs, tabPath, tabFromPath, DEFAULT_TAB } from '../nav/dashboardTabs';
 import { useOptionalToast } from '@/context/ToastContext';
 import { otherRecords, markedToast } from '../staff/markStaffText';
@@ -293,6 +294,7 @@ export default function DashboardLayout() {
 
       {/* 013Fixes / 12: above an included allowance (dismissible; never a lockout). */}
       <UsageNotice />
+      <ModeBanners />
 
       <DashboardNav
         tabs={navTabs}

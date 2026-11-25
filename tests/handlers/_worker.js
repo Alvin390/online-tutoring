@@ -40,6 +40,11 @@ export const TEST_ENV = Object.freeze({
   PAYSTACK_PLAN_BRONZE_TEST: 'PLN_bronze',
   PAYSTACK_PLAN_SILVER_TEST: 'PLN_silver',
   PAYSTACK_PLAN_GOLD_TEST: 'PLN_gold',
+  // 013Fixes / 33: the live set, placeholders, so the superadmin's switch can be tested.
+  PAYSTACK_SECRET_KEY_LIVE: 'sk_live_harness_only',
+  PAYSTACK_PLAN_BRONZE_LIVE: 'PLN_bronze_live',
+  PAYSTACK_PLAN_SILVER_LIVE: 'PLN_silver_live',
+  PAYSTACK_PLAN_GOLD_LIVE: 'PLN_gold_live',
   DARAJA_MODE: 'sandbox',
   DARAJA_SANDBOX_SHORTCODE: '174379',
   DARAJA_SANDBOX_SHORTCODE_TYPE: 'paybill',
@@ -393,6 +398,8 @@ export async function clearFirestore() {
   mod.__resetFlagCache?.();
   // 013Fixes / 00: the school's plan is cached per isolate like the flags.
   (await import('../../api/_lib/schoolPlan.js')).__resetPlanCache();
+  // 013Fixes / 33: the superadmin's mode switches are cached per isolate too.
+  (await import('../../api/_lib/runtimeModes.js').catch(() => ({})))?.__resetRuntimeModes?.();
 }
 
 /**

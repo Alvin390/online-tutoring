@@ -132,6 +132,7 @@ export default defineConfig({
           '**/adminPrices-*.js',
           // 013Fixes / 30: the M-Pesa card (superadmin).
           '**/MpesaCard-*.js',
+          '**/ModesCard-*.js',
           '**/adminDaraja-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',

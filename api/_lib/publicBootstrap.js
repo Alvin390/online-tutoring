@@ -1,5 +1,6 @@
 import { getDb } from './firebaseAdmin.js';
 import { getFlags } from './flags.js';
+import { paystackMode } from './mode.js';
 import { mpesaAvailability } from './mpesaAvailability.js';
 import { sessionClasses } from './sessions.js';
 import { resolveSubjectsByClass } from './subjects.js';
@@ -46,7 +47,16 @@ async function load() {
     })
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   // 013Fixes / 30b: `demo` — the screen says a demo payment doesn't pay fees.
-  return { flags, sessions, payments: { mpesa: mpesa.available, demo: mpesa.available && mpesa.demo === true } };
+  // 013Fixes / 33-35: the mode switches the screens show (banners).
+  return { flags, sessions, payments: { mpesa: mpesa.available, demo: mpesa.available && mpesa.demo === true }, modes: publicModes() };
+}
+
+/**
+ * 013Fixes / 33: what the screens need about the mode switches — only yes/no
+ * (and, from 34, the maintenance message). Read from the cached config/mode.
+ */
+function publicModes() {
+  return { paymentsTest: paystackMode() !== 'live' };
 }
 
 /** The cached payload, reloading it when older than TTL_MS. */
