@@ -43,8 +43,9 @@ export default createHandler({
     if (body.action === 'save') {
       throw new ApiError(
         409,
-        'managed_by_environment',
-        'M-Pesa credentials are set in the server configuration (Cloudflare variables) and cannot be changed in the app.'
+        'use_mpesa_card',
+        // 013Fixes / 29: live keys are saved on the superadmin page now.
+        'Save M-Pesa keys on Superadmin → Settings → M-Pesa payments (STK).'
       );
     }
 

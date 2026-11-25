@@ -8,6 +8,7 @@ import adminUsers from '../api/admin/users.js';
 import adminPlans from '../api/admin/plans.js';
 import adminBilling from '../api/admin/billing.js';
 import adminPrices from '../api/admin/prices.js';
+import adminDaraja from '../api/admin/daraja.js';
 import schoolLogins from '../api/school/logins.js';
 import authLoginAttempt from '../api/auth/loginAttempt.js';
 
@@ -102,6 +103,7 @@ export const STATIC_ROUTES = {
   '/api/admin/plans': adminPlans,
   '/api/admin/billing': adminBilling,
   '/api/admin/prices': adminPrices,
+  '/api/admin/daraja': adminDaraja,
   // 013Fixes / 09: the school owner manages the school's logins.
   '/api/school/logins': schoolLogins,
   '/api/auth/loginAttempt': authLoginAttempt,

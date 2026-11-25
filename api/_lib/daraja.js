@@ -3,6 +3,7 @@ import { randomToken } from './crypto.js';
 import { ApiError } from './errors.js';
 import { darajaMode, darajaEnvironment, darajaVar } from './mode.js';
 import { countExternalSubrequest } from './firestoreRest.js';
+import { savedLiveKeys } from './darajaKeys.js';
 
 /**
  * M-Pesa Daraja client — Phase 09.
@@ -160,18 +161,42 @@ function credentialsFromEnv() {
 }
 
 /**
- * The Daraja credentials — from the ENVIRONMENT only (Cloudflare Worker
- * variables/secrets in production, `.dev.vars` locally).
+ * 013Fixes / 29: the school's saved LIVE keys (superadmin → M-Pesa payments,
+ * encrypted; darajaKeys.js), in live mode only.
+ */
+async function credentialsFromStore() {
+  if (darajaMode() !== 'live') return null;
+  const saved = await savedLiveKeys();
+  if (!saved) return null;
+  return {
+    shortCode: String(saved.shortCode),
+    shortCodeType: saved.shortCodeType,
+    environment: darajaEnvironment(),
+    consumerKey: saved.consumerKey,
+    consumerSecret: saved.consumerSecret,
+    passkey: saved.passkey,
+    // Whether they WORK is the KES 1 test's job (phase 30: `online`).
+    verifiedAt: saved.savedAt ? new Date(saved.savedAt) : new Date(),
+    source: 'stored',
+  };
+}
+
+/**
+ * The Daraja credentials.
  *
- * Phase 13 decision: the operator supplies the till and keys; teachers never
- * see or enter them. The in-app credentials form is gone, the save endpoint
- * refuses, and the old Firestore-stored copy (`integrations/daraja`, encrypted)
- * is no longer read. That document still holds the callback secret, which is
- * not a credential.
+ * 013Fixes / 29 (owner answer 5, round 3): in LIVE mode, the school's keys
+ * saved on the superadmin page come first; the ENVIRONMENT (Cloudflare Worker
+ * variables/secrets in production, `.dev.vars` locally) is the fallback, so a
+ * deployment set up the Phase 13 way keeps working. The sandbox always uses
+ * the environment's sandbox keys. Teachers never see or enter keys. The old
+ * Firestore copy (`integrations/daraja`) is still not read for keys; it holds
+ * the callback secret, which is not a credential.
  *
  * `DARAJA_MODE` selects the sandbox or live set (see mode.js).
  */
 export async function loadCredentials() {
+  const fromStore = await credentialsFromStore();
+  if (fromStore) return fromStore;
   const fromEnv = credentialsFromEnv();
   if (fromEnv) return fromEnv;
 
@@ -186,8 +211,9 @@ export async function loadCredentials() {
   );
 }
 
-/** Where the active credentials come from: 'env', or null when not set. */
+/** Where the active credentials come from: 'stored', 'env', or null when not set. */
 export async function credentialSource() {
+  if (await credentialsFromStore()) return 'stored';
   return credentialsFromEnv() ? 'env' : null;
 }
 

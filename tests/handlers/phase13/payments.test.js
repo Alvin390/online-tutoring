@@ -201,7 +201,8 @@ describe('Daraja credentials: environment only, no teacher access', () => {
     const admin = await userWithClaims('p13-pay-super', teacherClaims.superadmin);
     const save = await call('/api/daraja/credentials', { token: admin, body: payload });
     expect(save.status).toBe(409);
-    expect(save.body.error.code).toBe('managed_by_environment');
+    // 013Fixes / 29: still refused here, and it points to the superadmin M-Pesa card (live keys are saved there).
+    expect(save.body.error.code).toBe('use_mpesa_card');
     const doc = (await db.doc('integrations/daraja').get()).data() ?? {};
     expect(doc.consumerKeyEnc).toBeUndefined();
   });

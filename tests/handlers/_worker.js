@@ -144,7 +144,8 @@ export function installFetchGuard() {
 
     if (hostname === '127.0.0.1' || hostname === 'localhost') return realFetch(input, init);
 
-    const call = { url, method: init.method ?? 'GET', body: parseBody(init.body) };
+    // 013Fixes / 29: headers too (a test checks which keys signed in to M-Pesa).
+    const call = { url, method: init.method ?? 'GET', body: parseBody(init.body), headers: init.headers ?? {} };
     externalCalls.push(call);
 
     if (hostname.endsWith('safaricom.co.ke')) {
