@@ -119,6 +119,8 @@ export default defineConfig({
           // 013Fixes / 18: the superadmin billing settings card (and its API calls).
           '**/BillingSettings-*.js',
           '**/adminBilling-*.js',
+          // 013Fixes / 19: "Your plan expires on …" (shared by the billing page and Start trial).
+          '**/planEnd-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

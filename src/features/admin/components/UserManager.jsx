@@ -3,10 +3,11 @@ import { TIER_ORDER, TIERS } from '@shared/constants/tiers';
 import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import {
-  listUsers, createTeacher, setUserTier, startTrial, setUserDisabled, deleteUser,
+  listUsers, createTeacher, setUserTier, setUserDisabled, deleteUser,
   expireToGrace, expireNow, setOwner, setDevLogin, setExtraLogins, recountUsage,
 } from '@services/api/admin';
 import UsageBars from '@features/billing/usage/UsageBars';
+import StartTrialModal from './StartTrialModal';
 import logger from '@utils/logger';
 
 /**
@@ -43,6 +44,8 @@ export default function UserManager() {
   const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // 013Fixes / 19: the school's "Start trial" form.
+  const [startingTrial, setStartingTrial] = useState(false);
 
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', displayName: '' });
@@ -121,11 +124,29 @@ export default function UserManager() {
             <span className="badge text-bg-light text-muted ms-1">{studentCount} students</span>
           )}
         </h2>
-        <button className="btn btn-sm btn-primary" onClick={() => setCreating(!creating)} disabled={busy}>
-          <i className="bi bi-person-plus me-1" aria-hidden="true" />
-          Add teacher
-        </button>
+        <div className="d-flex gap-2">
+          {/* 013Fixes / 19: a trial is the school's (one plan per school), not a login's. */}
+          <button className="btn btn-sm btn-outline-info" onClick={() => setStartingTrial(true)} disabled={busy}>
+            <i className="bi bi-hourglass-split me-1" aria-hidden="true" />
+            Start trial
+          </button>
+          <button className="btn btn-sm btn-primary" onClick={() => setCreating(!creating)} disabled={busy}>
+            <i className="bi bi-person-plus me-1" aria-hidden="true" />
+            Add teacher
+          </button>
+        </div>
       </div>
+      {startingTrial && (
+        <StartTrialModal
+          currentTier={subscription?.tier ?? 'gold'}
+          onClose={() => setStartingTrial(false)}
+          onStarted={(res) => {
+            setStartingTrial(false);
+            showSuccess(`${res.days}-day ${TIERS[res.tier]?.name ?? res.tier} trial started.`);
+            load();
+          }}
+        />
+      )}
 
       <div className="card-body">
         {/* Current subscription — the thing most admin actions affect. */}
@@ -398,31 +419,6 @@ export default function UserManager() {
                     <td className="small text-muted">{relative(u.lastSignInAt)}</td>
                     <td>
                       <div className="d-flex gap-1 flex-wrap justify-content-end">
-                        {u.role !== 'superadmin' && (
-                          <button
-                            className="btn btn-outline-info btn-sm"
-                            disabled={busy}
-                            onClick={() =>
-                              run(
-                                // The tier from THIS ROW, not a hardcoded gold.
-                                // The dropdown to the left applies immediately,
-                                // so "pick Silver, then click Trial" now starts
-                                // a Silver trial rather than silently upgrading
-                                // the account to Gold for fourteen days.
-                                // 013Fixes / 01: the school's plan (one plan per school).
-                                () => startTrial({
-                                  uid: u.uid,
-                                  tier: subscription?.tier ?? 'bronze',
-                                  trialDays: 14,
-                                }),
-                                `14-day ${TIERS[subscription?.tier ?? 'bronze'].name} trial started.`
-                              )
-                            }
-                            title={`Start a 14-day ${TIERS[subscription?.tier ?? 'bronze'].name} trial`}
-                          >
-                            Trial
-                          </button>
-                        )}
                         {u.role === 'teacher' && !u.isOwner && !u.disabled && (
                           <button
                             className="btn btn-outline-success btn-sm"
