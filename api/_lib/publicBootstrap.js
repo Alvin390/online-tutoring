@@ -1,6 +1,7 @@
 import { getDb } from './firebaseAdmin.js';
 import { getFlags } from './flags.js';
 import { paystackMode, smsMode } from './mode.js';
+import { maintenanceState } from './runtimeModes.js';
 import { mpesaAvailability } from './mpesaAvailability.js';
 import { sessionClasses } from './sessions.js';
 import { resolveSubjectsByClass } from './subjects.js';
@@ -56,7 +57,13 @@ async function load() {
  * (and, from 34, the maintenance message). Read from the cached config/mode.
  */
 function publicModes() {
-  return { paymentsTest: paystackMode() !== 'live', smsFake: smsMode() === 'fake' };
+  const m = maintenanceState();
+  return {
+    paymentsTest: paystackMode() !== 'live',
+    smsFake: smsMode() === 'fake',
+    // 013Fixes / 34: the screens show "Under maintenance" without asking.
+    maintenance: m.on ? { message: m.message, until: m.until } : null,
+  };
 }
 
 /** The cached payload, reloading it when older than TTL_MS. */

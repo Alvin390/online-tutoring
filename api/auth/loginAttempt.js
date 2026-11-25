@@ -68,6 +68,8 @@ export async function assertNotLocked(db, keys) {
 
 export default createHandler({
   method: 'POST',
+  // 013Fixes / 34: the superadmin signs in during maintenance.
+  maintenance: false,
   schema,
   rateLimit: { bucket: 'login_attempt', limit: 60, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, ip, log }) => {

@@ -43,6 +43,17 @@ export async function refreshRuntimeModes(db = null, { now = Date.now(), force =
   return state.value;
 }
 
+/**
+ * 013Fixes / 34: maintenance, from the cached switches.
+ * @returns {{ on: boolean, message: string|null, until: number|null }}
+ */
+export function maintenanceState() {
+  const m = state.value.maintenance;
+  if (!m || m.on !== true) return { on: false, message: null, until: null };
+  const until = m.until?.toMillis?.() ?? (m.until instanceof Date ? m.until.getTime() : (typeof m.until === 'number' ? m.until : null));
+  return { on: true, message: typeof m.message === 'string' && m.message ? m.message : null, until };
+}
+
 /** Writes switches (merge) and updates this isolate's copy at once. */
 export async function writeRuntimeModes(db, patch, { now = Date.now() } = {}) {
   await db.doc(DOC).set({ ...patch, updatedAt: new Date(now) }, { merge: true });

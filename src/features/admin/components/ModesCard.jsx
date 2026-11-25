@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getModes, setPaymentsMode, setSmsMode } from '@services/api/adminModes';
+import { getModes, setPaymentsMode, setSmsMode, setMaintenance } from '@services/api/adminModes';
+import { modesStore } from '@shared/config/modesStore';
 
 /**
  * Superadmin → Settings → Modes — 013Fixes / 33 (owner answer 4).
@@ -11,7 +12,22 @@ import { getModes, setPaymentsMode, setSmsMode } from '@services/api/adminModes'
  *
  * SMS (33b): real or fake. Fake sends nothing and uses no SMS units; check-in
  * codes are then read out by the teacher, and the teacher's test SMS waits.
+ *
+ * Maintenance (34): students and teachers see "Under maintenance" (with the
+ * message and expected end); this page, webhooks and crons keep working.
  */
+
+/** What the rest of this page (the red banner) should show, at once. */
+function publish(res) {
+  if (!res) return;
+  const m = res.maintenance;
+  modesStore.setFromRemote({
+    ...modesStore.get(),
+    paymentsTest: res.payments?.mode !== 'live',
+    smsFake: res.sms?.mode === 'fake',
+    maintenance: m?.on ? { message: m.message ?? null, until: m.until ?? null } : null,
+  });
+}
 
 const SOURCE = { setting: 'chosen here', env: 'from the server settings' };
 
@@ -22,6 +38,8 @@ export default function ModesCard() {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [typed, setTyped] = useState('');
+  const [mMessage, setMMessage] = useState('');
+  const [mUntil, setMUntil] = useState('');
 
   const run = useCallback(async (fn, okNote = '') => {
     setBusy(true);
@@ -30,6 +48,7 @@ export default function ModesCard() {
       const res = await fn();
       setData(res);
       setNote(okNote);
+      publish(res);
       return res;
     } catch (err) {
       if (err?.code === 'confirm_required') setConfirming(true);
@@ -58,6 +77,12 @@ export default function ModesCard() {
     if (res) { setConfirming(false); setTyped(''); }
   };
   const s = data.sms;
+  const mt = data.maintenance ?? { on: false };
+  const startMaintenance = async () => {
+    const until = mUntil ? new Date(mUntil).getTime() : null;
+    const res = await run(() => setMaintenance({ on: true, message: mMessage.trim(), until }), `Maintenance is on. ${applied}`);
+    if (res) { setMMessage(''); setMUntil(''); }
+  };
   const chooseSms = (mode) => mode !== s.mode && run(() => setSmsMode(mode), `SMS are now ${mode}. ${applied}`);
   const confirmTest = async () => {
     const res = await run(() => setPaymentsMode('test', typed.trim()), `Payments are now test. ${applied}`);
@@ -108,6 +133,34 @@ export default function ModesCard() {
             : 'Nothing is sent and no SMS units are used; messages are recorded as fake. Check-in codes are read out by the teacher. Teachers see a banner saying so.'}
           {' '}Currently {SOURCE[s.source] ?? s.source}.
         </p>
+
+        <h3 className="h6 mt-4">Maintenance{' '}
+          <span className={`badge text-bg-${mt.on ? 'danger' : 'secondary'}`} data-testid="maintenance-badge">{mt.on ? 'On' : 'Off'}</span>
+        </h3>
+        {mt.on ? (
+          <div className="alert alert-danger small py-2" data-testid="maintenance-on">
+            Students and teachers see &ldquo;Under maintenance&rdquo;{mt.message ? `: ${mt.message}` : '.'}
+            {' '}This page, payments callbacks and scheduled jobs keep working.
+            <div className="mt-2">
+              <button type="button" className="btn btn-sm btn-outline-danger" disabled={busy}
+                onClick={() => run(() => setMaintenance({ on: false }), `Maintenance is off. ${applied}`)}>Switch off</button>
+            </div>
+          </div>
+        ) : (
+          <div className="row g-2 align-items-end" data-testid="maintenance-form">
+            <div className="col-md-6">
+              <label className="form-label small fw-semibold mb-0" htmlFor="maintenance-message">Message (optional)</label>
+              <input id="maintenance-message" className="form-control form-control-sm" maxLength={200} value={mMessage} onChange={(e) => setMMessage(e.target.value)} />
+            </div>
+            <div className="col-md-4">
+              <label className="form-label small fw-semibold mb-0" htmlFor="maintenance-until">Expected back (optional)</label>
+              <input id="maintenance-until" className="form-control form-control-sm" type="datetime-local" value={mUntil} onChange={(e) => setMUntil(e.target.value)} />
+            </div>
+            <div className="col-md-2">
+              <button type="button" className="btn btn-sm btn-danger w-100" disabled={busy} onClick={startMaintenance}>Switch on</button>
+            </div>
+          </div>
+        )}
 
         {confirming && (
           <div className="border rounded p-3 mt-3 bg-light" data-testid="payments-confirm">

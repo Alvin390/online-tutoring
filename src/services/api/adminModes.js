@@ -9,3 +9,5 @@ export const getModes = () => call({ action: 'status' });
 export const setPaymentsMode = (mode, confirm) => call({ action: 'setPayments', mode, ...(confirm ? { confirm } : {}) });
 /** 013Fixes / 33b: 'real' | 'fake'. */
 export const setSmsMode = (mode) => call({ action: 'setSms', mode });
+/** 013Fixes / 34: on/off, with an optional message and end time (ms). */
+export const setMaintenance = ({ on, message, until }) => call({ action: 'setMaintenance', on, ...(on && message ? { message } : {}), ...(on && until ? { until } : {}) });

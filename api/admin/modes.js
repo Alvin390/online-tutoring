@@ -5,7 +5,7 @@ import { tryWriteAudit } from '../_lib/audit.js';
 import { ApiError } from '../_lib/errors.js';
 import { paystackMode, paystackModeSource, smsMode, smsModeSource } from '../_lib/mode.js';
 import { hasLivePaystackKeys } from '../_lib/paystack.js';
-import { refreshRuntimeModes, writeRuntimeModes } from '../_lib/runtimeModes.js';
+import { refreshRuntimeModes, writeRuntimeModes, maintenanceState } from '../_lib/runtimeModes.js';
 import { invalidateBootstrap } from '../_lib/publicBootstrap.js';
 
 /**
@@ -16,6 +16,9 @@ import { invalidateBootstrap } from '../_lib/publicBootstrap.js';
  *                To live: only with live keys configured. To test while the
  *                school is in a PAID period: only with confirm "TEST".
  *   setSms       'real' | 'fake' (33b): fake sends nothing and uses no units.
+ *   setMaintenance  on/off (34), with an optional message and end time:
+ *                students and teachers get "under maintenance"; the
+ *                superadmin, webhooks, crons and health keep working.
  *
  * Every change is audited and takes effect at once on this isolate, within
  * 30 s elsewhere (config/mode is read once per isolate per 30 s), and within
@@ -30,6 +33,12 @@ const schema = z.discriminatedUnion('action', [
     confirm: z.string().max(10).optional(),
   }).strict(),
   z.object({ action: z.literal('setSms'), mode: z.enum(['real', 'fake']) }).strict(),
+  z.object({
+    action: z.literal('setMaintenance'),
+    on: z.boolean(),
+    message: z.string().trim().max(200).optional(),
+    until: z.number().int().positive().optional(),
+  }).strict(),
 ]);
 
 /** In a period the school paid for (not a gift or a trial), and not over. */
@@ -49,6 +58,7 @@ async function view(db) {
       liveKeys: hasLivePaystackKeys(),
     },
     sms: { mode: smsMode(), source: smsModeSource() },
+    maintenance: maintenanceState(),
     paidPeriod: await inPaidPeriod(db),
   };
 }
@@ -74,6 +84,14 @@ export default createHandler({
       log.info('Mode changed', { action, ...after });
       return { ok: true, ...(await view(db)) };
     };
+
+    if (body.action === 'setMaintenance') {
+      const m = body.on
+        ? { on: true, message: body.message || null, until: body.until ? new Date(body.until) : null, since: new Date() }
+        : { on: false, message: null, until: null, since: null };
+      return changed({ maintenance: m }, 'mode.maintenance_changed', { on: maintenanceState().on },
+        { on: body.on, ...(body.on ? { message: m.message, until: body.until ?? null } : {}) });
+    }
 
     if (body.action === 'setSms') {
       return changed({ sms: body.mode }, 'mode.sms_changed', { mode: smsMode() }, { mode: body.mode });

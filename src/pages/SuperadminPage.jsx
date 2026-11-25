@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
+import { useModes } from '@shared/config/modesStore';
 
 const AuditLogViewer = lazy(() => import('@features/audit/components/AuditLogViewer'));
 const UserManager = lazy(() => import('@features/admin/components/UserManager'));
@@ -59,6 +60,8 @@ const TAB_IDS = new Set(TABS.map((t) => t.id));
 export default function SuperadminPage() {
   const { isSuperadmin, isAuthenticated, loading, user } = useAuthState();
   const { signIn, signOut } = useAuthActions();
+  // 013Fixes / 34: maintenance is shown here in red while on.
+  const { maintenance } = useModes();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -246,6 +249,13 @@ export default function SuperadminPage() {
           </button>
         </div>
       </div>
+
+      {maintenance && (
+        <div className="alert alert-danger d-flex align-items-center gap-2" role="alert" data-testid="superadmin-maintenance">
+          <i className="bi bi-tools" aria-hidden="true" />
+          <span><strong>Maintenance is on.</strong> Students and teachers see &ldquo;Under maintenance&rdquo;. Switch it off in Settings → Modes.</span>
+        </div>
+      )}
 
       <ul className="nav nav-tabs mb-4" role="tablist">
         {TABS.map((t) => (
