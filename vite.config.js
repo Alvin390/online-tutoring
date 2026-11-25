@@ -125,6 +125,8 @@ export default defineConfig({
           '**/PaymentHistory-*.js',
           '**/SchoolPayments-*.js',
           '**/paymentFormat-*.js',
+          // 013Fixes / 22b: plan feature and limit names (Plans and the account card).
+          '**/planLabels-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

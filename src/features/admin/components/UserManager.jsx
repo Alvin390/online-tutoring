@@ -4,11 +4,12 @@ import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import {
   listUsers, createTeacher, setUserTier, setUserDisabled, deleteUser,
-  expireToGrace, expireNow, setOwner, setDevLogin, setExtraLogins, recountUsage,
+  setOwner, setDevLogin, setExtraLogins, recountUsage,
 } from '@services/api/admin';
 import UsageBars from '@features/billing/usage/UsageBars';
 import StartTrialModal from './StartTrialModal';
 import RecordPaymentModal from './RecordPaymentModal';
+import AccountCard from './AccountCard';
 import logger from '@utils/logger';
 
 /**
@@ -43,6 +44,9 @@ export default function UserManager() {
   const [extraDraft, setExtraDraft] = useState('');
   // 013Fixes / 12: the school's usage (from the stored count) and "Recount now".
   const [usage, setUsage] = useState(null);
+  // 013Fixes / 22b: every plan (the downgrade warning) and the SMS units, for the account card.
+  const [plans, setPlans] = useState(null);
+  const [sms, setSms] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   // 013Fixes / 19: the school's "Start trial" form.
@@ -70,6 +74,8 @@ export default function UserManager() {
       setDevEmailDraft(result.devLoginEmail ?? '');
       setSeats(result.seats ?? null);
       setUsage(result.usage ?? null);
+      setPlans(result.plans ?? null);
+      setSms(result.sms ?? null);
       setExtraDraft(String(result.seats?.extra ?? 0));
     } catch (error) {
       logger.error('User list failed', error);
@@ -167,55 +173,16 @@ export default function UserManager() {
       )}
 
       <div className="card-body">
-        {/* Current subscription — the thing most admin actions affect. */}
-        {subscription && (
-          <div className="alert alert-light border d-flex flex-wrap gap-4 align-items-center">
-            <div>
-              <span className="text-muted small d-block">Subscription</span>
-              <strong className="text-capitalize">
-                {subscription.tier ?? 'none'} · {subscription.status ?? 'none'}
-              </strong>
-            </div>
-            {subscription.grantedBySuperadmin && (
-              <span className="badge text-bg-info">Comped — billing cron skips this</span>
-            )}
-            {subscription.trialEndsAt && (
-              <div>
-                <span className="text-muted small d-block">Trial ends</span>
-                <strong>{new Date(subscription.trialEndsAt).toLocaleDateString('en-KE')}</strong>
-              </div>
-            )}
-
-            {/* Force an expiry, so the lockout flow can be exercised without
-                waiting for calendar time. Both clear the comped flag — it
-                short-circuits the state machine, so without clearing it these
-                would appear to work and change nothing. */}
-            <div className="ms-auto d-flex gap-2">
-              <button
-                type="button"
-                className="btn btn-outline-warning btn-sm"
-                disabled={busy}
-                onClick={() =>
-                  run(expireToGrace, 'Grace period started — access continues until the clock runs out.')
-                }
-                title="Set status to grace with a 48-hour clock. Access continues."
-              >
-                <i className="bi bi-hourglass-split me-1" aria-hidden="true" />
-                Expire into grace
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline-danger btn-sm"
-                disabled={busy}
-                onClick={() => run(expireNow, 'Subscription expired — access cut immediately.')}
-                title="Set status to expired. Access is cut on the next check."
-              >
-                <i className="bi bi-slash-circle me-1" aria-hidden="true" />
-                End access now
-              </button>
-            </div>
-          </div>
-        )}
+        {/* 013Fixes / 22b: the school's account card — plan, dates, last payment,
+            SMS units and the actions. It replaced the old summary and its two
+            test buttons ("Expire into grace" made the grace state the owner
+            ruled out; "End access now" is Lock now). */}
+        <AccountCard
+          subscription={subscription}
+          plans={plans}
+          sms={sms}
+          onChanged={(message) => { if (message) showSuccess(message); load(); }}
+        />
 
         {creating && (
           <form onSubmit={handleCreate} className="border rounded p-3 mb-3 bg-light">

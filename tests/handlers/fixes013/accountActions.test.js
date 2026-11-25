@@ -232,3 +232,39 @@ describe('superadmin only', () => {
     }
   });
 });
+
+describe('the account card\'s data (013Fixes / 22b): the Accounts list, no extra reads by the card', () => {
+  it('the window, a queued month, the last payment, overrides, every plan and the SMS units', async () => {
+    const now = Date.now();
+    const end = now + 5 * D;
+    await setSub({
+      tier: 'silver', status: 'active', renewalMode: 'manual', ownerUid: 'fx013-acct-teacher',
+      currentPeriodStart: new Date(now - 25 * D), currentPeriodEnd: new Date(end + 31 * D),
+      nextPeriodStart: new Date(end), nextTier: 'gold',
+      lastPaymentAt: new Date(now - D), lastPaymentAmountKes: 5000, lastPaymentMethod: 'mpesa',
+      schoolOverrides: { limits: { logins: 7 }, features: { bogus: true } },
+    });
+    const res = await call('/api/admin/users', { token: admin, body: { action: 'list' } });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const s = res.body.subscription;
+    expect(s).toMatchObject({
+      tier: 'silver', status: 'active', card: false,
+      nextPeriodStart: end, nextTier: 'gold', endsAt: end + 31 * D,
+      lastPaymentAt: now - D, lastPaymentAmountKes: 5000, lastPaymentMethod: 'mpesa',
+      schoolOverrides: { limits: { logins: 7 }, features: {} }, custom: true,
+    });
+    expect(typeof s.countdownFrom).toBe('number');
+    expect(Object.keys(res.body.plans)).toEqual(['bronze', 'silver', 'gold']);
+    expect(res.body.plans.gold).toHaveProperty('features');
+    expect(res.body.plans.gold).toHaveProperty('limits');
+    expect(res.body.sms).toMatchObject({ available: expect.any(Number) });
+    // Read only: nothing written for the SMS units.
+    expect((await db.doc('sms/credits').get()).exists).toBe(false);
+  });
+
+  it('a card school is marked so the card can explain its refusals', async () => {
+    await setSub({ tier: 'gold', status: 'active', renewalMode: 'auto', paystackSubscriptionCode: 'SUB_x', currentPeriodEnd: new Date(Date.now() + D) });
+    const res = await call('/api/admin/users', { token: admin, body: { action: 'list' } });
+    expect(res.body.subscription).toMatchObject({ card: true, renews: true });
+  });
+});

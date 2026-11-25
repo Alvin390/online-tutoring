@@ -30,3 +30,20 @@ export const listAllPayments = (cursor) => call({ action: 'payments', ...(cursor
 
 /** 013Fixes / 21: older in-app payments into the history. A dry run unless `apply`. */
 export const backfillPayments = (apply = false) => call({ action: 'backfillPayments', ...(apply ? { apply: true } : {}) });
+
+// 013Fixes / 22: the account card's actions (each confirmed on screen, audited).
+export const changeSchoolPlan = (tier) => call({ action: 'changePlan', tier });
+export const extendSchool = (days) => call({ action: 'extend', days });
+export const lockSchool = () => call({ action: 'lock' });
+export const unlockSchool = (until) => call({ action: 'unlock', until });
+/** { notes: { contact, agreedPrice, promises, updatedAt, updatedBy } | null, history: [...] } */
+export const getAccountNotes = () => call({ action: 'notes' });
+export const saveAccountNotes = ({ contact, agreedPrice, promises }) => call({ action: 'saveNotes', contact, agreedPrice, promises });
+/** The school's own limits and features, written whole ({ limits: {}, features: {} } clears them). */
+export const saveSchoolOverrides = ({ limits, features }) => call({ action: 'saveOverrides', limits, features });
+
+// 013Fixes / 22b: Gift (comp) and Cancel reuse /api/billing/manage. Called
+// from here, not services/api/billing, so the account card's chunk does not
+// split the school's own billing client out of the dashboard.
+export const giftSchoolPlan = (tier) => apiPost('/api/billing/manage', { action: 'grant', tier });
+export const cancelSchoolPlan = () => apiPost('/api/billing/manage', { action: 'cancel' });
