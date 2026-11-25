@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import {
   pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, seedPlan,
   setFlags, phoneN, externalCalls, fakes, SAFARICOM_IP,
+  mpesaOnline,
 } from '../_worker.js';
 
 /**
@@ -29,6 +30,8 @@ beforeEach(async () => {
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   (await import('../../../api/_lib/daraja.js')).__resetCallbackSecretCache?.();
   await setFlags(db, { 'payments.daraja': true, 'fees.enabled': true });
+  // 013Fixes / 30: the STK switch on and online (the KES 1 test passed).
+  await mpesaOnline(db);
   // M-Pesa is a Gold feature (mpesaAvailability): this deployment is on Gold.
   await db.doc('subscription/current').set({ tier: 'gold', status: 'active' });
   (await import('../../../api/_lib/publicBootstrap.js')).invalidateBootstrap();

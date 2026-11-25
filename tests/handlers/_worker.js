@@ -366,6 +366,15 @@ export async function setFlags(db, flags) {
   mod.__resetFlagCache?.();
 }
 
+/**
+ * 013Fixes / 30: M-Pesa (STK) switched on and ONLINE (the KES 1 test passed),
+ * for suites that start real payments; availability needs both now.
+ */
+export async function mpesaOnline(db) {
+  await db.doc('config/mpesaStatus').set({ enabled: true, online: true, configVersion: 1, testCheckoutId: null });
+  (await import('../../api/_lib/mpesaStatus.js')).__resetMpesaStatus();
+}
+
 /** Deletes every document in the emulator's default database for PROJECT. */
 export async function clearFirestore() {
   await fetch(`http://${FS_HOST}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });

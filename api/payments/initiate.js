@@ -2,7 +2,7 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { authenticate } from '../_lib/auth.js';
-import { badRequest, forbidden, notFound } from '../_lib/errors.js';
+import { ApiError, badRequest, forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { accountRef } from '../_lib/ledger.js';
@@ -53,13 +53,10 @@ export default createHandler({
   handle: async ({ body, req, log }) => {
     // Flag + Gold plan + credentials — the same rule that decides whether the
     // student screen shows "Pay now" at all (mpesaAvailability).
+    // 013Fixes / 30: refused for EVERY reason M-Pesa isn't available — a new
+    // reason must never fall through to a real STK push.
     const availability = await mpesaAvailability();
-    if (availability.reason === 'feature_disabled') {
-      throw forbidden('In-app payments are not available.', 'feature_disabled');
-    }
-    if (availability.reason === 'plan') {
-      throw forbidden('M-Pesa payments are not available on this plan. Please pay your teacher and submit the receipt.', 'payments_unavailable');
-    }
+    if (!availability.available) throw unavailable(availability.reason);
 
     const { session, phone } = body;
 
@@ -207,3 +204,14 @@ export default createHandler({
     };
   },
 });
+
+function unavailable(reason) {
+  switch (reason) {
+    case 'feature_disabled': return forbidden('In-app payments are not available.', 'feature_disabled');
+    case 'plan': return forbidden('M-Pesa payments are not available on this plan. Please pay your teacher and submit the receipt.', 'payments_unavailable');
+    case 'switched_off': return forbidden('M-Pesa payments are switched off. Please pay your teacher and submit the receipt.', 'mpesa_off');
+    case 'offline': return forbidden('M-Pesa payments are not ready yet. Please pay your teacher and submit the receipt.', 'mpesa_offline');
+    case 'not_configured': return new ApiError(503, 'daraja_not_configured', 'M-Pesa payments are not set up yet.', { expose: true });
+    default: return forbidden('M-Pesa payments are not available.', 'payments_unavailable');
+  }
+}

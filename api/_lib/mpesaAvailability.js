@@ -2,6 +2,7 @@ import { getDb } from './firebaseAdmin.js';
 import { isEnabled } from './flags.js';
 import { resolvePlan, schoolPlan } from './schoolPlan.js';
 import { credentialSource } from './daraja.js';
+import { readMpesaStatus } from './mpesaStatus.js';
 
 /**
  * Can students pay by M-Pesa (STK push) on this deployment?
@@ -16,13 +17,17 @@ import { credentialSource } from './daraja.js';
  *      (a student has no plan of their own), read even when billing
  *      enforcement is off; with billing on, a locked or expired plan is
  *      treated like class links treat it;
- *   3. M-Pesa credentials are set for the current mode (environment only).
+ *   3. 013Fixes / 30: the superadmin's switch is on (off = hidden everywhere);
+ *   4. M-Pesa keys are set for the current mode (saved live keys, or the
+ *      environment's);
+ *   5. 013Fixes / 30: it is ONLINE — Safaricom confirmed the KES 1 test, and
+ *      nothing changed since.
  *
  * Only STARTING a payment is gated. The callback and the reconcile sweep
  * always accept a payment that has already been made — money is never
  * stranded because a plan changed.
  *
- * @returns {Promise<{available: boolean, reason: null|'feature_disabled'|'plan'|'not_configured'}>}
+ * @returns {Promise<{available: boolean, reason: null|'feature_disabled'|'plan'|'switched_off'|'not_configured'|'offline'}>}
  */
 export async function mpesaAvailability(db = getDb()) {
   if (!(await isEnabled('payments.daraja'))) return { available: false, reason: 'feature_disabled' };
@@ -41,6 +46,9 @@ export async function mpesaAvailability(db = getDb()) {
     return { available: false, reason: 'plan' };
   }
 
+  const status = await readMpesaStatus(db);
+  if (status.enabled !== true) return { available: false, reason: 'switched_off' };
   if (!(await credentialSource())) return { available: false, reason: 'not_configured' };
+  if (status.online !== true) return { available: false, reason: 'offline' };
   return { available: true, reason: null };
 }

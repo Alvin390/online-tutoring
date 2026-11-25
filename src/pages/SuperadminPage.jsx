@@ -17,6 +17,8 @@ const PlanSettings = lazy(() => import('@features/admin/components/PlanSettings'
 const BillingSettings = lazy(() => import('@features/admin/components/BillingSettings'));
 // 013Fixes / 26: the price of each package (the shared Paystack plans).
 const PriceSettings = lazy(() => import('@features/admin/components/PriceSettings'));
+// 013Fixes / 30: the STK switch, the school's M-Pesa keys and the KES 1 test.
+const MpesaCard = lazy(() => import('@features/admin/components/MpesaCard'));
 // 013Fixes / 21: every payment, and the fill-in of older in-app ones.
 const PaymentHistory = lazy(() => import('@features/admin/components/PaymentHistory'));
 
@@ -284,7 +286,7 @@ export default function SuperadminPage() {
         )}
         {tab === 'audit' && <AuditLogViewer />}
         {tab === 'sms' && <><SmsCostCard /><SmsUnitsCard /></>}
-        {tab === 'settings' && <NotificationsSettingsCard />}
+        {tab === 'settings' && <><NotificationsSettingsCard /><MpesaCard /></>}
       </Suspense>
     </div>
   );

@@ -130,6 +130,9 @@ export default defineConfig({
           // 013Fixes / 26: the price form (superadmin).
           '**/PriceSettings-*.js',
           '**/adminPrices-*.js',
+          // 013Fixes / 30: the M-Pesa card (superadmin).
+          '**/MpesaCard-*.js',
+          '**/adminDaraja-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

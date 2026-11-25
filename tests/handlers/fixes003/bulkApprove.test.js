@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, phoneN, userWithClaims, teacherClaims,
   externalCalls, fakes, SAFARICOM_IP,
+  mpesaOnline,
 } from '../_worker.js';
 
 /**
@@ -26,6 +27,8 @@ beforeEach(async () => {
   await clearFirestore();
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   await setFlags(db, { 'auth.legacyStudentRead': true, 'fees.enabled': true, 'payments.daraja': true });
+  // 013Fixes / 30: the STK switch on and online (the KES 1 test passed).
+  await mpesaOnline(db);
   await db.doc('subscription/current').set({ tier: 'gold', status: 'active' });
   await db.doc('sessions/morning').set({ slug: 'morning', name: 'Morning', active: true });
 });
