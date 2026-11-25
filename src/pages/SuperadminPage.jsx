@@ -15,6 +15,8 @@ const SmsUnitsCard = lazy(() => import('@features/sms/components/SmsUnitsCard'))
 const PlanSettings = lazy(() => import('@features/admin/components/PlanSettings'));
 // 013Fixes / 18: trial length, countdown and card-renewal wait.
 const BillingSettings = lazy(() => import('@features/admin/components/BillingSettings'));
+// 013Fixes / 26: the price of each package (the shared Paystack plans).
+const PriceSettings = lazy(() => import('@features/admin/components/PriceSettings'));
 // 013Fixes / 21: every payment, and the fill-in of older in-app ones.
 const PaymentHistory = lazy(() => import('@features/admin/components/PaymentHistory'));
 
@@ -272,7 +274,7 @@ export default function SuperadminPage() {
         }
       >
         {tab === 'users' && <UserManager />}
-        {tab === 'plans' && <><PlanSettings /><BillingSettings /></>}
+        {tab === 'plans' && <><PriceSettings /><PlanSettings /><BillingSettings /></>}
         {tab === 'payments' && <PaymentHistory />}
         {tab === 'bugs' && (
           <ReportsInbox key="bug" type="bug" initialReportId={requestedTab === 'bugs' ? linkedReport : null} onCountsChange={onCountsChange} />

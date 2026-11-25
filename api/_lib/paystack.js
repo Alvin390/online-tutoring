@@ -206,6 +206,19 @@ export async function initializeTransaction(opts) {
   return paystackFetch('/transaction/initialize', { method: 'POST', body });
 }
 
+/**
+ * 013Fixes / 26: a plan's new price, for every school (the plans are shared).
+ * `update_existing_subscriptions: true` — sent explicitly — makes existing
+ * card subscriptions charge it from their next billing cycle
+ * (upgrade/paystack_docs.txt:6592-6599; evidence/paystack-update-plan-field.md).
+ */
+export async function updatePlanAmount(code, amountKes) {
+  return paystackFetch(`/plan/${encodeURIComponent(code)}`, {
+    method: 'PUT',
+    body: { amount: toSubunit(amountKes), update_existing_subscriptions: true },
+  });
+}
+
 /** 013Fixes / 25: one plan (its `amount` is in cents). Read-only. */
 export async function fetchPlan(code) {
   return paystackFetch(`/plan/${encodeURIComponent(code)}`);

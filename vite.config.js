@@ -127,6 +127,9 @@ export default defineConfig({
           '**/paymentFormat-*.js',
           // 013Fixes / 22b: plan feature and limit names (Plans and the account card).
           '**/planLabels-*.js',
+          // 013Fixes / 26: the price form (superadmin).
+          '**/PriceSettings-*.js',
+          '**/adminPrices-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

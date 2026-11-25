@@ -76,3 +76,17 @@ describe('plan cards', () => {
   });
 });
 
+
+// 013Fixes / 26: a package's price changed (the shared Paystack plans).
+describe('the new-price notice', () => {
+  it('the school\'s new price, from its next payment, by Nairobi\'s calendar', async () => {
+    await renderBilling({ scheduled: null, plan: { tier: 'gold', priceChange: { tier: 'gold', from: 9999, to: 11000, fromDate: Date.parse('2026-12-03T21:30:00Z') } } });
+    // 21:30 UTC on 3 Dec is 00:30 on 4 Dec in Nairobi.
+    expect(screen.getByTestId('price-change').textContent).toMatch(/New price: KES 11,000 a month from your next payment on 4 December 2026\./);
+  });
+
+  it('none when nothing changed', async () => {
+    await renderBilling({ scheduled: null, plan: { tier: 'gold', priceChange: null } });
+    expect(screen.queryByTestId('price-change')).toBeNull();
+  });
+});

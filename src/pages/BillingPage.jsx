@@ -17,6 +17,9 @@ import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton'
 import UsageBars from '@features/billing/usage/UsageBars';
 import { planEnd } from '@/features/billing/planEnd';
 
+/** 013Fixes / 26: "3 December 2026", Nairobi's day. */
+const formatNairobiDay = (ms) => new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' });
+
 // 013Fixes / 21: loaded only when "Show payments" is pressed.
 const SchoolPayments = lazy(() => import('@/features/billing/payments/SchoolPayments'));
 
@@ -307,6 +310,16 @@ export default function BillingPage() {
               )}
             </div>
           </div>
+
+          {/* 013Fixes / 26: the package's price changed (the Paystack plans are
+              shared); it applies from the school's next payment. */}
+          {schoolPlan?.priceChange && (
+            <div className="card-footer bg-light small" data-testid="price-change">
+              <i className="bi bi-tag me-2" aria-hidden="true" />
+              New price: <strong>{formatKes(schoolPlan.priceChange.to)}</strong> a month
+              {schoolPlan.priceChange.fromDate ? ` from your next payment on ${formatNairobiDay(schoolPlan.priceChange.fromDate)}` : ' from your next payment'}.
+            </div>
+          )}
 
           {subscription?.scheduledTierChange?.tier && (
             <div className="card-footer bg-light small d-flex flex-wrap align-items-center gap-2" data-testid="scheduled-change">

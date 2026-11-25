@@ -71,21 +71,55 @@ export async function planPrices(db = getDb(), { fetchPlanKes = paystackPlanKes,
   if (fresh) {
     const changed = !same(fresh, stored?.prices);
     const previous = changed ? (stored?.prices ?? null) : (stored?.previous ?? null);
+    // A change found here (made in another deployment, or in Paystack's own
+    // dashboard) is dated now; one made with the price form has its own date.
+    const changedAt = changed ? now : toMs(stored?.changedAt);
     if (changed) {
       try {
-        await db.doc(DOC).set({ [mode]: { prices: fresh, previous, fetchedAt: new Date(now) } }, { merge: true });
+        await db.doc(DOC).set({ [mode]: { prices: fresh, previous, fetchedAt: new Date(now), changedAt: new Date(now) } }, { merge: true });
       } catch {
         // Not stored this time; the next good read tries again.
       }
     }
-    value = { prices: fresh, previous, source: 'paystack', mode, fetchedAt: now };
+    value = { prices: fresh, previous, source: 'paystack', mode, fetchedAt: now, changedAt };
   } else if (stored) {
-    value = { prices: { ...stored.prices }, previous: stored.previous ?? null, source: 'stored', mode, fetchedAt: toMs(stored.fetchedAt) };
+    value = { prices: { ...stored.prices }, previous: stored.previous ?? null, source: 'stored', mode, fetchedAt: toMs(stored.fetchedAt), changedAt: toMs(stored.changedAt) };
   } else {
-    value = { prices: { ...FALLBACK_PRICE_KES }, previous: null, source: 'code', mode, fetchedAt: null };
+    value = { prices: { ...FALLBACK_PRICE_KES }, previous: null, source: 'code', mode, fetchedAt: null, changedAt: null };
   }
   cache = { mode, at: now, ttl: value.source === 'paystack' ? CACHE_MS : FALLBACK_CACHE_MS, value };
   return value;
+}
+
+/**
+ * 013Fixes / 26: after the price form changed a plan on Paystack — the stored
+ * copy (with what it was, when and by whom) and this isolate's cache, so this
+ * deployment shows it at once (other deployments within CACHE_MS).
+ */
+export async function recordPriceChange(db, { mode, prices, previous, actor, now = Date.now() }) {
+  await db.doc(DOC).set({
+    [mode]: { prices, previous, fetchedAt: new Date(now), changedAt: new Date(now), changedBy: actor },
+  }, { merge: true });
+  const value = { prices: { ...prices }, previous: { ...previous }, source: 'paystack', mode, fetchedAt: now, changedAt: now };
+  cache = { mode, at: now, ttl: CACHE_MS, value };
+  return value;
+}
+
+/**
+ * The school's own package's new price, for its billing page: from its next
+ * payment (the end the school's countdown shows), until it pays after the
+ * change. None for a gifted school, or when its package's price didn't change.
+ */
+export function priceChangeFor(sub, priceInfo, endsAt) {
+  const tier = sub?.tier;
+  if (!tier || sub.grantedBySuperadmin === true) return null;
+  const from = priceInfo?.previous?.[tier];
+  const to = priceInfo?.prices?.[tier];
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return null;
+  const changedAt = priceInfo.changedAt ?? null;
+  const paidAt = toMs(sub.lastPaymentAt);
+  if (changedAt != null && paidAt != null && paidAt > changedAt) return null;
+  return { tier, from, to, changedAt, fromDate: endsAt ?? toMs(sub.currentPeriodEnd) };
 }
 
 /**

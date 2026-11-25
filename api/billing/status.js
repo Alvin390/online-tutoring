@@ -1,7 +1,7 @@
 import { createHandler } from '../_lib/handler.js';
-import { planPrices } from '../_lib/planPrices.js';
+import { planPrices, priceChangeFor } from '../_lib/planPrices.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
-import { rolloverFields, resolveSubscriptionState, publicProjection } from '../_lib/subscription.js';
+import { rolloverFields, resolveSubscriptionState, publicProjection, billingWindow } from '../_lib/subscription.js';
 import { readBillingSettings } from '../_lib/billingSettings.js';
 import { isEnabled } from '../_lib/flags.js';
 import { invalidatePlanCache, schoolPlan } from '../_lib/schoolPlan.js';
@@ -28,7 +28,7 @@ export default createHandler({
     if (!(await isEnabled('billing.enabled'))) {
       // Flag off = pre-upgrade behaviour, full access, no billing gate. The
       // plan's features still apply (013Fixes / 00), so they are returned.
-      return { billingEnabled: false, subscription: null, accessGranted: true, plan: await planView(user) };
+      return { billingEnabled: false, subscription: null, accessGranted: true, plan: await planView(user, null) };
     }
 
     const db = getDb();
@@ -72,7 +72,8 @@ export default createHandler({
       accessGranted: resolved.accessGranted,
       graceEndsAt: resolved.graceEndsAt,
       reason: resolved.reason,
-      plan: await planView(user),
+      // 013Fixes / 26: with the subscription, for the new-price notice.
+      plan: await planView(user, { sub: effective, settings }),
     };
   },
 });
@@ -83,7 +84,7 @@ export default createHandler({
  * offer what the server refuses (or hide what it allows). The client keeps its
  * own copy of the shipped plans only as a stand-in until this arrives.
  */
-async function planView(user) {
+async function planView(user, school) {
   const [plan, usageSnap, priceInfo] = await Promise.all([
     schoolPlan(),
     // 013Fixes / 12: the stored usage count (phase 11), shown on the billing
@@ -102,6 +103,10 @@ async function planView(user) {
     custom: plan.custom === true,
     prices: priceInfo.prices,
     priceSource: priceInfo.source,
+    // 013Fixes / 26: "New price: KES X from your next payment on <date>".
+    priceChange: school?.sub
+      ? priceChangeFor(school.sub, priceInfo, billingWindow(school.sub, school.settings)?.endsAt ?? null)
+      : null,
     // 013Fixes / 10: whether this login is the school owner (the logins screen).
     isOwner: Boolean(user?.uid) && user.uid === plan.ownerUid,
     usage: usageView(usageSnap),
