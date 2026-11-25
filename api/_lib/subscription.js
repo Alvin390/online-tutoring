@@ -129,6 +129,25 @@ export function resolveSubscriptionState(sub, now = Date.now(), settings = BILLI
   const trialEnd = toMillis(sub.trialEndsAt);
   const graceEnd = toMillis(sub.graceEndsAt);
 
+  // 013Fixes / 20: a period paid for early (see paidWindow) begins at
+  // `nextPeriodStart` — checked before the trial or period could lock, so the
+  // school moves straight into what it paid for. The caller writes `rollover`.
+  const nextStart = toMillis(sub.nextPeriodStart);
+  if (nextStart != null && now >= nextStart
+      && (current === STATUS.TRIALING || current === STATUS.ACTIVE || current === STATUS.CANCELLED)) {
+    return {
+      ...transition(STATUS.ACTIVE, 'next_period_started', { graceEndsAt: null }),
+      changed: true,
+      rollover: {
+        // The package paid for applies with its period (a queued downgrade
+        // must not cost the school the higher package it already paid for).
+        ...(sub.nextTier ? { tier: sub.nextTier } : {}),
+        currentPeriodStart: nextStart, nextPeriodStart: null, nextTier: null,
+        trialEndsAt: null, remindersSent: [], cancelAtPeriodEnd: false,
+      },
+    };
+  }
+
   switch (current) {
     case STATUS.TRIALING: {
       if (trialEnd == null) return unchanged('trial_no_end_date');
@@ -232,7 +251,8 @@ export function billingWindow(sub, settings = BILLING_DEFAULTS) {
   const periodEnd = toMillis(sub.currentPeriodEnd);
   switch (sub.status) {
     case STATUS.TRIALING: {
-      const end = toMillis(sub.trialEndsAt) ?? periodEnd;
+      // 013Fixes / 20: a trial already paid for runs on to the paid period's end.
+      const end = (toMillis(sub.nextPeriodStart) != null ? periodEnd : null) ?? toMillis(sub.trialEndsAt) ?? periodEnd;
       return end == null ? null : { endsAt: end, countdownFrom: end - countdown, renews: false };
     }
     case STATUS.ACTIVE: {
@@ -258,6 +278,93 @@ export function billingWindow(sub, settings = BILLING_DEFAULTS) {
     default:
       return null;
   }
+}
+
+const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3 all year (no daylight saving)
+
+/**
+ * 013Fixes / 20 — one calendar month after `ms`, like Paystack's monthly
+ * cycle: the same day and time next month, by NAIROBI's calendar, clamped to
+ * a shorter month (31 Jan → 28 Feb; 29 Feb in a leap year).
+ */
+export function addCalendarMonth(ms) {
+  const local = new Date(ms + NAIROBI_OFFSET_MS);
+  const y = local.getUTCFullYear();
+  const m = local.getUTCMonth();
+  const daysInNext = new Date(Date.UTC(y, m + 2, 0)).getUTCDate();
+  const day = Math.min(local.getUTCDate(), daysInNext);
+  const next = Date.UTC(y, m + 1, day, local.getUTCHours(), local.getUTCMinutes(), local.getUTCSeconds(), local.getUTCMilliseconds());
+  return next - NAIROBI_OFFSET_MS;
+}
+
+/**
+ * 013Fixes / 20 — the window a payment buys (owner answers 7 and 8; Q6: one
+ * calendar month, no "days"). Shared by superadmin Record payment and the
+ * Paystack webhook (in-app M-Pesa and card charges):
+ *   - active, or a trial still running, or cancelled but still running: it
+ *     starts at the CURRENT END, so an early payment loses no days;
+ *   - anything else (locked, expired, a trial that has ended, a comp school,
+ *     a legacy grace, no subscription): it starts NOW.
+ * A window starting later is QUEUED, not begun: the payment writes
+ * `nextPeriodStart` (= from) and moves `currentPeriodEnd` to `to`, and the
+ * running period (its start, a trial's 100 SMS units, the usage window) goes
+ * on until resolveSubscriptionState rolls it over at `from`.
+ * @returns {{ from: number, to: number }}
+ */
+export function paidWindow(sub, now = Date.now()) {
+  let from = now;
+  if (sub && sub.grantedBySuperadmin !== true) {
+    const running = {
+      [STATUS.ACTIVE]: toMillis(sub.currentPeriodEnd),
+      [STATUS.CANCELLED]: toMillis(sub.currentPeriodEnd),
+      [STATUS.TRIALING]: toMillis(sub.trialEndsAt) ?? toMillis(sub.currentPeriodEnd),
+    }[sub.status];
+    if (running != null && running > now) from = running;
+  }
+  return { from, to: addCalendarMonth(from) };
+}
+
+/**
+ * 013Fixes / 20 — what a payment does to the subscription (Record payment
+ * and the Paystack webhook alike): the window from paidWindow; begun now, or
+ * queued behind the running period. The plan follows the package paid for,
+ * from the start of the period paid for: queued, it waits in `nextTier`
+ * until the rollover. A comp ends (the school pays now). Returns the patch
+ * and the window.
+ */
+export function paymentPatch(current, { tier, now = Date.now(), renewalMode = 'manual' }) {
+  const window = paidWindow(current, now);
+  const base = {
+    renewalMode,
+    currentPeriodEnd: new Date(window.to),
+    grantedBySuperadmin: false,
+    graceEndsAt: null,
+    paymentFailedAt: null,
+    cancelAtPeriodEnd: false,
+  };
+  if (window.from > now) {
+    // Queued: a trial stays a trial (its own SMS units) until it ends.
+    const status = current?.status === STATUS.TRIALING ? STATUS.TRIALING : STATUS.ACTIVE;
+    return { window, patch: { ...base, status, nextPeriodStart: new Date(window.from), nextTier: tier } };
+  }
+  return {
+    window,
+    patch: {
+      ...base,
+      tier,
+      nextTier: null,
+      status: STATUS.ACTIVE,
+      currentPeriodStart: new Date(window.from),
+      nextPeriodStart: null,
+      trialEndsAt: null,
+      remindersSent: [],
+    },
+  };
+}
+
+/** 013Fixes / 20: the rollover as document fields (dates for the millis). */
+export function rolloverFields(rollover) {
+  return { ...rollover, currentPeriodStart: new Date(rollover.currentPeriodStart) };
 }
 
 /** True when the teacher should retain feature access at `now`. */

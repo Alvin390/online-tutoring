@@ -1,6 +1,6 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
-import { resolveSubscriptionState, publicProjection } from '../_lib/subscription.js';
+import { rolloverFields, resolveSubscriptionState, publicProjection } from '../_lib/subscription.js';
 import { readBillingSettings } from '../_lib/billingSettings.js';
 import { isEnabled } from '../_lib/flags.js';
 import { invalidatePlanCache, schoolPlan } from '../_lib/schoolPlan.js';
@@ -51,6 +51,8 @@ export default createHandler({
       };
       if (resolved.graceEndsAt) patch.graceEndsAt = new Date(resolved.graceEndsAt);
       if (resolved.deleteDataAt) patch.dataRetentionDeleteAt = new Date(resolved.deleteDataAt);
+      // 013Fixes / 20: a period paid for early begins.
+      if (resolved.rollover) Object.assign(patch, rolloverFields(resolved.rollover));
 
       await ref.set(patch, { merge: true });
       invalidatePlanCache();
@@ -59,7 +61,9 @@ export default createHandler({
       await db.doc('subscription/public').set(publicProjection(after, settings) ?? {}, { merge: false });
     }
 
-    const effective = resolved.changed ? { ...sub, status: resolved.status } : sub;
+    const effective = resolved.changed
+      ? { ...sub, status: resolved.status, ...(resolved.rollover ? rolloverFields(resolved.rollover) : {}) }
+      : sub;
 
     return {
       billingEnabled: true,

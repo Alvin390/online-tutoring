@@ -13,3 +13,14 @@ export const saveBillingSettings = (settings) => call({ action: 'saveSettings', 
  */
 export const startSchoolTrial = ({ tier, days, payment }) =>
   call({ action: 'startTrial', tier, ...(days ? { days } : {}), ...(payment ? { payment } : {}) });
+
+/**
+ * 013Fixes / 20: a payment made to the owner directly. One calendar month:
+ * locked → from now; early → from the current end. `preview: true` returns
+ * the window ({ from, to, startsNow }) and writes nothing.
+ */
+export const recordSchoolPayment = ({ tier, amountKes, method, code, note, preview }) =>
+  call({
+    action: 'recordPayment', tier, amountKes, method,
+    ...(code ? { code } : {}), ...(note ? { note } : {}), ...(preview ? { preview: true } : {}),
+  });

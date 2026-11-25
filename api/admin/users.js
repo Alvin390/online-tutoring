@@ -394,6 +394,7 @@ export default createHandler({
             grantedBySuperadmin: true,
             renewalMode: 'manual',
             currentPeriodStart: new Date(now),
+            nextPeriodStart: null, nextTier: null, // 013Fixes / 20
             currentPeriodEnd: new Date(now + 365 * 24 * 60 * 60 * 1000),
             graceEndsAt: null,
             cancelAtPeriodEnd: false,
@@ -434,6 +435,7 @@ export default createHandler({
           status: STATUS.TRIALING,
           trialEndsAt: endsAt,
           currentPeriodStart: new Date(now),
+          nextPeriodStart: null, nextTier: null, // 013Fixes / 20
           currentPeriodEnd: endsAt,
           // NOT comped: a trial is meant to expire, so the cron must sweep it.
           grantedBySuperadmin: false,

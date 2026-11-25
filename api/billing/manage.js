@@ -65,6 +65,7 @@ export default createHandler({
         renewalMode: 'manual',
         grantedBySuperadmin: true,
         currentPeriodStart: new Date(now),
+        nextPeriodStart: null, nextTier: null, // 013Fixes / 20: no queued period under a comp
         // Deliberately far out. The cron skips grantedBySuperadmin records
         // entirely, so this date is documentation rather than an expiry.
         currentPeriodEnd: new Date(now + 365 * 24 * 60 * 60 * 1000),

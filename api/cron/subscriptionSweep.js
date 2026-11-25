@@ -4,6 +4,7 @@ import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { safeCompare } from '../_lib/crypto.js';
 import {
   resolveSubscriptionState,
+  rolloverFields,
   publicProjection,
   dueReminders,
   isDueForDeletion,
@@ -161,6 +162,8 @@ export default async function handler(req, res) {
       const patch = { status: resolved.status, updatedAt: FieldValue.serverTimestamp() };
       if (resolved.graceEndsAt) patch.graceEndsAt = new Date(resolved.graceEndsAt);
       if (resolved.deleteDataAt) patch.dataRetentionDeleteAt = new Date(resolved.deleteDataAt);
+      // 013Fixes / 20: a period paid for early begins.
+      if (resolved.rollover) Object.assign(patch, rolloverFields(resolved.rollover));
 
       await ref.set(patch, { merge: true });
       invalidatePlanCache();
@@ -188,14 +191,19 @@ export default async function handler(req, res) {
     //         the sweep.
     try {
       result.claims = await healOwnerClaims({
-        db, ref, sub, status: resolved.changed ? resolved.status : sub.status, log, requestId,
+        db, ref,
+        // 013Fixes / 20: after a rollover, the package that period paid for.
+        sub: resolved.rollover ? { ...sub, ...rolloverFields(resolved.rollover) } : sub,
+        status: resolved.changed ? resolved.status : sub.status, log, requestId,
       });
     } catch (err) {
       log.error('Claims self-heal failed', err);
     }
 
     // --- 2. Reminders (manual renewal only — see dueReminders)
-    const effective = resolved.changed ? { ...sub, status: resolved.status } : sub;
+    const effective = resolved.changed
+      ? { ...sub, status: resolved.status, ...(resolved.rollover ? rolloverFields(resolved.rollover) : {}) }
+      : sub;
     const due = dueReminders(effective, now);
 
     if (due.length > 0) {

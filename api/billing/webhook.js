@@ -12,7 +12,7 @@ import {
 import { TIER_RANK } from '../_lib/auth.js';
 import { clientIp } from '../_lib/rateLimit.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
-import { STATUS, publicProjection } from '../_lib/subscription.js';
+import { STATUS, publicProjection, paymentPatch } from '../_lib/subscription.js';
 import { readBillingSettings } from '../_lib/billingSettings.js';
 import { setUserClaims } from '../_lib/claims.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
@@ -236,7 +236,25 @@ async function processEvent({ db, event, log, requestId }) {
       const tier = paidTier;
       const renewalMode = metadata.renewalMode ?? before?.renewalMode ?? 'manual';
       const now = Date.now();
-      const periodEnd = monthFromNow(now);
+      // 013Fixes / 20: an M-Pesa (one-time) payment follows the window rule —
+      // early extends from the current end, locked starts now. A card
+      // subscription keeps Paystack's dates (subscription.create sets the end
+      // from next_payment_date), so it starts now as before.
+      const windowFields = renewalMode === 'manual'
+        ? paymentPatch(before, { tier, now, renewalMode }).patch
+        : {
+          tier,
+          status: STATUS.ACTIVE,
+          currentPeriodStart: new Date(now),
+          currentPeriodEnd: monthFromNow(now),
+          nextPeriodStart: null,
+          nextTier: null,
+          graceEndsAt: null,
+          trialEndsAt: null,
+          cancelAtPeriodEnd: false,
+          paymentFailedAt: null,
+          remindersSent: [],
+        };
 
       // Switching from a card subscription to M-Pesa. No `subscription.create`
       // fires for mobile money, so without this the old card subscription keeps
@@ -252,19 +270,13 @@ async function processEvent({ db, event, log, requestId }) {
       }
 
       patch = {
-        tier,
-        status: STATUS.ACTIVE,
         renewalMode,
         paymentChannel: data.channel ?? null,
-        currentPeriodStart: new Date(now),
-        currentPeriodEnd: periodEnd,
-        graceEndsAt: null,
-        trialEndsAt: null,
-        cancelAtPeriodEnd: false,
-        // 013Fixes / 18: a payment clears a failed one (the countdown stops).
-        paymentFailedAt: null,
-        // Reminders are per-period; clear them so the next cycle starts fresh.
-        remindersSent: [],
+        // The period (begun now or queued — then the tier waits in nextTier),
+        // with grace, a failed payment
+        // (013Fixes / 18: the countdown stops) and cancel cleared; reminders
+        // are per-period, so a period begun now clears them.
+        ...windowFields,
         paystackCustomerCode: data.customer?.customer_code ?? before?.paystackCustomerCode ?? null,
         // Only a reusable (card/bank) authorization is worth storing. Storing a
         // mobile-money one would imply a recurring capability that does not exist.
@@ -320,13 +332,13 @@ async function processEvent({ db, event, log, requestId }) {
       // The price should match the plan. A mismatch (a stale price on the
       // Paystack plan, say) is recorded loudly — but the money has moved, so
       // it is not rejected.
-      const expectedKes = TIER_PRICE_KES[patch.tier];
+      const expectedKes = TIER_PRICE_KES[patch.tier ?? patch.nextTier];
       const paidKes = typeof data.amount === 'number' ? data.amount / 100 : null;
       if (expectedKes && paidKes != null && paidKes !== expectedKes) {
-        log.warn('Charged amount does not match the tier price', { tier: patch.tier, paidKes, expectedKes });
+        log.warn('Charged amount does not match the tier price', { tier: patch.tier ?? patch.nextTier, paidKes, expectedKes });
         await tryWriteAudit(
           { action: 'billing.price_mismatch', actor: 'system:paystack', target: 'subscription/current',
-            after: { tier: patch.tier, paidKes, expectedKes },
+            after: { tier: patch.tier ?? patch.nextTier, paidKes, expectedKes },
             context: { requestId, reference: data.reference ?? null } },
           log
         );

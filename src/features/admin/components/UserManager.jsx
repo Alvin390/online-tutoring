@@ -8,6 +8,7 @@ import {
 } from '@services/api/admin';
 import UsageBars from '@features/billing/usage/UsageBars';
 import StartTrialModal from './StartTrialModal';
+import RecordPaymentModal from './RecordPaymentModal';
 import logger from '@utils/logger';
 
 /**
@@ -46,6 +47,8 @@ export default function UserManager() {
   const [busy, setBusy] = useState(false);
   // 013Fixes / 19: the school's "Start trial" form.
   const [startingTrial, setStartingTrial] = useState(false);
+  // 013Fixes / 20: "Record payment" (a school that paid the owner directly).
+  const [recordingPayment, setRecordingPayment] = useState(false);
 
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', displayName: '' });
@@ -130,12 +133,27 @@ export default function UserManager() {
             <i className="bi bi-hourglass-split me-1" aria-hidden="true" />
             Start trial
           </button>
+          <button className="btn btn-sm btn-outline-success" onClick={() => setRecordingPayment(true)} disabled={busy}>
+            <i className="bi bi-cash-coin me-1" aria-hidden="true" />
+            Record payment
+          </button>
           <button className="btn btn-sm btn-primary" onClick={() => setCreating(!creating)} disabled={busy}>
             <i className="bi bi-person-plus me-1" aria-hidden="true" />
             Add teacher
           </button>
         </div>
       </div>
+      {recordingPayment && (
+        <RecordPaymentModal
+          currentTier={subscription?.tier ?? 'gold'}
+          onClose={() => setRecordingPayment(false)}
+          onRecorded={(res) => {
+            setRecordingPayment(false);
+            showSuccess(res.window?.startsNow ? 'Payment recorded. The school is open again.' : 'Payment recorded. It starts when the current period ends.');
+            load();
+          }}
+        />
+      )}
       {startingTrial && (
         <StartTrialModal
           currentTier={subscription?.tier ?? 'gold'}

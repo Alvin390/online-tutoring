@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
+import StartTrialModal from '@/features/admin/components/StartTrialModal';
 
 /**
  * 013Fixes / 19 — superadmin "Start trial": the package (the school's
@@ -8,19 +9,22 @@ import { render, screen, fireEvent, act, cleanup, within } from '@testing-librar
  * "Start a 14-day Gold trial ending <date, time>?"
  */
 
+// Mocked up front (hoisted) and the form imported statically, so loading it
+// is not counted against a test's time limit on a busy machine.
+const api = vi.hoisted(() => ({ start: null }));
+vi.mock('@services/api/adminBilling', () => ({
+  getBillingSettings: async () => ({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 } }),
+  startSchoolTrial: (...a) => api.start(...a),
+}));
+
 let start;
 beforeEach(() => {
-  vi.resetModules();
   start = vi.fn().mockResolvedValue({ ok: true, tier: 'gold', days: 14, trialEndsAt: new Date().toISOString() });
-  vi.doMock('@services/api/adminBilling', () => ({
-    getBillingSettings: vi.fn().mockResolvedValue({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 } }),
-    startSchoolTrial: (...a) => start(...a),
-  }));
+  api.start = start;
 });
-afterEach(() => { cleanup(); vi.doUnmock('@services/api/adminBilling'); });
+afterEach(() => { cleanup(); });
 
 async function renderModal(props = {}) {
-  const { default: StartTrialModal } = await import('@/features/admin/components/StartTrialModal');
   const handlers = { onClose: vi.fn(), onStarted: vi.fn() };
   render(<StartTrialModal currentTier="gold" {...handlers} {...props} />);
   await screen.findByDisplayValue('14');
