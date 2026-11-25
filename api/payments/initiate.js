@@ -2,7 +2,7 @@ import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { z, phoneSchema, sessionSchema } from '../_lib/validate.js';
 import { authenticate } from '../_lib/auth.js';
-import { badRequest, forbidden, notFound } from '../_lib/errors.js';
+import { ApiError, badRequest, forbidden, notFound } from '../_lib/errors.js';
 import { isEnabled } from '../_lib/flags.js';
 import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { accountRef } from '../_lib/ledger.js';
@@ -15,6 +15,7 @@ import {
   callbackBaseUrl,
   isUnreachableCallback,
   stkCallbackUrl,
+  callbackModeFor,
 } from '../_lib/daraja.js';
 import { tryWriteAudit } from '../_lib/audit.js';
 import { mpesaAvailability } from '../_lib/mpesaAvailability.js';
@@ -53,13 +54,10 @@ export default createHandler({
   handle: async ({ body, req, log }) => {
     // Flag + Gold plan + credentials — the same rule that decides whether the
     // student screen shows "Pay now" at all (mpesaAvailability).
+    // 013Fixes / 30: refused for EVERY reason M-Pesa isn't available — a new
+    // reason must never fall through to a real STK push.
     const availability = await mpesaAvailability();
-    if (availability.reason === 'feature_disabled') {
-      throw forbidden('In-app payments are not available.', 'feature_disabled');
-    }
-    if (availability.reason === 'plan') {
-      throw forbidden('M-Pesa payments are not available on this plan. Please pay your teacher and submit the receipt.', 'payments_unavailable');
-    }
+    if (!availability.available) throw unavailable(availability.reason);
 
     const { session, phone } = body;
 
@@ -107,7 +105,9 @@ export default createHandler({
       );
     }
 
-    const credentials = await loadCredentials();
+    // 013Fixes / 30b: Demo → the sandbox; Live (tested) → the live keys.
+    const credentials = await loadCredentials({ environment: availability.environment });
+    const demo = availability.demo === true;
 
     if (!credentials.verifiedAt) {
       throw forbidden(
@@ -123,10 +123,11 @@ export default createHandler({
     // only if the credentials form had been submitted — with env credentials
     // this built `…/callback/`, which no route matches), and the URL is checked
     // against the rules Safaricom enforces before an STK push can go out.
-    const realCallbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db));
+    const cbMode = callbackModeFor(credentials.environment);
+    const realCallbackUrl = buildCallbackUrl(callbackBaseUrl(), await ensureCallbackSecret(db), { mode: cbMode });
     // Sandbox + localhost: Safaricom rejects a loopback CallBackURL outright,
     // so a public placeholder is sent instead (see stkCallbackUrl).
-    const { url: callbackUrl, placeholder } = stkCallbackUrl(realCallbackUrl);
+    const { url: callbackUrl, placeholder } = stkCallbackUrl(realCallbackUrl, { mode: cbMode });
     if (placeholder || isUnreachableCallback(callbackUrl)) {
       log.warn('STK callback cannot reach this machine — after paying, confirm with `npm run mpesa:reconcile`, or set DARAJA_CALLBACK_BASE_URL to an HTTPS tunnel', { placeholder });
     }
@@ -157,7 +158,10 @@ export default createHandler({
     // `mpesa/transactions/items/{id}` — four segments. A Firestore document
     // path must have an EVEN segment count; appendix A's
     // `mpesa/transactions/{id}` is three and would throw at runtime.
-    await db.doc(`mpesa/transactions/items/${checkoutRequestId}`).set({
+    // 013Fixes / 30b: a DEMO payment lives apart (mpesa/demo): nothing that
+    // posts money — the callback's payment path, the reconcile sweep — reads it.
+    await db.doc(`mpesa/${demo ? 'demo' : 'transactions'}/items/${checkoutRequestId}`).set({
+      ...(demo ? { demo: true } : {}),
       checkoutRequestId,
       merchantRequestId: response.MerchantRequestID ?? null,
       phone,
@@ -203,7 +207,19 @@ export default createHandler({
       // Surfaced so the UI can show an unmissable sandbox banner — a teacher
       // accidentally live in sandbox sees payments silently vanish.
       environment: credentials.environment,
+      demo,
       customerMessage: response.CustomerMessage ?? 'Check your phone for the M-Pesa prompt.',
     };
   },
 });
+
+function unavailable(reason) {
+  switch (reason) {
+    case 'feature_disabled': return forbidden('In-app payments are not available.', 'feature_disabled');
+    case 'plan': return forbidden('M-Pesa payments are not available on this plan. Please pay your teacher and submit the receipt.', 'payments_unavailable');
+    case 'switched_off': return forbidden('M-Pesa payments are switched off. Please pay your teacher and submit the receipt.', 'mpesa_off');
+    case 'offline': return forbidden('M-Pesa payments are not ready yet. Please pay your teacher and submit the receipt.', 'mpesa_offline');
+    case 'not_configured': return new ApiError(503, 'daraja_not_configured', 'M-Pesa payments are not set up yet.', { expose: true });
+    default: return forbidden('M-Pesa payments are not available.', 'payments_unavailable');
+  }
+}

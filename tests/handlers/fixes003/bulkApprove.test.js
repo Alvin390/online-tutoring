@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   pinEnv, installFetchGuard, call, getTestDb, clearFirestore, setFlags, phoneN, userWithClaims, teacherClaims,
   externalCalls, fakes, SAFARICOM_IP,
+  mpesaOnline,
 } from '../_worker.js';
 
 /**
@@ -26,6 +27,8 @@ beforeEach(async () => {
   await clearFirestore();
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   await setFlags(db, { 'auth.legacyStudentRead': true, 'fees.enabled': true, 'payments.daraja': true });
+  // 013Fixes / 30: the STK switch on and online (the KES 1 test passed).
+  await mpesaOnline(db);
   await db.doc('subscription/current').set({ tier: 'gold', status: 'active' });
   await db.doc('sessions/morning').set({ slug: 'morning', name: 'Morning', active: true });
 });
@@ -136,7 +139,7 @@ describe('approveReceipts', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('M-Pesa auto-unblock for students blocked by a bulk fee block (STK screen stays off)', () => {
+describe('M-Pesa auto-unblock for students blocked by a bulk fee block', () => {
   const lastStk = () => externalCalls.filter((c) => /stkpush\/v1\/processrequest/.test(c.url)).at(-1);
   const callbackBody = (id, amount, receipt) => ({ Body: { stkCallback: {
     MerchantRequestID: 'm', CheckoutRequestID: id, ResultCode: 0, ResultDesc: 'ok',
@@ -182,12 +185,13 @@ describe('M-Pesa auto-unblock for students blocked by a bulk fee block (STK scre
     expect(await student(phoneN(62))).toMatchObject({ blocked: false, feeBalance: 0 });
   });
 
-  it('the STK push screen is still commented out for the pilot, markers intact', () => {
+  // 013Fixes / 31: the pilot's commented-out panel is back, gated by the
+  // server's availability (the superadmin's switch, online, keys, Gold, flag).
+  it('the STK push screen is in the code, shown only when the server offers M-Pesa', () => {
     const screen = readFileSync(path.join(process.cwd(), 'src/features/registration/components/BlockedStudentScreen.jsx'), 'utf8');
-    for (const marker of ['STK (1/3)', 'STK (2/3)', 'STK (3/3)']) expect(screen).toContain(marker);
-    // Still commented out: no live import of the panel or the availability hook.
-    expect(screen).not.toMatch(/^import .*useMpesaAvailable/m);
-    expect(screen).not.toMatch(/^const PayNowPanel = lazy/m);
-    expect(readFileSync(path.join(process.cwd(), 'docs/STK_PUSH_PILOT.md'), 'utf8')).toMatch(/STK \(1\/3\)/);
+    expect(screen).toMatch(/^import \{ useMpesaOffer \} from/m);
+    expect(screen).toMatch(/^const PayNowPanel = lazy/m);
+    expect(screen).toMatch(/\{mpesaAvailable && blockState\.balance > 0 && \(/);
+    expect(readFileSync(path.join(process.cwd(), 'docs/STK_PUSH_PILOT.md'), 'utf8')).toMatch(/Superadmin → Settings → \*\*M-Pesa\s+payments \(STK\)\*\*/);
   });
 });

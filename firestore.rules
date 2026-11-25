@@ -620,6 +620,10 @@ service cloud.firestore {
     // 013Fixes / 25: the stored copy of the Paystack plan prices (the
     // server's fallback); the screens get prices from /api/billing/status.
     match /config/planPrices           { allow read, write: if false; }
+    // 013Fixes / 29-30: the school's M-Pesa keys (encrypted) and the STK
+    // switch and its test result: through /api/admin/daraja only.
+    match /config/darajaCredentials    { allow read, write: if false; }
+    match /config/mpesaStatus          { allow read, write: if false; }
     // 008Fixes / 07: SMS campaigns, credit, usage, pending delivery checks and
     // the setup are the server's (read through /api/messages/sms and the
     // superadmin endpoint).

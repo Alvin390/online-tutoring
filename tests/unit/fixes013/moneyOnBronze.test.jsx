@@ -10,7 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 const flags = vi.hoisted(() => ({ 'fees.enabled': true }));
 vi.mock('@shared/config/FlagsContext', () => ({ useFlag: (k) => flags[k] === true, useFlagsLoaded: () => true }));
-vi.mock('@features/payments/hooks/useMpesaAvailable', () => ({ useMpesaAvailable: () => false }));
+vi.mock('@features/payments/hooks/useMpesaAvailable', () => ({ useMpesaAvailable: () => false, useMpesaOffer: () => ({ available: false, demo: false }) }));
 
 beforeEach(() => { flags['fees.enabled'] = true; });
 

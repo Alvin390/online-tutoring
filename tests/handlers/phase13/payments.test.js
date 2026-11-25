@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import {
   pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, seedPlan,
   setFlags, phoneN, externalCalls, fakes, SAFARICOM_IP,
+  mpesaOnline,
 } from '../_worker.js';
 
 /**
@@ -29,6 +30,8 @@ beforeEach(async () => {
   (await import('../../../api/_lib/sessions.js')).__resetSessionCache();
   (await import('../../../api/_lib/daraja.js')).__resetCallbackSecretCache?.();
   await setFlags(db, { 'payments.daraja': true, 'fees.enabled': true });
+  // 013Fixes / 30: the STK switch on and online (the KES 1 test passed).
+  await mpesaOnline(db);
   // M-Pesa is a Gold feature (mpesaAvailability): this deployment is on Gold.
   await db.doc('subscription/current').set({ tier: 'gold', status: 'active' });
   (await import('../../../api/_lib/publicBootstrap.js')).invalidateBootstrap();
@@ -193,7 +196,8 @@ describe('Daraja credentials: environment only, no teacher access', () => {
     const admin = await userWithClaims('p13-pay-super', teacherClaims.superadmin);
     const status = await call('/api/daraja/credentials', { token: admin, body: { action: 'status' } });
     expect(status.status).toBe(200);
-    expect(status.body).toMatchObject({ configured: true, source: 'env', environment: 'sandbox' });
+    // 013Fixes / 30b: the card is on Live (mpesaOnline), so the server's LIVE keys.
+    expect(status.body).toMatchObject({ configured: true, source: 'env', environment: 'production' });
     expect(status.body.callbackUrl).toMatch(/\/api\/daraja\/callback\/[A-Za-z0-9_-]{22}$/);
   });
 
@@ -201,7 +205,8 @@ describe('Daraja credentials: environment only, no teacher access', () => {
     const admin = await userWithClaims('p13-pay-super', teacherClaims.superadmin);
     const save = await call('/api/daraja/credentials', { token: admin, body: payload });
     expect(save.status).toBe(409);
-    expect(save.body.error.code).toBe('managed_by_environment');
+    // 013Fixes / 29: still refused here, and it points to the superadmin M-Pesa card (live keys are saved there).
+    expect(save.body.error.code).toBe('use_mpesa_card');
     const doc = (await db.doc('integrations/daraja').get()).data() ?? {};
     expect(doc.consumerKeyEnc).toBeUndefined();
   });
@@ -261,6 +266,9 @@ describe('CallBackURL in sandbox vs live', () => {
   // public placeholder — and never the callback secret.
   it('sandbox + http://localhost: the STK push is sent with the public placeholder, no secret', async () => {
     setEnv({ PUBLIC_BASE_URL: 'http://localhost:5173' });
+    // 013Fixes / 30b: the sandbox is the card's Demo.
+    await db.doc('config/mpesaStatus').set({ mode: 'demo' }, { merge: true });
+    (await import('../../../api/_lib/mpesaStatus.js')).__resetMpesaStatus();
     await seedPayer(phoneN(40), 500);
     const res = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(40) } });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -271,17 +279,17 @@ describe('CallBackURL in sandbox vs live', () => {
 
   it('DARAJA_CALLBACK_BASE_URL (an HTTPS tunnel) is used for the callback when set', async () => {
     setEnv({ PUBLIC_BASE_URL: 'http://localhost:5173', DARAJA_CALLBACK_BASE_URL: 'https://abc.trycloudflare.com' });
+    await db.doc('config/mpesaStatus').set({ mode: 'demo' }, { merge: true });
+    (await import('../../../api/_lib/mpesaStatus.js')).__resetMpesaStatus();
     await seedPayer(phoneN(41), 500);
     await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(41) } });
     expect(lastStk().body.CallBackURL).toMatch(/^https:\/\/abc\.trycloudflare\.com\/api\/daraja\/callback\//);
   });
 
   it('live + http: refused with a clear 503, and no STK push is sent', async () => {
-    setEnv({
-      PUBLIC_BASE_URL: 'http://localhost:5173', DARAJA_MODE: 'live',
-      DARAJA_LIVE_SHORTCODE: '600000', DARAJA_LIVE_SHORTCODE_TYPE: 'paybill',
-      DARAJA_LIVE_CONSUMER_KEY: 'ck_live_harness', DARAJA_LIVE_CONSUMER_SECRET: 'cs_live_harness', DARAJA_LIVE_PASSKEY: 'pk_live_harness',
-    });
+    // 013Fixes / 30b: the card is on Live and tested (mpesaOnline, the
+    // harness's live keys); only the base URL is http.
+    setEnv({ PUBLIC_BASE_URL: 'http://localhost:5173' });
     await seedPayer(phoneN(42), 500);
     const before = stkCount();
     const res = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(42) } });
@@ -302,7 +310,7 @@ describe('M-Pesa availability follows the plan', () => {
   const stkCount = () => externalCalls.filter((c) => /processrequest/.test(c.url)).length;
 
   it('Gold: offered (bootstrap says yes) and accepted', async () => {
-    expect((await bootstrap()).payments).toEqual({ mpesa: true });
+    expect((await bootstrap()).payments).toEqual({ mpesa: true, demo: false });
     await seedPayer(phoneN(50), 500);
     expect((await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(50) } })).status).toBe(200);
   });
@@ -310,7 +318,7 @@ describe('M-Pesa availability follows the plan', () => {
   for (const tier of ['silver', 'bronze']) {
     it(`${tier}: not offered, and initiate is refused with 403 payments_unavailable (no STK push)`, async () => {
       await db.doc('subscription/current').set({ tier, status: 'active' });
-      expect((await bootstrap()).payments).toEqual({ mpesa: false });
+      expect((await bootstrap()).payments).toEqual({ mpesa: false, demo: false });
       await seedPayer(phoneN(51), 500);
       const before = stkCount();
       const res = await call('/api/payments/initiate', { body: { session: 'morning', phone: phoneN(51) } });
@@ -322,22 +330,23 @@ describe('M-Pesa availability follows the plan', () => {
 
   it('no subscription record at all: not offered', async () => {
     await db.doc('subscription/current').delete();
-    expect((await bootstrap()).payments).toEqual({ mpesa: false });
+    expect((await bootstrap()).payments).toEqual({ mpesa: false, demo: false });
   });
 
   it('Gold but locked (billing on): not offered', async () => {
     await setFlags(db, { 'payments.daraja': true, 'fees.enabled': true, 'billing.enabled': true });
     await db.doc('subscription/current').set({ tier: 'gold', status: 'locked' });
-    expect((await bootstrap()).payments).toEqual({ mpesa: false });
+    expect((await bootstrap()).payments).toEqual({ mpesa: false, demo: false });
   });
 
   it('Gold but no credentials for the mode: not offered (no button that would fail)', async () => {
-    const saved = process.env.DARAJA_SANDBOX_CONSUMER_KEY;
-    delete process.env.DARAJA_SANDBOX_CONSUMER_KEY;
+    // 013Fixes / 30b: the card is on Live, so the live keys are the ones that matter.
+    const saved = process.env.DARAJA_LIVE_CONSUMER_KEY;
+    delete process.env.DARAJA_LIVE_CONSUMER_KEY;
     try {
-      expect((await bootstrap()).payments).toEqual({ mpesa: false });
+      expect((await bootstrap()).payments).toEqual({ mpesa: false, demo: false });
     } finally {
-      process.env.DARAJA_SANDBOX_CONSUMER_KEY = saved;
+      process.env.DARAJA_LIVE_CONSUMER_KEY = saved;
     }
   });
 

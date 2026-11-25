@@ -19,7 +19,18 @@ export const MAX_ATTACHMENTS = 3;
 export const MAX_FULL_BYTES = 185_000;
 export const MAX_THUMB_BYTES = 40_000;
 export const MAX_EMAIL_ATTEMPTS = 8;
-export const DEFAULT_RECIPIENT = 'alvinmk06@gmail.com';
+/**
+ * Where report emails go is the superadmin's SETTING (config/notifications.
+ * reportRecipient, Superadmin → Settings). The first time it is read with no
+ * address, it is seeded from the REPORT_RECIPIENT environment value when one
+ * is set. No address is written into the code (013Fixes / 32).
+ */
+export function defaultRecipient() {
+  const value = String(process.env.REPORT_RECIPIENT ?? '').trim().toLowerCase();
+  return value || null;
+}
+
+export const NO_RECIPIENT_MESSAGE = 'No address to send reports to yet: set one on Superadmin → Settings.';
 
 export const statusesFor = (type) => (type === 'bug' ? BUG_STATUSES : FEATURE_STATUSES);
 
@@ -86,7 +97,11 @@ export async function getNotificationSettings(db) {
   const snap = await ref.get();
   if (snap.exists && snap.data().reportRecipient) return snap.data();
 
-  const defaults = { reportRecipient: DEFAULT_RECIPIENT, createdAt: new Date() };
+  const fallback = defaultRecipient();
+  // Nothing set anywhere: reports are still saved; emails wait for an address.
+  if (!fallback) return { ...(snap.exists ? snap.data() : {}), reportRecipient: null };
+
+  const defaults = { reportRecipient: fallback, createdAt: new Date() };
   try {
     await ref.create(defaults);
   } catch (err) {
@@ -201,6 +216,13 @@ export async function sendReportEmail(db, reportId, { log } = {}) {
 
   try {
     const settings = await getNotificationSettings(db);
+    if (!settings.reportRecipient) {
+      await ref.set({
+        email: { status: 'needs_attention', attempts: attempts - 1, errorCode: 'no_recipient', lastError: NO_RECIPIENT_MESSAGE, nextAttemptAt: null },
+      }, { merge: true });
+      log?.warn?.('Report email skipped: no recipient set', { number: report.number });
+      return { sent: false, code: 'no_recipient' };
+    }
     const email = buildReportEmail(
       { ...report, responseDueAtMs: report.responseDueAt?.toMillis?.() ?? Number(report.responseDueAt) },
       { baseUrl: process.env.PUBLIC_BASE_URL }

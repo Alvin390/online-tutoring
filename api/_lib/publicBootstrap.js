@@ -45,7 +45,8 @@ async function load() {
       return out;
     })
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
-  return { flags, sessions, payments: { mpesa: mpesa.available } };
+  // 013Fixes / 30b: `demo` — the screen says a demo payment doesn't pay fees.
+  return { flags, sessions, payments: { mpesa: mpesa.available, demo: mpesa.available && mpesa.demo === true } };
 }
 
 /** The cached payload, reloading it when older than TTL_MS. */

@@ -45,7 +45,10 @@ const STAGE_COPY = {
   failed: 'The payment did not go through.',
 };
 
-export default function PayNowPanel({ session, phone, balance, onPaid }) {
+// 013Fixes / 30b: the card's Demo (sandbox). Said before paying and after.
+export const DEMO_FEES = "This doesn't pay your fees. Pay your teacher as usual.";
+
+export default function PayNowPanel({ session, phone, balance, onPaid, demo = false }) {
   const [stage, setStage] = useState('idle');
   const [amount, setAmount] = useState(String(balance ?? ''));
   const [payerPhone, setPayerPhone] = useState(phone ?? '');
@@ -76,6 +79,16 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
     async (id) => {
       try {
         const result = await getPaymentStatus(id, phone);
+
+        if (result.status === 'success' && result.demo === true) {
+          // A demo payment: the flow ran, but fees and the block are untouched,
+          // so nothing re-checks or redirects.
+          stopPolling();
+          setStage('success');
+          setReceipt(result.mpesaReceipt ?? null);
+          setMessage(`Demo payment received. ${DEMO_FEES}`);
+          return true;
+        }
 
         if (result.status === 'success') {
           stopPolling();
@@ -174,8 +187,15 @@ export default function PayNowPanel({ session, phone, balance, onPaid }) {
         Pay with M-Pesa
       </h4>
 
+      {/* 013Fixes / 30b: Demo, said before anything is pressed. */}
+      {demo && (
+        <div className="alert alert-warning py-2 px-3 small mb-3" role="alert" data-testid="pay-now-demo">
+          <strong>Demo:</strong> this doesn&apos;t pay your fees. Pay your teacher as usual.
+        </div>
+      )}
+
       {/* Unmissable sandbox warning. */}
-      {environment === 'sandbox' && (
+      {!demo && environment === 'sandbox' && (
         <div className="alert alert-warning py-2 px-3 small mb-3" role="alert">
           <strong>Test mode.</strong> This is a sandbox payment — no real money moves.
         </div>

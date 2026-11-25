@@ -3,7 +3,10 @@ import { createLogger } from '../../_lib/log.js';
 import { readRawBody } from '../../_lib/handler.js';
 import { getDb, FieldValue } from '../../_lib/firebaseAdmin.js';
 import { safeCompare } from '../../_lib/crypto.js';
-import { isSafaricomIp, parseCallbackMetadata, interpretResultCode, expectedCallbackSecret } from '../../_lib/daraja.js';
+import {
+  isSafaricomIp, parseCallbackMetadata, interpretResultCode, expectedCallbackSecret, loadCredentials, credentialsFingerprint,
+} from '../../_lib/daraja.js';
+import { settleTest } from '../../_lib/mpesaStatus.js';
 import { fromDarajaAmount, parseDarajaTimestamp } from '../../_lib/money.js';
 import { clientIp } from '../../_lib/rateLimit.js';
 import { postEntry, fillMissingReference } from '../../_lib/ledger.js';
@@ -105,6 +108,36 @@ export default async function handler(req, res) {
     const txSnap = await txRef.get();
 
     if (!txSnap.exists) {
+      // 013Fixes / 30: the superadmin's KES 1 test push lives apart from real
+      // payments (mpesa/tests), so it is settled here and never reaches the
+      // ledger code below.
+      const testSnap = await db.doc(`mpesa/tests/items/${checkoutRequestId}`).get();
+      if (testSnap.exists) {
+        // 013Fixes / 30b: tested only if the live keys in use are the ones tested.
+        const live = await loadCredentials({ environment: 'production' }).catch(() => null);
+        const settled = await settleTest(db, {
+          checkoutRequestId, resultCode: callback.ResultCode, resultDesc: callback.ResultDesc ?? null,
+          currentFingerprint: credentialsFingerprint(live),
+        });
+        log.info('M-Pesa test push answered', { tested: settled.tested, applied: settled.applied });
+        return res.status(200).json(ACCEPTED);
+      }
+      // 013Fixes / 30b: a DEMO payment (sandbox): its outcome is recorded for
+      // the student's screen; fees and blocks are never touched.
+      const demoRef = db.doc(`mpesa/demo/items/${checkoutRequestId}`);
+      const demoSnap = await demoRef.get();
+      if (demoSnap.exists) {
+        if (demoSnap.data().status === 'pending') {
+          const outcome = interpretResultCode(callback.ResultCode);
+          const meta = outcome.status === 'success' ? parseCallbackMetadata(callback) : {};
+          await demoRef.set({
+            status: outcome.status, resultCode: callback.ResultCode ?? null, resultDesc: callback.ResultDesc ?? null,
+            mpesaReceipt: meta.MpesaReceiptNumber ?? null, completedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+        log.info('M-Pesa demo payment answered (no fees touched)');
+        return res.status(200).json(ACCEPTED);
+      }
       // A callback for a transaction we never initiated. Recorded as unmatched
       // for the manual reconciliation UI rather than dropped — this is exactly
       // the case a teacher needs to be able to fix by hand.

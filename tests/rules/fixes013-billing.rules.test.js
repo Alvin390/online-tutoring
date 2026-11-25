@@ -78,3 +78,22 @@ describe('config/planPrices is closed to every client', () => {
     }
   });
 });
+
+/** 013Fixes / 29-30 — the school's M-Pesa keys and the STK switch are the server's. */
+describe('config/darajaCredentials and config/mpesaStatus are closed to every client', () => {
+  beforeEach(async () => {
+    await seed(env, 'config/darajaCredentials', { live: { consumerKey: 'v1.x.y.z' } });
+    await seed(env, 'config/mpesaStatus', { mode: 'live', testedFingerprint: 'f' });
+  });
+
+  it('nobody reads or writes them', async () => {
+    for (const db of [anon(env), teacher(env), superadmin(env)]) {
+      for (const path of ['config/darajaCredentials', 'config/mpesaStatus']) {
+        // eslint-disable-next-line no-await-in-loop
+        await assertFails(getDoc(doc(db, path)));
+        // eslint-disable-next-line no-await-in-loop
+        await assertFails(setDoc(doc(db, path), { online: true }));
+      }
+    }
+  });
+});

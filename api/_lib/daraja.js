@@ -1,8 +1,9 @@
 import { getDb } from './firebaseAdmin.js';
-import { randomToken } from './crypto.js';
+import { randomToken, sha256 } from './crypto.js';
 import { ApiError } from './errors.js';
-import { darajaMode, darajaEnvironment, darajaVar } from './mode.js';
+import { darajaMode, darajaEnvironment, darajaVar, darajaVarFor } from './mode.js';
 import { countExternalSubrequest } from './firestoreRest.js';
+import { savedLiveKeys } from './darajaKeys.js';
 
 /**
  * M-Pesa Daraja client — Phase 09.
@@ -137,18 +138,21 @@ export function toDarajaPhone(phone) {
  * Returns null unless EVERY field for the active mode is present — a partial
  * set would fail against Safaricom with a confusing error.
  */
-function credentialsFromEnv() {
-  const consumerKey = darajaVar('DARAJA_CONSUMER_KEY');
-  const consumerSecret = darajaVar('DARAJA_CONSUMER_SECRET');
-  const passkey = darajaVar('DARAJA_PASSKEY');
-  const shortCode = darajaVar('DARAJA_SHORTCODE');
+function credentialsFromEnv(environment = null) {
+  // 013Fixes / 30b: an explicit environment reads its exact split names; none
+  // (old callers) keeps the DARAJA_MODE behaviour.
+  const read = environment ? (base) => darajaVarFor(base, environment) : darajaVar;
+  const consumerKey = read('DARAJA_CONSUMER_KEY');
+  const consumerSecret = read('DARAJA_CONSUMER_SECRET');
+  const passkey = read('DARAJA_PASSKEY');
+  const shortCode = read('DARAJA_SHORTCODE');
 
   if (!consumerKey || !consumerSecret || !passkey || !shortCode) return null;
 
   return {
     shortCode: String(shortCode),
-    shortCodeType: darajaVar('DARAJA_SHORTCODE_TYPE') === 'paybill' ? 'paybill' : 'till',
-    environment: darajaEnvironment(),
+    shortCodeType: read('DARAJA_SHORTCODE_TYPE') === 'paybill' ? 'paybill' : 'till',
+    environment: environment ?? darajaEnvironment(),
     consumerKey,
     consumerSecret,
     passkey,
@@ -160,19 +164,46 @@ function credentialsFromEnv() {
 }
 
 /**
- * The Daraja credentials — from the ENVIRONMENT only (Cloudflare Worker
- * variables/secrets in production, `.dev.vars` locally).
+ * 013Fixes / 29: the school's saved LIVE keys (superadmin → M-Pesa payments,
+ * encrypted; darajaKeys.js), in live mode only.
+ */
+async function credentialsFromStore(environment) {
+  if (environment !== 'production') return null;
+  const saved = await savedLiveKeys();
+  if (!saved) return null;
+  return {
+    shortCode: String(saved.shortCode),
+    shortCodeType: saved.shortCodeType,
+    environment: 'production',
+    consumerKey: saved.consumerKey,
+    consumerSecret: saved.consumerSecret,
+    passkey: saved.passkey,
+    // Whether they WORK is the KES 1 test's job (phase 30: `online`).
+    verifiedAt: saved.savedAt ? new Date(saved.savedAt) : new Date(),
+    source: 'stored',
+  };
+}
+
+/**
+ * The Daraja credentials.
  *
- * Phase 13 decision: the operator supplies the till and keys; teachers never
- * see or enter them. The in-app credentials form is gone, the save endpoint
- * refuses, and the old Firestore-stored copy (`integrations/daraja`, encrypted)
- * is no longer read. That document still holds the callback secret, which is
- * not a credential.
+ * 013Fixes / 29 (owner answer 5, round 3): in LIVE mode, the school's keys
+ * saved on the superadmin page come first; the ENVIRONMENT (Cloudflare Worker
+ * variables/secrets in production, `.dev.vars` locally) is the fallback, so a
+ * deployment set up the Phase 13 way keeps working. The sandbox always uses
+ * the environment's sandbox keys. Teachers never see or enter keys. The old
+ * Firestore copy (`integrations/daraja`) is still not read for keys; it holds
+ * the callback secret, which is not a credential.
  *
  * `DARAJA_MODE` selects the sandbox or live set (see mode.js).
  */
-export async function loadCredentials() {
-  const fromEnv = credentialsFromEnv();
+export async function loadCredentials({ environment = darajaEnvironment() } = {}) {
+  // 013Fixes / 30b: the CARD's mode decides the environment (Demo → sandbox,
+  // Live → production); callers pass it. Production: the saved live keys
+  // first, then the server's live keys. Sandbox: the server's sandbox keys.
+  const fromStore = await credentialsFromStore(environment);
+  if (fromStore) return fromStore;
+  const fromEnv = credentialsFromEnv(environment);
   if (fromEnv) return fromEnv;
 
   throw new ApiError(
@@ -181,15 +212,30 @@ export async function loadCredentials() {
     'M-Pesa payments are not set up yet.',
     {
       expose: true,
-      cause: new Error(`No DARAJA_${darajaMode() === 'live' ? 'LIVE' : 'SANDBOX'}_* credentials in the environment`),
+      cause: new Error(`No DARAJA_${environment === 'production' ? 'LIVE' : 'SANDBOX'}_* credentials`),
     }
   );
 }
 
-/** Where the active credentials come from: 'env', or null when not set. */
-export async function credentialSource() {
-  return credentialsFromEnv() ? 'env' : null;
+/** Where the credentials for `environment` come from: 'stored', 'env', or null when not set. */
+export async function credentialSource({ environment = darajaEnvironment() } = {}) {
+  if (await credentialsFromStore(environment)) return 'stored';
+  return credentialsFromEnv(environment) ? 'env' : null;
 }
+
+/**
+ * 013Fixes / 30b: a fingerprint of a credential set (a hash, never the values).
+ * Live is "tested" only while the keys in use still have the fingerprint the
+ * confirmed KES 1 test was made with — so any change to them (saved, removed,
+ * or the server's live keys) makes it untested again.
+ */
+export function credentialsFingerprint(c) {
+  if (!c) return null;
+  return sha256([c.environment, c.shortCode, c.shortCodeType, c.consumerKey, c.consumerSecret, c.passkey].join('|'));
+}
+
+/** The callback-URL mode for an environment ('live' needs HTTPS). */
+export const callbackModeFor = (environment) => (environment === 'production' ? 'live' : 'sandbox');
 
 /** Whether env credentials are active — the form must not offer to save then. */
 export function hasEnvCredentials() {

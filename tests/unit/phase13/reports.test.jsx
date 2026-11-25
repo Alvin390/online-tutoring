@@ -230,7 +230,7 @@ describe('superadmin inbox', () => {
 
   it('the recipient form validates before saving', async () => {
     const api = {
-      getNotificationSettings: vi.fn().mockResolvedValue({ reportRecipient: 'alvinmk06@gmail.com', gmail: { configured: true, sender: 's@example.com' } }),
+      getNotificationSettings: vi.fn().mockResolvedValue({ reportRecipient: 'owner@example.com', gmail: { configured: true, sender: 's@example.com' } }),
       setReportRecipient: vi.fn().mockResolvedValue({ ok: true, reportRecipient: 'new@example.com' }),
       sendTestEmail: vi.fn(),
     };
@@ -238,7 +238,7 @@ describe('superadmin inbox', () => {
     const { default: Card } = await import('@features/reports/components/NotificationsSettingsCard');
     render(<Card />);
     const input = await screen.findByLabelText('Send reports to');
-    expect(input).toHaveValue('alvinmk06@gmail.com');
+    expect(input).toHaveValue('owner@example.com');
 
     fireEvent.change(input, { target: { value: 'not-an-email' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

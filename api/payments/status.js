@@ -35,11 +35,14 @@ export default createHandler({
     }
 
     const db = getDb();
-    const snap = await db.doc(`mpesa/transactions/items/${body.checkoutRequestId}`).get();
+    let snap = await db.doc(`mpesa/transactions/items/${body.checkoutRequestId}`).get();
+    // 013Fixes / 30b: a demo payment (sandbox) lives apart.
+    if (!snap.exists) snap = await db.doc(`mpesa/demo/items/${body.checkoutRequestId}`).get();
 
     if (!snap.exists) throw notFound('That payment could not be found.');
 
     const tx = snap.data();
+    const demo = tx.demo === true;
 
     // Object-level check: a student may only poll their OWN payment. Without
     // it, a CheckoutRequestID would be a lookup key for anyone else's payment
@@ -71,7 +74,9 @@ export default createHandler({
       amount: tx.expectedAmount ?? null,
       receivedAmount: tx.receivedAmount ?? null,
       mpesaReceipt: tx.mpesaReceipt ?? null,
-      balanceAfter: tx.balanceAfter ?? null,
+      // A demo payment never changes the balance.
+      balanceAfter: demo ? (tx.balanceAtInitiation ?? null) : (tx.balanceAfter ?? null),
+      demo,
       // The user-facing wording comes from the code table, so a cancelled
       // prompt reads as cancelled rather than as an error.
       message: interpreted?.userFacing ?? null,

@@ -33,6 +33,8 @@ export const TEST_ENV = Object.freeze({
   PUBLIC_BASE_URL: 'https://validation.example',
   CRON_SECRET: 'test-cron-secret',
   APP_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+  // 013Fixes / 32: the first-time report recipient comes from the environment (placeholder).
+  REPORT_RECIPIENT: 'reports.owner@harness.example',
   PAYSTACK_MODE: 'test',
   PAYSTACK_SECRET_KEY_TEST: 'sk_test_harness_only',
   PAYSTACK_PLAN_BRONZE_TEST: 'PLN_bronze',
@@ -45,6 +47,12 @@ export const TEST_ENV = Object.freeze({
   DARAJA_SANDBOX_CONSUMER_SECRET: 'cs_harness',
   DARAJA_SANDBOX_PASSKEY: 'pk_harness',
   DARAJA_CALLBACK_IPS: '196.201.214.200',
+  // 013Fixes / 30b: placeholder LIVE keys (the card's Live mode; never real).
+  DARAJA_LIVE_SHORTCODE: '600123',
+  DARAJA_LIVE_SHORTCODE_TYPE: 'till',
+  DARAJA_LIVE_CONSUMER_KEY: 'ck_live_harness',
+  DARAJA_LIVE_CONSUMER_SECRET: 'cs_live_harness',
+  DARAJA_LIVE_PASSKEY: 'pk_live_harness',
   SUBREQUEST_BUDGET: '200',
   GMAIL_CLIENT_ID: 'gmail-client-harness',
   GMAIL_CLIENT_SECRET: 'gmail-secret-harness',
@@ -144,7 +152,8 @@ export function installFetchGuard() {
 
     if (hostname === '127.0.0.1' || hostname === 'localhost') return realFetch(input, init);
 
-    const call = { url, method: init.method ?? 'GET', body: parseBody(init.body) };
+    // 013Fixes / 29: headers too (a test checks which keys signed in to M-Pesa).
+    const call = { url, method: init.method ?? 'GET', body: parseBody(init.body), headers: init.headers ?? {} };
     externalCalls.push(call);
 
     if (hostname.endsWith('safaricom.co.ke')) {
@@ -363,6 +372,18 @@ export async function setFlags(db, flags) {
   await db.doc('config/flags').set(flags);
   const mod = await import('../../api/_lib/flags.js');
   mod.__resetFlagCache?.();
+}
+
+/**
+ * 013Fixes / 30b: M-Pesa (STK) on LIVE and TESTED (the KES 1 test confirmed
+ * with the live keys in use — here the placeholder DARAJA_LIVE_* above), for
+ * suites that start real payments.
+ */
+export async function mpesaOnline(db) {
+  const daraja = await import('../../api/_lib/daraja.js');
+  const live = await daraja.loadCredentials({ environment: 'production' });
+  await db.doc('config/mpesaStatus').set({ mode: 'live', testedFingerprint: daraja.credentialsFingerprint(live), testCheckoutId: null });
+  (await import('../../api/_lib/mpesaStatus.js')).__resetMpesaStatus();
 }
 
 /** Deletes every document in the emulator's default database for PROJECT. */

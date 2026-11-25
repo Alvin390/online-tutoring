@@ -39,7 +39,7 @@ describe('GET /api/public/bootstrap', () => {
     const res = await call('/api/public/bootstrap', { method: 'GET' });
     expect(res.status).toBe(200);
     expect(Object.keys(res.body).sort()).toEqual(['flags', 'payments', 'sessions']);
-    expect(res.body.payments).toEqual({ mpesa: false }); // flag off in this suite
+    expect(res.body.payments).toEqual({ mpesa: false, demo: false }); // flag off in this suite
     expect(res.body.flags['fees.enabled']).toBe(true);
     expect(res.body.sessions.map((s) => s.slug)).toEqual(['morning', 'evening']);
     expect(Object.keys(res.body.sessions[0]).sort())
