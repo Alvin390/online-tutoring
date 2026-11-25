@@ -66,53 +66,8 @@ describe('code-first registration', { timeout: 20_000 }, () => {
   });
 });
 
-describe('fix my number', { timeout: 20_000 }, () => {
-  // 014Fixes / 04: "Use my real number" left the code step; phase 05 brings
-  // it back as "That phone isn't near me" (tests/unit/fixes014/differentNumber.test.jsx).
-  it('registered before with another number: by name and class, moved to the number typed', async () => {
-    const { api } = await renderSessionPage({
-      checkinCard: probeCard, flags: ON, classes: ['Form 3', 'Grade 8'],
-      api: {
-        checkinStudent: vi.fn().mockResolvedValue({ exists: false, student: null }),
-        fixNumberConfirm: vi.fn().mockResolvedValue({ ok: true, phone: PHONE, ticket: 'v1.fix', next: 'checkin', numberKind: 'student' }),
-      },
-    });
-    await click('Check in');
-    await click('Register'); // 014Fixes / 07: N1 first (this link goes in phase 08)
-    await click('Registered before with a different phone number? Find your registration');
-    const fix = await screen.findByTestId('fix-number');
-    expect(fix.textContent).toMatch(/move your registration to the number ending in 009/);
-    await type('Your full name (as you registered)', 'Wanjiru');
-    await click('Send me a code');
-    expect((await within(fix).findByRole('alert')).textContent).toBe('Enter your full name, as you registered.');
-    await type('Your full name (as you registered)', 'Wanjiru Akinyi');
-    await act(async () => { fireEvent.change(screen.getByLabelText('Your class'), { target: { value: 'Form 3' } }); });
-    await click('Send me a code');
-    expect(api.fixNumberRequest).toHaveBeenCalledWith('evening', PHONE, { studentName: 'Wanjiru Akinyi', class: 'Form 3' });
-    await type('Code', '654321');
-    await click('Confirm');
-    expect((await screen.findByTestId('notice')).textContent).toMatch(/now the one ending in 009\. Check in with your admission number and this phone/);
-    expect(screen.getByTestId('refill').textContent).toBe(PHONE);
-  });
-
-  it('the server\'s refusal shows in the step (e.g. not found)', async () => {
-    await renderSessionPage({
-      checkinCard: probeCard, flags: ON, classes: ['Form 3'],
-      api: {
-        checkinStudent: vi.fn().mockResolvedValue({ exists: false, student: null }),
-        fixNumberRequest: vi.fn().mockRejectedValue(refusal('not_found', "We couldn't find you. Check the details, or ask your teacher.", 404)),
-      },
-    });
-    await click('Check in');
-    await click('Register'); // 014Fixes / 07: N1 first (this link goes in phase 08)
-    await click('Registered before with a different phone number? Find your registration');
-    await type('Your full name (as you registered)', 'Wanjiru Akinyi');
-    await act(async () => { fireEvent.change(screen.getByLabelText('Your class'), { target: { value: 'Form 3' } }); });
-    await click('Send me a code');
-    expect((await screen.findByRole('alert')).textContent).toBe("We couldn't find you. Check the details, or ask your teacher.");
-  });
-
-});
+// 014Fixes / 08: "registered before with another number" (by name and class)
+// is gone; "That phone isn't near me" replaces it (fixes014/differentNumber).
 
 // 014Fixes: one switch (checkin.admissionNumbers), and registration is
 // always code first with it on — the old "flag off" path is gone.

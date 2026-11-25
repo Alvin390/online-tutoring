@@ -24,12 +24,6 @@ import RetryWaitNotice from './RetryWaitNotice';
 // normally ready before the lookup answers.
 const loadRegistrationForm = () => import('./RegistrationForm');
 const RegistrationForm = lazy(loadRegistrationForm);
-// 008Fixes / 04: the registration code step and "registered before with a
-// different number" (009Fixes) — loaded only when a student reaches them.
-// (014Fixes / 04: the check-in first-time steps moved to ./numbers.)
-const loadAdmissionSteps = () => import('./AdmissionSteps');
-// 009Fixes / 03: "registered before with a different number" (014Fixes / 08 removes it).
-const FixNumberByName = lazy(() => loadAdmissionSteps().then((mod) => ({ default: mod.FixNumberByName })));
 // 014Fixes: the admission-number steps (type your number; confirm the phone;
 // the number given) — one lazy chunk, prefetched when a phone is submitted.
 const loadNumberSteps = () => import('./numbers');
@@ -175,12 +169,6 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
     setStep('checkin');
   };
 
-  /** 009Fixes / 03: the record moved to the real number — check in with it. */
-  const numberFixed = (newPhone, notice) => {
-    setNumbersSeen(true);
-    backToCard(notice, newPhone);
-  };
-
   /**
    * 008Fixes / 04: a check-in that answered with an admission-number step or
    * refusal (useRegistration ADMISSION_CODES). Steps lead on; refusals go
@@ -247,10 +235,7 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
   const handleCheckin = async (phone, number = '') => {
     addFlowBreadcrumb('action', { action: 'checkin', ...numberShape(phone) });
     loadRegistrationForm().catch(() => {}); // prefetch; a failure retries on render
-    if (numbers) {
-      loadAdmissionSteps().catch(() => {});
-      loadNumberSteps().catch(() => {});
-    }
+    if (numbers) loadNumberSteps().catch(() => {});
     const result = settle(await checkStudent(phone, number));
     if (!result) return;
     if (result.admission) { followAdmission(result); return; }
@@ -512,14 +497,6 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
 
               {(step === GATE.REGISTER || step === 'registerCode') && (
                 <Suspense key="register" fallback={stepFallback}>
-                  {/* 009Fixes / 03: registered before with a number that never worked. */}
-                  {numbers && step === GATE.REGISTER && (
-                    <p className="text-center small mb-3">
-                      <button type="button" className="btn btn-link text-white p-0" onClick={() => setStep('fixByName')}>
-                        Registered before with a different phone number? Find your registration
-                      </button>
-                    </p>
-                  )}
                   {/* 009Fixes / 01: the form stays mounted (hidden) under its code step. */}
                   <div hidden={step === 'registerCode'}>
                     <RegistrationForm
@@ -579,18 +556,6 @@ export default function SessionPage({ session, label, icon, gradient, schedule =
                     session={label}
                     afterApproval={requireApproval}
                     onDone={() => handled('checkin', handleCheckin)(registered.phone, registered.display)}
-                  />
-                </Suspense>
-              )}
-
-              {step === 'fixByName' && (
-                <Suspense key="fixByName" fallback={stepFallback}>
-                  <FixNumberByName
-                    session={session}
-                    phone={phoneNumber}
-                    classes={classes}
-                    onFixed={numberFixed}
-                    onBack={() => setStep(GATE.REGISTER)}
                   />
                 </Suspense>
               )}

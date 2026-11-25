@@ -62,16 +62,15 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     registerStudentApi: vi.fn().mockResolvedValue({ ok: true, student: { studentName: 'New', approvalStatus: 'pending', blocked: false } }),
     // 008Fixes / 04: confirming the phone and choosing a number.
     requestCode: vi.fn().mockResolvedValue({ ok: true, deliveryChannel: 'sms', expiresInSeconds: 600, retryAfterSeconds: 60 }),
-    verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.ticket', next: 'chooseNumber', numberKind: 'student' }),
+    verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.ticket', next: 'assignNumber', numberKind: 'student' }),
     checkNumber: vi.fn().mockResolvedValue({ status: 'free', message: 'Available' }),
-    chooseNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '4071', display: '4071' }),
     // 014Fixes / 04: the number the school gives.
     assignNumber: vi.fn().mockResolvedValue({ ok: true, kind: 'student', number: '7319', display: '7319' }),
     // 014Fixes / 07: the settings re-read when an answer looks out of date.
     getPublicBootstrap: vi.fn().mockResolvedValue({ flags: {}, sessions: [] }),
     // 009Fixes / 03: fix my number.
     fixNumberRequest: vi.fn().mockResolvedValue({ ok: true, deliveryChannel: 'sms', retryAfterSeconds: 60 }),
-    fixNumberConfirm: vi.fn().mockResolvedValue({ ok: true, phone: '+254733000007', ticket: 'v1.fix', next: 'chooseNumber', numberKind: 'student' }),
+    fixNumberConfirm: vi.fn().mockResolvedValue({ ok: true, phone: '+254733000007', ticket: 'v1.fix', next: 'assignNumber', numberKind: 'student' }),
     ...overrides,
   };
   const toast = { showError: vi.fn(), showSuccess: vi.fn() };
@@ -88,7 +87,6 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
     requestCode: (...a) => api.requestCode(...a),
     verifyCode: (...a) => api.verifyCode(...a),
     checkNumber: (...a) => api.checkNumber(...a),
-    chooseNumber: (...a) => api.chooseNumber(...a),
     assignNumber: (...a) => api.assignNumber(...a),
     fixNumberRequest: (...a) => api.fixNumberRequest(...a),
     fixNumberConfirm: (...a) => api.fixNumberConfirm(...a),
@@ -99,7 +97,7 @@ export async function renderSessionPage({ api: overrides = {}, requireApproval =
   }));
   vi.doMock('@/context/ToastContext', () => ({ useToast: () => toast, useOptionalToast: () => null }));
   vi.doMock('@utils/analytics', () => ({ trackRegistration: vi.fn(), trackZoomRedirect: vi.fn() }));
-  // 009Fixes: `flags` turns on others (e.g. checkin.admissionNumbers, student.fixNumber).
+  // 009Fixes: `flags` turns on others (e.g. checkin.admissionNumbers).
   vi.doMock('@shared/config/FlagsContext', () => ({
     useFlag: (key) => (key === 'registration.requireApproval' ? requireApproval : flags[key] === true),
     flagsStore: { setFromRemote: vi.fn() },

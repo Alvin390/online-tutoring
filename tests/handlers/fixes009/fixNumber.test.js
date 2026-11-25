@@ -90,40 +90,22 @@ describe('by the number they registered with', () => {
   });
 });
 
-describe('by name and class (forgot the number they typed)', () => {
-  it('the one never-confirmed record with that name (fonts, case and order ignored) moves', async () => {
-    await seed(P(5), { studentName: '𝐖𝐚𝐧𝐣𝐢𝐫𝐮 Akinyi Moraa' });
-    const asked = await fix({ action: 'request', studentName: 'moraa wanjiru akinyi', class: 'Form 3', newPhone: P(6) });
-    expect(asked.status).toBe(200);
-    const done = await fix({ action: 'confirm', studentName: 'moraa wanjiru akinyi', class: 'Form 3', newPhone: P(6), code: lastCode() });
-    expect(done.status).toBe(200);
-    expect(await record(P(5))).toBeNull();
-    expect((await record(P(6))).numberFixedFrom).toBe(P(5));
-  });
-
-  it('a part of the name, another class, two matches or a one-word name: not found (no SMS)', async () => {
-    await seed(P(7));
-    const notFound = async (body) => {
-      const res = await fix({ action: 'request', newPhone: P(9), ...body });
-      expect(res.status, JSON.stringify(body)).toBe(404);
-      expect(res.body.error.code).toBe('not_found');
-    };
-    await notFound({ studentName: 'Wanjiru Akinyi', class: 'Form 3' }); // only part of the name
-    await notFound({ studentName: 'Wanjiru Akinyi Moraa', class: 'Grade 8' });
-    await notFound({ studentName: 'Wanjiru', class: 'Form 3' });
-    await seed(P(8)); // a second student with the same name and class
-    await notFound({ studentName: 'Wanjiru Akinyi Moraa', class: 'Form 3' });
+// 014Fixes / 08: the name-and-class way is gone.
+describe('by the old number only', () => {
+  it('a name and class instead of the number: refused, nothing sent', async () => {
+    await seed(P(5));
+    const res = await fix({ action: 'request', studentName: 'Wanjiru Akinyi Moraa', class: 'Form 3', newPhone: P(6) });
+    expect(res.status).toBe(400);
     expect(fakes.hashback.sent).toHaveLength(0);
   });
 });
 
 describe('refusals', () => {
-  it('already confirmed: ask the teacher (once only); confirmed records are not found by name', async () => {
+  it('already confirmed: ask the teacher (once only)', async () => {
     await seed(P(10), { phoneVerifiedAt: new Date() });
     const res = await fix({ action: 'request', oldPhone: P(10), newPhone: P(11) });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('already_confirmed');
-    expect((await fix({ action: 'request', studentName: 'Wanjiru Akinyi Moraa', class: 'Form 3', newPhone: P(11) })).status).toBe(404);
   });
 
   it('once only: after a fix, the same student cannot move again', async () => {
@@ -145,8 +127,6 @@ describe('refusals', () => {
     const again = await fix({ action: 'request', oldPhone: P(27), newPhone: P(28) });
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('already_fixed');
-    const byName = await fix({ action: 'request', studentName: 'Wanjiru Akinyi Moraa', class: 'Form 3', newPhone: P(28) });
-    expect(byName.status).toBe(404);
     expect(fakes.hashback.sent.length).toBe(sentBefore);
   });
 

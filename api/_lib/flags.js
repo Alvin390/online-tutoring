@@ -31,8 +31,7 @@ const DEFAULT_FLAGS = {
   'checkin.admissionNumbers': false,
   // 008Fixes Release B: SMS through HashBack (see src/shared/config/flags.js).
   'sms.enabled': false,
-  // 009Fixes: code-first registration and the one-time number fix (see src/shared/config/flags.js).
-  'student.fixNumber': false,
+  // 014Fixes / 08: 'student.fixNumber' removed (one switch; see src/shared/config/flags.js).
 };
 
 const TTL_MS = 30_000;

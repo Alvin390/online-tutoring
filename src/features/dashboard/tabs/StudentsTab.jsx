@@ -32,7 +32,6 @@ export default function StudentsTab({
 }) {
   const numbers = useFlag('checkin.admissionNumbers');
   const approvals = useFlag('registration.requireApproval');
-  const fixes = useFlag('student.fixNumber');
   return (
     <>
       {numbers && !approvals && (
@@ -40,7 +39,7 @@ export default function StudentsTab({
           <WaitingCodesPanel sessionNames={Object.fromEntries(sessions.map((s) => [s.id, s.name ?? s.id]))} />
         </Suspense>
       )}
-      {numbers && fixes && !approvals && (
+      {numbers && !approvals && (
         <Suspense fallback={null}>
           <NumberFixesPanel
             rosters={studentsBySession}

@@ -75,19 +75,6 @@ export function namesMatch(a, b) {
   return preparedNamesMatch(nameParts(a), nameParts(b));
 }
 
-/**
- * 009Fixes / 02: the SAME student name, for a student finding their own
- * record (stricter than namesMatch, which also matches a name inside a
- * longer one): identical, or the same words in any order, both with at
- * least two words. Decorative fonts, case and accents are ignored as above.
- */
-export function sameStudentName(a, b) {
-  const pa = nameParts(a);
-  const pb = nameParts(b);
-  if (pa.words.length < 2 || pb.words.length < 2) return false;
-  return pa.name === pb.name || pa.wordKey === pb.wordKey;
-}
-
 const isWordChar = (c) => (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
 
 /**
