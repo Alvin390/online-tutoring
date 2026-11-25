@@ -49,21 +49,25 @@ describe('the settings', () => {
   it('defaults until saved; saved values come back; audited', async () => {
     const first = await settings();
     expect(first.status, JSON.stringify(first.body)).toBe(200);
-    expect(first.body.settings).toEqual({ trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 });
+    expect(first.body.settings).toEqual({ trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6, reminderFirstDays: 3, reminderSecondDays: 1 });
     const saved = await save({ trialDays: 10, countdownHours: 24, cardRenewalToleranceHours: 4 });
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);
-    expect((await settings()).body.settings).toEqual({ trialDays: 10, countdownHours: 24, cardRenewalToleranceHours: 4 });
+    expect((await settings()).body.settings).toEqual({ trialDays: 10, countdownHours: 24, cardRenewalToleranceHours: 4, reminderFirstDays: 3, reminderSecondDays: 1 });
     expect((await db.collection('audit').where('action', '==', 'billing.settings_changed').get()).size).toBe(1);
   });
 
   it('superadmin only; impossible values are refused', async () => {
     expect((await save({ trialDays: 10 }, teacher)).status).toBe(403);
-    for (const bad of [{ trialDays: 0 }, { trialDays: 14, countdownHours: 14 * 24 }, { cardRenewalToleranceHours: 100 }, { countdownHours: 2.5 }]) {
+    // 013Fixes / 23: the second reminder must come after the first; at most 30 days.
+    for (const bad of [{ trialDays: 0 }, { trialDays: 14, countdownHours: 14 * 24 }, { cardRenewalToleranceHours: 100 }, { countdownHours: 2.5 },
+      { reminderFirstDays: 1, reminderSecondDays: 3 }, { reminderFirstDays: 31 }, { reminderSecondDays: -1 }]) {
       // eslint-disable-next-line no-await-in-loop
       const res = await save(bad);
       expect(res.status, JSON.stringify(bad)).toBe(400);
     }
     expect((await db.doc('config/billing').get()).exists).toBe(false);
+    // 0 switches a reminder off; the second alone is fine.
+    expect((await save({ reminderFirstDays: 0, reminderSecondDays: 2 })).status).toBe(200);
   });
 });
 

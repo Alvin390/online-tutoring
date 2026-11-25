@@ -68,9 +68,9 @@ describe('the countdown banner', () => {
 
 describe('superadmin: billing settings', () => {
   it('shows the settings; Save only after a change; sends whole numbers', async () => {
-    const save = vi.fn().mockResolvedValue({ ok: true, settings: { trialDays: 10, countdownHours: 48, cardRenewalToleranceHours: 6 } });
+    const save = vi.fn().mockResolvedValue({ ok: true, settings: { trialDays: 10, countdownHours: 48, cardRenewalToleranceHours: 6, reminderFirstDays: 3, reminderSecondDays: 1 } });
     vi.doMock('@services/api/adminBilling', () => ({
-      getBillingSettings: vi.fn().mockResolvedValue({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 } }),
+      getBillingSettings: vi.fn().mockResolvedValue({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6, reminderFirstDays: 3, reminderSecondDays: 1 } }),
       saveBillingSettings: save,
     }));
     const { default: BillingSettings } = await import('@/features/admin/components/BillingSettings');
@@ -81,13 +81,13 @@ describe('superadmin: billing settings', () => {
     expect(button.disabled).toBe(true);
     fireEvent.change(trial, { target: { value: '10' } });
     await act(async () => { fireEvent.click(button); });
-    expect(save).toHaveBeenCalledWith({ trialDays: 10, countdownHours: 48, cardRenewalToleranceHours: 6 });
+    expect(save).toHaveBeenCalledWith({ trialDays: 10, countdownHours: 48, cardRenewalToleranceHours: 6, reminderFirstDays: 3, reminderSecondDays: 1 });
     expect(screen.getByRole('status').textContent).toMatch(/Saved/);
   });
 
   it('a refusal is shown in the server\'s words', async () => {
     vi.doMock('@services/api/adminBilling', () => ({
-      getBillingSettings: vi.fn().mockResolvedValue({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 } }),
+      getBillingSettings: vi.fn().mockResolvedValue({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6, reminderFirstDays: 3, reminderSecondDays: 1 } }),
       saveBillingSettings: vi.fn().mockRejectedValue(Object.assign(new Error('The countdown must start before the trial does: make it shorter than the trial.'), { code: 'bad_settings' })),
     }));
     const { default: BillingSettings } = await import('@/features/admin/components/BillingSettings');

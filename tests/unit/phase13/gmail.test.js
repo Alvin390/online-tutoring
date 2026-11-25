@@ -62,6 +62,15 @@ describe('buildMimeMessage', () => {
   it('refuses an injected address', () => {
     expect(() => buildMimeMessage({ from: 'a@b.c', to: 'x@y.z\r\nBcc: e@v.il', subject: 's', text: 't', html: 'h' })).toThrow(/address/);
   });
+
+  // 013Fixes / 23: a reminder's copy to the owner's notification address.
+  it('a copy goes on its own Cc line, checked like any address; none without one', () => {
+    const withCopy = buildMimeMessage({ from: 'a@b.c', to: 'owner@example.com', cc: 'copy@example.com', subject: 's', text: 't', html: 'h' });
+    expect(withCopy.split('\r\n\r\n')[0]).toMatch(/^Cc: copy@example\.com$/m);
+    expect(message.split('\r\n\r\n')[0]).not.toMatch(/^Cc:/m);
+    expect(() => buildMimeMessage({ from: 'a@b.c', to: 'x@y.z', cc: 'c@d.e\r\nBcc: e@v.il', subject: 's', text: 't', html: 'h' })).toThrow(/address/);
+    expect(() => buildMimeMessage({ from: 'a@b.c', to: 'x@y.z', cc: 'c@d.e, f@g.h', subject: 's', text: 't', html: 'h' })).toThrow(/address/);
+  });
 });
 
 describe('toBase64Url', () => {

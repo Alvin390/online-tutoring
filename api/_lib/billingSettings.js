@@ -26,6 +26,9 @@ export const billingSettingsSchema = z.object({
   trialDays: int(1, 90).optional(),
   countdownHours: int(1, 24 * 30).optional(),
   cardRenewalToleranceHours: int(0, 72).optional(),
+  // 013Fixes / 23: the reminder emails, days before the end (0 = off).
+  reminderFirstDays: int(0, 30).optional(),
+  reminderSecondDays: int(0, 30).optional(),
 }).strict();
 
 /** The saved settings over the defaults (only known keys, only valid numbers). */
@@ -42,6 +45,9 @@ export function mergeBillingSettings(saved) {
 export function billingSettingsProblem(s) {
   if (s.countdownHours >= s.trialDays * 24) {
     return 'The countdown must start before the trial does: make it shorter than the trial.';
+  }
+  if (s.reminderFirstDays > 0 && s.reminderSecondDays > 0 && s.reminderSecondDays >= s.reminderFirstDays) {
+    return 'The second reminder comes after the first: give it fewer days before the end.';
   }
   return null;
 }

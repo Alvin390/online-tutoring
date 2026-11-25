@@ -12,6 +12,9 @@ const FIELDS = [
   { key: 'trialDays', label: 'Trial length (days)', help: 'How long a new trial lasts.', min: 1, max: 90 },
   { key: 'countdownHours', label: 'Countdown (hours before the end)', help: 'When the red countdown starts. 48 = the last two days.', min: 1, max: 720 },
   { key: 'cardRenewalToleranceHours', label: 'Card renewal wait (hours)', help: "How long to wait for Paystack's renewal before locking. Not a grace period.", min: 0, max: 72 },
+  // 013Fixes / 23: the reminder emails before the end (one more goes at lock).
+  { key: 'reminderFirstDays', label: 'First reminder (days before the end)', help: 'Email to the school owner. 0 = none.', min: 0, max: 30 },
+  { key: 'reminderSecondDays', label: 'Second reminder (days before the end)', help: 'Fewer days than the first. 0 = none. One more is sent when the school locks.', min: 0, max: 30 },
 ];
 
 export default function BillingSettings() {

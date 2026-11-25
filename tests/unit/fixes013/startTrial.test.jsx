@@ -13,7 +13,7 @@ import StartTrialModal from '@/features/admin/components/StartTrialModal';
 // is not counted against a test's time limit on a busy machine.
 const api = vi.hoisted(() => ({ start: null }));
 vi.mock('@services/api/adminBilling', () => ({
-  getBillingSettings: async () => ({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 } }),
+  getBillingSettings: async () => ({ settings: { trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6, reminderFirstDays: 3, reminderSecondDays: 1 } }),
   startSchoolTrial: (...a) => api.start(...a),
 }));
 

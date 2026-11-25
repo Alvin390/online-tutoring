@@ -23,7 +23,7 @@ const inCountdown = (w, now) => w?.countdownFrom != null && now >= w.countdownFr
 
 describe('the settings', () => {
   it('defaults: a 14-day trial, a 48-hour countdown, 6 hours for a card renewal', () => {
-    expect(BILLING_DEFAULTS).toEqual({ trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 });
+    expect(BILLING_DEFAULTS).toEqual({ trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6, reminderFirstDays: 3, reminderSecondDays: 1 });
   });
 });
 

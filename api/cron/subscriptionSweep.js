@@ -5,6 +5,8 @@ import { safeCompare } from '../_lib/crypto.js';
 import {
   resolveSubscriptionState,
   rolloverFields,
+  reminderEnd,
+  reminderKind,
   publicProjection,
   dueReminders,
   isDueForDeletion,
@@ -16,6 +18,7 @@ import { getAdminAuth } from '../_lib/firebaseAdmin.js';
 import { setUserClaims } from '../_lib/claims.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 import { readBillingSettings } from '../_lib/billingSettings.js';
+import { sendQueuedReminders } from '../_lib/billingReminders.js';
 
 /**
  * Claims self-heal — Phase 13 / 05 D4.
@@ -200,32 +203,42 @@ export default async function handler(req, res) {
       log.error('Claims self-heal failed', err);
     }
 
-    // --- 2. Reminders (manual renewal only — see dueReminders)
+    // --- 2. Reminders — 013Fixes / 23 (see dueReminders, billingReminders.js)
     const effective = resolved.changed
       ? { ...sub, status: resolved.status, ...(resolved.rollover ? rolloverFields(resolved.rollover) : {}) }
       : sub;
-    const due = dueReminders(effective, now);
+    const due = dueReminders(effective, now, settings);
 
     if (due.length > 0) {
-      // Queued rather than sent inline. Never call an external service from a
-      // path that has to finish quickly, and never let a mail failure roll back
-      // a state transition that already happened.
+      // Every step due is marked, but only the most urgent is emailed: a
+      // school that reaches the ladder late (or a release mid-ladder) gets one
+      // email, not a burst. Queued rather than sent inline, so a mail failure
+      // never rolls back a state change that already happened.
+      const id = due[due.length - 1];
+      const end = reminderEnd(effective, settings);
       const batch = db.batch();
-      for (const id of due) {
-        batch.set(db.collection('billing').doc('reminders').collection('queue').doc(`${id}_${sub.currentPeriodEnd?.toMillis?.() ?? now}`), {
-          reminderId: id,
-          tier: sub.tier,
-          renewalMode: sub.renewalMode,
-          periodEnd: sub.currentPeriodEnd ?? null,
-          status: 'queued',
-          queuedAt: FieldValue.serverTimestamp(),
-        });
-      }
+      batch.set(db.collection('billing').doc('reminders').collection('queue').doc(`${id}_${end}`), {
+        reminderId: id,
+        kind: reminderKind(effective),
+        tier: effective.tier ?? null,
+        renewalMode: effective.renewalMode ?? null,
+        endsAt: new Date(end),
+        status: 'queued',
+        attempts: 0,
+        queuedAt: FieldValue.serverTimestamp(),
+      });
       batch.set(ref, { remindersSent: FieldValue.arrayUnion(...due) }, { merge: true });
       await batch.commit();
 
       result.reminders = due;
-      log.info('Renewal reminders queued', { count: due.length, ids: due });
+      log.info('Renewal reminder queued', { id, marked: due.length });
+    }
+
+    // Send what is queued (this run's, and earlier failures). Never fails the sweep.
+    try {
+      result.emails = await sendQueuedReminders(db, { sub: effective, log, now });
+    } catch (err) {
+      log.error('Reminder emails failed', err);
     }
 
     // --- 3. Retention purge (Q10)

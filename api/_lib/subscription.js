@@ -33,7 +33,11 @@
  */
 
 /** 013Fixes / 18: the defaults behind config/billing (api/_lib/billingSettings.js). */
-export const BILLING_DEFAULTS = Object.freeze({ trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 });
+export const BILLING_DEFAULTS = Object.freeze({
+  trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6,
+  // 013Fixes / 23: the reminder emails, days before the end (0 = off).
+  reminderFirstDays: 3, reminderSecondDays: 1,
+});
 
 export const STATUS = {
   TRIALING: 'trialing',
@@ -379,42 +383,68 @@ export function isDueForDeletion(sub, now = Date.now()) {
 }
 
 /**
- * Manual-renewal reminder ladder (M-Pesa). Six points: T−7d, T−3d, T−1d, T−2h,
- * at expiry, and at grace midpoint.
- *
- * Card and bank subscriptions auto-renew, so they get no ladder — reminding
- * someone about a payment that will happen by itself trains them to ignore
- * billing mail.
+ * The reminder ladder — 013Fixes / 23 (owner suggestion 7). Days before the
+ * end from the billing settings (3 and 1 by default; 0 switches a step off),
+ * then one when the school locks. It replaced the old five-point M-Pesa
+ * ladder (7d, 3d, 1d, 2h, at expiry, grace midpoint): the owner ruled grace
+ * out, and two reminders before the end are enough.
  */
-export const REMINDER_OFFSETS_MS = [
-  { id: 't_minus_7d', beforeEnd: 7 * 24 * 60 * 60 * 1000 },
-  { id: 't_minus_3d', beforeEnd: 3 * 24 * 60 * 60 * 1000 },
-  { id: 't_minus_1d', beforeEnd: 24 * 60 * 60 * 1000 },
-  { id: 't_minus_2h', beforeEnd: 2 * 60 * 60 * 1000 },
-  { id: 'at_expiry', beforeEnd: 0 },
-];
+export function reminderLadder(settings = BILLING_DEFAULTS) {
+  const days = [...new Set([settings.reminderFirstDays, settings.reminderSecondDays])]
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .sort((x, y) => y - x);
+  return [
+    ...days.map((n) => ({ id: `days_${n}`, beforeEnd: n * 24 * 60 * 60 * 1000 })),
+    { id: 'at_lock', beforeEnd: 0 },
+  ];
+}
 
-export function dueReminders(sub, now = Date.now()) {
-  if (sub?.renewalMode !== 'manual') return [];
-  if (sub.grantedBySuperadmin === true) return [];
+// A lock older than this gets no "locked" email (a release must not mail old locks).
+const AT_LOCK_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
-  const periodEnd = toMillis(sub.currentPeriodEnd);
-  if (periodEnd == null) return [];
+/** 'trial', 'period' or 'card_failed': which email a reminder is. */
+export function reminderKind(sub) {
+  if (sub?.renewalMode === 'auto') return 'card_failed';
+  if (sub?.trialEndsAt != null && sub?.nextPeriodStart == null && sub?.status !== STATUS.ACTIVE) return 'trial';
+  return 'period';
+}
 
+/**
+ * The end the reminders count down to: the one the school's own countdown
+ * shows. A card school: its period end plus the renewal wait. A trial: its
+ * end, or the paid end when a month is already paid for. Otherwise the
+ * period end.
+ */
+export function reminderEnd(sub, settings = BILLING_DEFAULTS) {
+  const periodEnd = toMillis(sub?.currentPeriodEnd);
+  if (sub?.renewalMode === 'auto') return periodEnd == null ? null : periodEnd + hours(settings.cardRenewalToleranceHours);
+  if (sub?.status === STATUS.TRIALING && sub?.nextPeriodStart == null) return toMillis(sub.trialEndsAt) ?? periodEnd;
+  return periodEnd;
+}
+
+/**
+ * The ladder steps due and not yet sent, in ladder order (the sweep emails
+ * only the last — the most urgent — and marks them all). Trials and manual
+ * periods get the ladder; a card school only after a failed payment; gifted,
+ * cancelling and legacy grace schools none.
+ */
+export function dueReminders(sub, now = Date.now(), settings = BILLING_DEFAULTS) {
+  if (!sub || sub.grantedBySuperadmin === true || sub.cancelAtPeriodEnd === true) return [];
+  if (![STATUS.TRIALING, STATUS.ACTIVE, STATUS.LOCKED].includes(sub.status)) return [];
+  if (sub.renewalMode === 'auto' && sub.paymentFailedAt == null) return [];
+
+  const end = reminderEnd(sub, settings);
+  if (end == null) return [];
   const sent = new Set(sub.remindersSent ?? []);
   const due = [];
-
-  for (const reminder of REMINDER_OFFSETS_MS) {
-    const fireAt = periodEnd - reminder.beforeEnd;
-    if (now >= fireAt && !sent.has(reminder.id)) due.push(reminder.id);
+  for (const step of reminderLadder(settings)) {
+    if (sent.has(step.id)) continue;
+    if (step.id === 'at_lock') {
+      if (now >= end && now - end <= AT_LOCK_WINDOW_MS) due.push(step.id);
+    } else if (now >= end - step.beforeEnd && now < end) {
+      due.push(step.id);
+    }
   }
-
-  const graceEnd = toMillis(sub.graceEndsAt);
-  if (graceEnd != null) {
-    const midpoint = graceEnd - GRACE_PERIOD_MS / 2;
-    if (now >= midpoint && !sent.has('grace_midpoint')) due.push('grace_midpoint');
-  }
-
   return due;
 }
 
