@@ -7,7 +7,6 @@ import {
   enableSubscription,
   createSubscription,
   planCodeForTier,
-  TIER_PRICE_KES,
 } from '../_lib/paystack.js';
 import { STATUS, publicProjection, toMillis } from '../_lib/subscription.js';
 import { setUserClaims } from '../_lib/claims.js';
@@ -15,6 +14,7 @@ import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 import { readBillingSettings } from '../_lib/billingSettings.js';
+import { planPrices } from '../_lib/planPrices.js';
 
 /**
  * Cancel, downgrade, and superadmin grant — Phase 03 D8.
@@ -274,7 +274,7 @@ export default createHandler({
           effectiveAt: toMillis(effectiveAt),
           // Reassurance that matters: a downgrade must never read as data loss.
           note: 'Your data from the higher tier is kept and hidden, and comes back if you upgrade again.',
-          newPriceKes: TIER_PRICE_KES[tier],
+          newPriceKes: (await planPrices(db)).prices[tier],
         };
       }
 

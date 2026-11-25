@@ -206,6 +206,11 @@ export async function initializeTransaction(opts) {
   return paystackFetch('/transaction/initialize', { method: 'POST', body });
 }
 
+/** 013Fixes / 25: one plan (its `amount` is in cents). Read-only. */
+export async function fetchPlan(code) {
+  return paystackFetch(`/plan/${encodeURIComponent(code)}`);
+}
+
 export async function verifyTransaction(reference) {
   return paystackFetch(`/transaction/verify/${encodeURIComponent(reference)}`);
 }

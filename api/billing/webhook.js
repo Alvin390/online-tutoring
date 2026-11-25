@@ -7,7 +7,6 @@ import {
   isPaystackIp,
   disableSubscription,
   tierForPlanCode,
-  TIER_PRICE_KES,
 } from '../_lib/paystack.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { clientIp } from '../_lib/rateLimit.js';
@@ -16,6 +15,7 @@ import { STATUS, publicProjection, paymentPatch } from '../_lib/subscription.js'
 import { readBillingSettings } from '../_lib/billingSettings.js';
 import { setUserClaims } from '../_lib/claims.js';
 import { paystackPaymentRef, paystackPaymentRecord } from '../_lib/payments.js';
+import { planPrices, acceptedPrices } from '../_lib/planPrices.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 
 /**
@@ -351,10 +351,18 @@ async function processEvent({ db, event, log, requestId }) {
 
       // The price should match the plan. A mismatch (a stale price on the
       // Paystack plan, say) is recorded loudly — but the money has moved, so
-      // it is not rejected.
-      const expectedKes = TIER_PRICE_KES[patch.tier ?? patch.nextTier];
+      // it is not rejected. 013Fixes / 25: the plan's price is Paystack's;
+      // around a change, the price before it and the amount the checkout was
+      // started with count too.
+      const paidTierNow = patch.tier ?? patch.nextTier;
+      const [priceInfo, checkoutSnap] = await Promise.all([
+        planPrices(db),
+        data.reference ? db.doc(`billing/checkouts/items/${data.reference}`).get().catch(() => null) : null,
+      ]);
+      const checkoutKes = checkoutSnap?.exists ? checkoutSnap.data().amountKes ?? null : null;
+      const expectedKes = priceInfo.prices[paidTierNow];
       const paidKes = typeof data.amount === 'number' ? data.amount / 100 : null;
-      if (expectedKes && paidKes != null && paidKes !== expectedKes) {
+      if (expectedKes && paidKes != null && !acceptedPrices(paidTierNow, priceInfo, checkoutKes).has(paidKes)) {
         log.warn('Charged amount does not match the tier price', { tier: patch.tier ?? patch.nextTier, paidKes, expectedKes });
         await tryWriteAudit(
           { action: 'billing.price_mismatch', actor: 'system:paystack', target: 'subscription/current',
