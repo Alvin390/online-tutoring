@@ -262,26 +262,35 @@ const BACKFILL_BATCH = 20;
 
 /** 013Fixes / 21: past in-app payments into the history, once each. */
 async function backfillPayments({ db, body, user, log, waitUntil }) {
-  const [events, recorded] = await Promise.all([
+  // References already settled without a record: Paystack doesn't know them
+  // under this key (test-mode payments under the live key), or they were not
+  // paid. Kept so a later run doesn't ask Paystack about them again.
+  const stateRef = db.doc('billing/paymentsBackfill');
+  const [events, recorded, stateSnap] = await Promise.all([
     db.collection('billing').doc('events').collection('items').where('event', '==', 'charge.success').get(),
     db.collection('billing/payments/items').where('source', '==', 'paystack').get(),
+    stateRef.get(),
   ]);
   const have = new Set(recorded.docs.map((d) => d.id));
+  const state = stateSnap.exists ? stateSnap.data() : {};
+  const settled = new Set([...(state.notVerifiable ?? []), ...(state.notSuccessful ?? [])]);
   const references = [...new Set(events.docs.map((d) => d.data().reference).filter(Boolean))];
-  const missing = references.filter((ref) => !have.has(paystackPaymentRef(db, ref).id));
+  const missing = references.filter((ref) => !have.has(paystackPaymentRef(db, ref).id) && !settled.has(ref));
 
   if (!body.apply) {
-    return { ok: true, applied: false, charges: references.length, missing: missing.length };
+    return { ok: true, applied: false, charges: references.length, missing: missing.length, settled: settled.size };
   }
 
   let written = 0;
   let skipped = 0;
   let failed = 0;
+  const notVerifiable = [];
+  const notSuccessful = [];
   const batch = missing.slice(0, BACKFILL_BATCH);
   for (const reference of batch) {
     try {
       const tx = await verifyTransaction(reference);
-      if (tx?.status !== 'success' || typeof tx.amount !== 'number') { skipped += 1; continue; }
+      if (tx?.status !== 'success' || typeof tx.amount !== 'number') { notSuccessful.push(reference); continue; }
       const paidAt = tx.paid_at ?? tx.paidAt ?? tx.created_at ?? null;
       await paystackPaymentRef(db, reference).create({
         ...paystackPaymentRecord({
@@ -299,12 +308,25 @@ async function backfillPayments({ db, body, user, log, waitUntil }) {
       written += 1;
     } catch (err) {
       if (err?.code === 6 || err?.code === 'already-exists') { skipped += 1; continue; }
+      // Paystack answered, and doesn't know it (a 4xx): not retried.
+      if (err?.code === 'paystack_error' && err?.status === 400) { notVerifiable.push(reference); continue; }
+      // Network or Paystack down: tried again next run.
       failed += 1;
       log.warn('Backfill: a payment could not be fetched or written', { error: String(err?.message ?? err) });
     }
   }
+  if (notVerifiable.length || notSuccessful.length) {
+    const patch = { updatedAt: FieldValue.serverTimestamp() };
+    if (notVerifiable.length) patch.notVerifiable = FieldValue.arrayUnion(...notVerifiable);
+    if (notSuccessful.length) patch.notSuccessful = FieldValue.arrayUnion(...notSuccessful);
+    await stateRef.set(patch, { merge: true });
+  }
 
-  const result = { written, skipped, failed, remaining: missing.length - batch.length };
+  const result = {
+    written, skipped, failed, notVerifiable: notVerifiable.length, notSuccessful: notSuccessful.length,
+    // Still to do: not reached this run, plus failures to try again.
+    remaining: missing.length - batch.length + failed,
+  };
   waitUntil(tryWriteAudit({
     action: 'billing.payments_backfilled', actor: user.uid, actorRole: user.role, target: 'billing/payments',
     after: result, context: { requestId: log.requestId },

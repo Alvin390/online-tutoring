@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import {
-  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, setFlags, resetFakes, fakes,
+  pinEnv, installFetchGuard, call, userWithClaims, teacherClaims, getTestDb, clearFirestore, setFlags, resetFakes, fakes, externalCalls,
 } from '../_worker.js';
 
 /**
@@ -146,16 +146,37 @@ describe('backfill from billing/events', () => {
     expect((await items().get()).size).toBe(1);
   });
 
-  it('applied: the successful one is written as it was paid; the abandoned one is not; a second run adds nothing', async () => {
+  it('applied: the successful one is written as it was paid; the abandoned one is not; a second run asks nobody', async () => {
     const res = await backfill(true);
-    expect(res.body).toMatchObject({ applied: true, written: 1, skipped: 1, failed: 0, remaining: 0 });
+    expect(res.body).toMatchObject({ applied: true, written: 1, notSuccessful: 1, notVerifiable: 0, failed: 0, remaining: 0 });
     const p = (await items().doc('paystack_old_ref_1').get()).data();
     expect(p).toMatchObject({ amountKes: 2999, method: 'mpesa', tier: 'silver', source: 'paystack', backfilled: true, periodFrom: null, periodTo: null });
     expect(ms(p.createdAt)).toBe(Date.parse('2026-10-05T07:00:00.000Z'));
+    const verifies = () => externalCalls.filter((c) => String(c.url).includes('/transaction/verify/')).length;
+    const before = verifies();
     const again = await backfill(true);
-    expect(again.body).toMatchObject({ written: 0 });
+    expect(again.body).toMatchObject({ written: 0, missing: 0 });
+    expect(verifies()).toBe(before); // the abandoned one is not asked about again
+    expect((await backfill(false)).body).toMatchObject({ missing: 0, settled: 1 });
     expect((await items().get()).size).toBe(2);
     expect((await db.collection('audit').where('action', '==', 'billing.payments_backfilled').get()).size).toBe(2);
+  });
+
+  it('a payment Paystack does not know (a test-mode one under the live key): not verifiable, never retried', async () => {
+    fakes.paystack.fail = { '/transaction/verify/old_ref_1': 404 };
+    const res = await backfill(true);
+    expect(res.body).toMatchObject({ written: 0, notVerifiable: 1, notSuccessful: 1, failed: 0, remaining: 0 });
+    fakes.paystack.fail = {};
+    expect((await backfill(false)).body).toMatchObject({ missing: 0, settled: 2 });
+    expect((await items().get()).size).toBe(1);
+  });
+
+  it('Paystack down: failed, and tried again on the next run', async () => {
+    fakes.paystack.fail = { '/transaction/verify/old_ref_1': 503 };
+    const res = await backfill(true);
+    expect(res.body).toMatchObject({ written: 0, failed: 1, remaining: 1 });
+    fakes.paystack.fail = {};
+    expect((await backfill(true)).body).toMatchObject({ written: 1 });
   });
 
   it('superadmin only', async () => {

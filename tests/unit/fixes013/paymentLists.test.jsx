@@ -76,8 +76,8 @@ describe('the superadmin\'s payments', () => {
   });
 
   it('fill-in: a check first (counts only), then "Fill in N", then the list again', async () => {
-    api.backfill.mockResolvedValueOnce({ ok: true, applied: false, charges: 4, missing: 3 })
-      .mockResolvedValueOnce({ ok: true, applied: true, charges: 4, missing: 3, written: 3, skipped: 0, failed: 0, remaining: 0 });
+    api.backfill.mockResolvedValueOnce({ ok: true, applied: false, charges: 4, missing: 3, settled: 0 })
+      .mockResolvedValueOnce({ ok: true, applied: true, charges: 4, missing: 3, written: 3, skipped: 0, failed: 0, notVerifiable: 0, notSuccessful: 0, remaining: 0 });
     render(<PaymentHistory />);
     await flush();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check' })); });
@@ -87,6 +87,21 @@ describe('the superadmin\'s payments', () => {
     expect(api.backfill).toHaveBeenLastCalledWith(true);
     expect(screen.getByTestId('backfill-check').textContent).toBe('Filled in 3. All done.');
     expect(api.all).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: /Fill in/ })).toBeNull();
+  });
+
+  it('payments Paystack cannot confirm are named, and left out (not offered again)', async () => {
+    api.backfill.mockResolvedValueOnce({ ok: true, applied: false, charges: 13, missing: 13, settled: 0 })
+      .mockResolvedValueOnce({ ok: true, applied: true, charges: 13, missing: 13, written: 0, skipped: 0, failed: 0, notVerifiable: 13, notSuccessful: 0, remaining: 0 })
+      .mockResolvedValueOnce({ ok: true, applied: false, charges: 13, missing: 0, settled: 13 });
+    render(<PaymentHistory />);
+    await flush();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Fill in 13' })); });
+    expect(screen.getByTestId('backfill-check').textContent)
+      .toBe('Filled in 0. 13 could not be checked with Paystack (made in test mode, or unknown) and are left out. All done.');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check' })); });
+    expect(screen.getByTestId('backfill-check').textContent).toBe('13 in-app payments found; 0 not in the list yet (13 already checked and left out).');
     expect(screen.queryByRole('button', { name: /Fill in/ })).toBeNull();
   });
 });

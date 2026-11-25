@@ -185,6 +185,15 @@ describe('in-app M-Pesa (the webhook) follows the same rule', () => {
     expect(ms((await sub()).currentPeriodEnd)).toBe(addCalendarMonth(end));
   });
 
+  it('a recurring card charge (no metadata) on a gifted school stored as manual keeps the gift (the live school\'s shape)', async () => {
+    await db.doc('subscription/current').set({ tier: 'gold', status: 'active', grantedBySuperadmin: true, renewalMode: 'manual', paystackSubscriptionCode: 'SUB_old', currentPeriodEnd: new Date(Date.now() - 11 * D) });
+    await webhook({ event: 'charge.success', data: { id: 7_700_001, reference: 'ref_recurring', amount: 999900, channel: 'card', plan: { plan_code: 'PLN_unknown' } } });
+    const s = await sub();
+    expect(s.grantedBySuperadmin).toBe(true);
+    expect(s.nextPeriodStart ?? null).toBeNull();
+    expect(s.status).toBe('active');
+  });
+
   it('a locked school starts now', async () => {
     await db.doc('subscription/current').set({ tier: 'silver', status: 'locked', renewalMode: 'manual', currentPeriodEnd: new Date(Date.now() - 2 * D) });
     const before = Date.now();

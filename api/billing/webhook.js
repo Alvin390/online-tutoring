@@ -243,7 +243,12 @@ async function processEvent({ db, event, log, requestId }) {
       // early extends from the current end, locked starts now. A card
       // subscription keeps Paystack's dates (subscription.create sets the end
       // from next_payment_date), so it starts now as before.
-      const manual = renewalMode === 'manual' ? paymentPatch(before, { tier, now, renewalMode }) : null;
+      // Only an EXPLICIT metadata.renewalMode 'manual' (our M-Pesa checkout,
+      // api/billing/initialize.js) takes the rule. A recurring card charge
+      // carries no metadata, and the stored mode can be stale: the live
+      // school is gifted, stored 'manual', and still holds an old Paystack
+      // subscription; routing on the stored mode would end its gift.
+      const manual = metadata.renewalMode === 'manual' ? paymentPatch(before, { tier, now, renewalMode }) : null;
       const windowFields = manual
         ? manual.patch
         : {

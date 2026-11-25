@@ -11,6 +11,23 @@ import { amountText, methodLabel, paidOn, periodText, tierLabel } from '@/featur
 
 const SOURCE_LABELS = { manual: 'Recorded', paystack: 'In the app' };
 
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** "4 in-app payments found; 3 not in the list yet (1 already checked)." */
+function checkText(c) {
+  const settled = c.settled ? ` (${c.settled} already checked and left out)` : '';
+  return `${plural(c.charges, 'in-app payment', 'in-app payments')} found; ${c.missing} not in the list yet${settled}.`;
+}
+
+/** What a fill-in run did: written, the ones Paystack could not confirm, what is left. */
+function fillInText(c) {
+  const parts = [`Filled in ${c.written}.`];
+  if (c.notVerifiable) parts.push(`${c.notVerifiable} could not be checked with Paystack (made in test mode, or unknown) and are left out.`);
+  if (c.notSuccessful) parts.push(`${c.notSuccessful} were not paid and are left out.`);
+  parts.push(c.remaining > 0 ? `${c.remaining} still to do — run it again.` : 'All done.');
+  return parts.join(' ');
+}
+
 export default function PaymentHistory() {
   const [items, setItems] = useState([]);
   const [cursor, setCursor] = useState(null);
@@ -46,6 +63,7 @@ export default function PaymentHistory() {
     setError('');
     try {
       const res = await backfillPayments(true);
+      // "Fill in N" stays only while something is left to do.
       setCheck({ ...res, missing: res.remaining });
       await load(null);
     } catch (err) {
@@ -108,9 +126,7 @@ export default function PaymentHistory() {
         </p>
         {check && (
           <p className="small mb-2" data-testid="backfill-check">
-            {check.applied
-              ? `Filled in ${check.written}. ${check.missing > 0 ? `${check.missing} still to fill in — run it again.` : 'All done.'}`
-              : `${check.charges} in-app payment${check.charges === 1 ? '' : 's'} found; ${check.missing} not in the list yet.`}
+            {check.applied ? fillInText(check) : checkText(check)}
           </p>
         )}
         <div className="d-flex gap-2">
