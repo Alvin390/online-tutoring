@@ -5,10 +5,14 @@ import { setUserClaims, revokeUserSessions, getUserByEmail } from '../_lib/claim
 import { badRequest, notFound, forbidden } from '../_lib/errors.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { TIER_RANK } from '../_lib/auth.js';
-import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
+import { STATUS, GRACE_PERIOD_MS, publicProjection, billingWindow, toMillis } from '../_lib/subscription.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 import { seatState, mirrorDisabled } from '../_lib/logins.js';
 import { recountUsage } from '../_lib/usage.js';
+import { PLAN_IDS, mergePlans } from '../_lib/plans.js';
+import { cleanSchoolOverrides, hasSchoolOverrides } from '../_lib/schoolOverrides.js';
+import { peekCredits } from '../_lib/smsCredits.js';
 
 /**
  * User administration — superadmin only.
@@ -122,9 +126,12 @@ export default createHandler({
 
       const studentCount = page.users.length - staff.length;
 
-      const [subSnap, devLoginEmail] = await Promise.all([
+      const [subSnap, devLoginEmail, billingSettings, plansSnap] = await Promise.all([
         db.doc('subscription/current').get(),
         readDevLoginEmail(db),
+        // 013Fixes / 22b: the account card's window, and every plan (the downgrade warning).
+        readBillingSettings(db),
+        db.doc('config/plans').get(),
       ]);
       const ownerUid = subSnap.exists ? (subSnap.data().ownerUid ?? null) : null;
       for (const u of staff) {
@@ -139,7 +146,15 @@ export default createHandler({
             grantedBySuperadmin: subSnap.data().grantedBySuperadmin === true,
             currentPeriodEnd: subSnap.data().currentPeriodEnd?.toDate?.()?.toISOString() ?? null,
             trialEndsAt: subSnap.data().trialEndsAt?.toDate?.()?.toISOString() ?? null,
+            ...accountCardFields(subSnap.data(), billingSettings),
           }
+        : null;
+      const planSettings = plansSnap.exists ? plansSnap.data() : null;
+      const merged = mergePlans(planSettings);
+      const plans = Object.fromEntries(PLAN_IDS.map((id) => [id, { features: merged[id].features, limits: merged[id].limits }]));
+      // Read only (peek): the card never writes the SMS units.
+      const sms = subSnap.exists
+        ? await peekCredits(db, { sub: subSnap.data(), overrides: planSettings }).catch(() => null)
         : null;
 
       // 013Fixes / 09: the school's seats (enabled teacher logins, developer login not counted).
@@ -153,7 +168,7 @@ export default createHandler({
         windowStart: u.windowStart?.toDate?.()?.toISOString?.() ?? null, windowEnd: u.windowEnd?.toDate?.()?.toISOString?.() ?? null,
         windowKind: u.windowKind ?? null, countedAt: u.countedAtMs ? new Date(u.countedAtMs).toISOString() : null,
       } : null;
-      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats, usage };
+      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats, usage, plans, sms };
     }
 
     // --------------------------------------------------------- createTeacher
@@ -234,7 +249,7 @@ export default createHandler({
       // Keep the public projection in step, because the teacher's dashboard
       // listens to that document rather than to this one.
       const after = { ...((await ref.get()).data() ?? {}) };
-      await db.doc('subscription/public').set(publicProjection(after) ?? {}, { merge: false });
+      await db.doc('subscription/public').set(publicProjection(after, await readBillingSettings(db)) ?? {}, { merge: false });
 
       log.warn('Subscription expired by superadmin', {
         to: patch.status,
@@ -393,6 +408,7 @@ export default createHandler({
             grantedBySuperadmin: true,
             renewalMode: 'manual',
             currentPeriodStart: new Date(now),
+            nextPeriodStart: null, nextTier: null, // 013Fixes / 20
             currentPeriodEnd: new Date(now + 365 * 24 * 60 * 60 * 1000),
             graceEndsAt: null,
             cancelAtPeriodEnd: false,
@@ -419,7 +435,8 @@ export default createHandler({
 
     // ---------------------------------------------------------- startTrial
     if (action === 'startTrial') {
-      const days = body.trialDays ?? 14;
+      // 013Fixes / 18: the trial's length from the billing settings.
+      const days = body.trialDays ?? (await readBillingSettings(db)).trialDays;
       const tier = body.tier ?? 'gold';
       const now = Date.now();
       const endsAt = new Date(now + days * 24 * 60 * 60 * 1000);
@@ -432,6 +449,7 @@ export default createHandler({
           status: STATUS.TRIALING,
           trialEndsAt: endsAt,
           currentPeriodStart: new Date(now),
+          nextPeriodStart: null, nextTier: null, // 013Fixes / 20
           currentPeriodEnd: endsAt,
           // NOT comped: a trial is meant to expire, so the cron must sweep it.
           grantedBySuperadmin: false,
@@ -533,5 +551,32 @@ export default createHandler({
 async function refreshPublicProjection(db) {
   const snap = await db.doc('subscription/current').get();
   if (!snap.exists) return;
-  await db.doc('subscription/public').set(publicProjection(snap.data()) ?? {}, { merge: false });
+  await db.doc('subscription/public').set(publicProjection(snap.data(), await readBillingSettings(db)) ?? {}, { merge: false });
+}
+
+/**
+ * 013Fixes / 22b — what the account card shows, as epoch millis: the same
+ * window the school's own countdown uses (billingWindow), a queued month,
+ * the last payment, the school's own overrides, and whether a card renews by
+ * itself (the actions it refuses then).
+ */
+function accountCardFields(sub, settings) {
+  const window = billingWindow(sub, settings);
+  const clean = cleanSchoolOverrides(sub.schoolOverrides);
+  return {
+    currentPeriodStart: toMillis(sub.currentPeriodStart),
+    nextPeriodStart: toMillis(sub.nextPeriodStart),
+    nextTier: sub.nextTier ?? null,
+    cancelAtPeriodEnd: sub.cancelAtPeriodEnd === true,
+    lockedBySuperadmin: sub.lockedBySuperadmin === true,
+    card: sub.renewalMode === 'auto' && Boolean(sub.paystackSubscriptionCode),
+    endsAt: window?.endsAt ?? null,
+    countdownFrom: window?.countdownFrom ?? null,
+    renews: window?.renews === true,
+    lastPaymentAt: toMillis(sub.lastPaymentAt),
+    lastPaymentAmountKes: sub.lastPaymentAmountKes ?? null,
+    lastPaymentMethod: sub.lastPaymentMethod ?? (sub.paymentChannel === 'mobile_money' ? 'mpesa' : sub.paymentChannel ?? null),
+    schoolOverrides: clean,
+    custom: hasSchoolOverrides(clean),
+  };
 }

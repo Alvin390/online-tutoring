@@ -49,22 +49,25 @@ describe('trialing', () => {
     expect(r.status).toBe(STATUS.TRIALING);
   });
 
-  it('moves to past_due one millisecond after expiry', () => {
+  // 013Fixes / 18 (owner answers round 3): the countdown runs INSIDE the
+  // trial (days 13–14); the end locks — no grace window after it.
+  it('locks one millisecond after expiry', () => {
     const r = resolveSubscriptionState(
       sub({ status: STATUS.TRIALING, trialEndsAt: NOW - 1 }),
       NOW
     );
-    expect(r.status).toBe(STATUS.PAST_DUE);
+    expect(r.status).toBe(STATUS.LOCKED);
     expect(r.changed).toBe(true);
-    expect(r.graceEndsAt).toBe(NOW - 1 + GRACE_PERIOD_MS);
+    expect(r.reason).toBe('trial_ended');
+    expect(r.graceEndsAt).toBeNull();
   });
 
-  it('retains access immediately after the trial ends (grace window)', () => {
+  it('loses access right after the trial ends (no grace after the end)', () => {
     const r = resolveSubscriptionState(
       sub({ status: STATUS.TRIALING, trialEndsAt: NOW - 1 }),
       NOW
     );
-    expect(r.accessGranted).toBe(true);
+    expect(r.accessGranted).toBe(false);
   });
 
   it('does not transition when the trial has no end date', () => {
@@ -74,7 +77,7 @@ describe('trialing', () => {
   });
 });
 
-describe('active → past_due', () => {
+describe('active → locked at the end (013Fixes / 18)', () => {
   it('stays active inside the period', () => {
     const r = resolveSubscriptionState(
       sub({ status: STATUS.ACTIVE, currentPeriodEnd: NOW + 5 * DAY }),
@@ -92,14 +95,21 @@ describe('active → past_due', () => {
     expect(r.status).toBe(STATUS.ACTIVE);
   });
 
-  it('moves to past_due after the period ends and stamps grace', () => {
+  it('a card waits a few hours for Paystack\'s renewal, then locks (no grace)', () => {
     const periodEnd = NOW - HOUR;
+    expect(resolveSubscriptionState(sub({ status: STATUS.ACTIVE, currentPeriodEnd: periodEnd }), NOW).status).toBe(STATUS.ACTIVE);
+    const late = resolveSubscriptionState(sub({ status: STATUS.ACTIVE, currentPeriodEnd: NOW - 7 * HOUR }), NOW);
+    expect(late.status).toBe(STATUS.LOCKED);
+    expect(late.reason).toBe('renewal_not_received');
+  });
+
+  it('an M-Pesa or manual period locks right after its end', () => {
     const r = resolveSubscriptionState(
-      sub({ status: STATUS.ACTIVE, currentPeriodEnd: periodEnd }),
+      sub({ status: STATUS.ACTIVE, renewalMode: 'manual', currentPeriodEnd: NOW - 1 }),
       NOW
     );
-    expect(r.status).toBe(STATUS.PAST_DUE);
-    expect(r.graceEndsAt).toBe(periodEnd + GRACE_PERIOD_MS);
+    expect(r.status).toBe(STATUS.LOCKED);
+    expect(r.reason).toBe('period_ended');
   });
 });
 
@@ -317,6 +327,8 @@ describe('data retention', () => {
   });
 });
 
+// 013Fixes / 23: the ladder is now 3 days and 1 day before the end (from the
+// billing settings) and one at lock; grace (ruled out) gets none.
 describe('manual renewal reminder ladder', () => {
   it('sends nothing for an auto-renewing subscription', () => {
     expect(
@@ -324,44 +336,44 @@ describe('manual renewal reminder ladder', () => {
     ).toEqual([]);
   });
 
-  it('fires T-7d once the window is reached', () => {
+  it('fires the 3-day reminder once its window is reached', () => {
     const due = dueReminders(
-      sub({ renewalMode: 'manual', currentPeriodEnd: NOW + 7 * DAY - 1 }),
+      sub({ status: STATUS.ACTIVE, renewalMode: 'manual', currentPeriodEnd: NOW + 3 * DAY - 1 }),
       NOW
     );
-    expect(due).toContain('t_minus_7d');
-    expect(due).not.toContain('t_minus_3d');
+    expect(due).toContain('days_3');
+    expect(due).not.toContain('days_1');
   });
 
   it('does not repeat a reminder already sent', () => {
     const due = dueReminders(
       sub({
         renewalMode: 'manual',
-        currentPeriodEnd: NOW + 7 * DAY - 1,
-        remindersSent: ['t_minus_7d'],
+        currentPeriodEnd: NOW + 3 * DAY - 1,
+        remindersSent: ['days_3'],
       }),
       NOW
     );
-    expect(due).not.toContain('t_minus_7d');
+    expect(due).not.toContain('days_3');
   });
 
-  it('has fired all five pre-expiry reminders by expiry', () => {
-    const due = dueReminders(sub({ renewalMode: 'manual', currentPeriodEnd: NOW }), NOW);
-    expect(due).toEqual(
-      expect.arrayContaining(['t_minus_7d', 't_minus_3d', 't_minus_1d', 't_minus_2h', 'at_expiry'])
-    );
+  it('has fired both before-end reminders by the end, then one at lock', () => {
+    expect(dueReminders(sub({ status: STATUS.ACTIVE, renewalMode: 'manual', currentPeriodEnd: NOW + 1 }), NOW)).toEqual(['days_3', 'days_1']);
+    expect(dueReminders(sub({ status: STATUS.LOCKED, renewalMode: 'manual', currentPeriodEnd: NOW, remindersSent: ['days_3', 'days_1'] }), NOW))
+      .toEqual(['at_lock']);
   });
 
-  it('fires the grace midpoint reminder', () => {
+  it('a legacy grace school gets none (grace is ruled out)', () => {
     const due = dueReminders(
       sub({
+        status: STATUS.GRACE,
         renewalMode: 'manual',
         currentPeriodEnd: NOW - HOUR,
         graceEndsAt: NOW + GRACE_PERIOD_MS / 2 - HOUR,
       }),
       NOW
     );
-    expect(due).toContain('grace_midpoint');
+    expect(due).toEqual([]);
   });
 });
 

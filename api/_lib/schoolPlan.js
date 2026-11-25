@@ -1,6 +1,7 @@
 import { getDb } from './firebaseAdmin.js';
 import { ApiError, forbidden } from './errors.js';
 import { PLAN_IDS, mergePlans, planFor, lowestPlanWith } from './plans.js';
+import { applySchoolOverrides } from './schoolOverrides.js';
 
 /**
  * The school's plan — 013Fixes / 00.
@@ -49,7 +50,8 @@ export const __resetPlanCache = invalidatePlanCache;
  */
 export function resolvePlan(sub, overrides) {
   const tier = PLAN_IDS.includes(sub?.tier) ? sub.tier : null;
-  const { features, limits } = planFor(tier, mergePlans(overrides));
+  // 013Fixes / 22: the school's own overrides on top, last (`custom` when any).
+  const { features, limits, custom } = applySchoolOverrides(planFor(tier, mergePlans(overrides)), sub?.schoolOverrides);
   return {
     tier,
     status: sub?.status ?? null,
@@ -58,6 +60,7 @@ export function resolvePlan(sub, overrides) {
     ownerUid: typeof sub?.ownerUid === 'string' ? sub.ownerUid : null,
     features,
     limits,
+    custom,
   };
 }
 

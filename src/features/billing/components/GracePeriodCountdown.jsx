@@ -5,7 +5,10 @@ import { useBilling } from '../context/BillingContext';
 /**
  * Grace-period countdown — Phase 03 D7. The "red beaming clock" from Q5.
  *
- * Visible on every teacher route while status is `grace` or `past_due`.
+ * Visible on every teacher route while status is `grace` or `past_due`, and
+ * (013Fixes / 18) inside the period's countdown window: from `countdownFrom`
+ * to `endsAt` — a trial's days 13–14, an M-Pesa period's last 48 hours, a
+ * card whose payment failed. One timer wakes it when the window opens.
  *
  * Design notes that are requirements, not decoration:
  *   - ONE interval, here in the component that owns the banner. Driving a
@@ -40,7 +43,7 @@ function usePrefersReducedMotion() {
 }
 
 export default function GracePeriodCountdown() {
-  const { inGrace, graceEndsAt, billingEnabled } = useBilling();
+  const { inGrace, graceEndsAt, billingEnabled, status, endsAt, countdownFrom } = useBilling();
   const reducedMotion = usePrefersReducedMotion();
 
   const [now, setNow] = useState(() => Date.now());
@@ -48,7 +51,11 @@ export default function GracePeriodCountdown() {
     () => sessionStorage.getItem(DISMISS_KEY) === 'true'
   );
 
-  const active = billingEnabled && inGrace && graceEndsAt != null;
+  // 013Fixes / 18: what it counts down to — the period's end (or a legacy
+  // school's graceEndsAt, which the server sends as endsAt too).
+  const deadline = endsAt ?? graceEndsAt ?? null;
+  const inWindow = countdownFrom != null && deadline != null && now >= countdownFrom && now <= deadline;
+  const active = billingEnabled && deadline != null && (inGrace || inWindow);
 
   // The single interval. Only runs while the banner is actually live.
   useEffect(() => {
@@ -57,7 +64,17 @@ export default function GracePeriodCountdown() {
     return () => clearInterval(id);
   }, [active]);
 
-  const remaining = active ? Math.max(0, graceEndsAt - now) : 0;
+  // Not live yet: one timer for the moment the window opens (within ~24 days,
+  // the longest a timer can wait).
+  useEffect(() => {
+    if (active || countdownFrom == null) return undefined;
+    const wait = countdownFrom - Date.now();
+    if (wait <= 0 || wait > 2_000_000_000) return undefined;
+    const id = setTimeout(() => setNow(Date.now()), wait + 50);
+    return () => clearTimeout(id);
+  }, [active, countdownFrom]);
+
+  const remaining = active ? Math.max(0, deadline - now) : 0;
   const urgent = remaining > 0 && remaining < SIX_HOURS_MS;
 
   const { hh, mm, ss, hoursLeft } = useMemo(() => {
@@ -102,7 +119,7 @@ export default function GracePeriodCountdown() {
       >
         <span className="fw-semibold">
           <i className="bi bi-exclamation-triangle-fill me-2" aria-hidden="true" />
-          {urgent ? 'Access stops very soon' : 'Your subscription needs renewing'}
+          {urgent ? 'Access stops very soon' : status === 'trialing' ? 'Your free trial is ending' : 'Your subscription needs renewing'}
         </span>
 
         {/* The clock itself is decorative for assistive tech — the coarse

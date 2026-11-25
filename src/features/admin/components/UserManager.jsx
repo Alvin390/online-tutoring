@@ -3,10 +3,13 @@ import { TIER_ORDER, TIERS } from '@shared/constants/tiers';
 import { SkeletonList } from '@components/ui/Skeleton';
 import { useToast } from '@/context/ToastContext';
 import {
-  listUsers, createTeacher, setUserTier, startTrial, setUserDisabled, deleteUser,
-  expireToGrace, expireNow, setOwner, setDevLogin, setExtraLogins, recountUsage,
+  listUsers, createTeacher, setUserTier, setUserDisabled, deleteUser,
+  setOwner, setDevLogin, setExtraLogins, recountUsage,
 } from '@services/api/admin';
 import UsageBars from '@features/billing/usage/UsageBars';
+import StartTrialModal from './StartTrialModal';
+import RecordPaymentModal from './RecordPaymentModal';
+import AccountCard from './AccountCard';
 import logger from '@utils/logger';
 
 /**
@@ -41,8 +44,15 @@ export default function UserManager() {
   const [extraDraft, setExtraDraft] = useState('');
   // 013Fixes / 12: the school's usage (from the stored count) and "Recount now".
   const [usage, setUsage] = useState(null);
+  // 013Fixes / 22b: every plan (the downgrade warning) and the SMS units, for the account card.
+  const [plans, setPlans] = useState(null);
+  const [sms, setSms] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // 013Fixes / 19: the school's "Start trial" form.
+  const [startingTrial, setStartingTrial] = useState(false);
+  // 013Fixes / 20: "Record payment" (a school that paid the owner directly).
+  const [recordingPayment, setRecordingPayment] = useState(false);
 
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', displayName: '' });
@@ -64,6 +74,8 @@ export default function UserManager() {
       setDevEmailDraft(result.devLoginEmail ?? '');
       setSeats(result.seats ?? null);
       setUsage(result.usage ?? null);
+      setPlans(result.plans ?? null);
+      setSms(result.sms ?? null);
       setExtraDraft(String(result.seats?.extra ?? 0));
     } catch (error) {
       logger.error('User list failed', error);
@@ -121,62 +133,56 @@ export default function UserManager() {
             <span className="badge text-bg-light text-muted ms-1">{studentCount} students</span>
           )}
         </h2>
-        <button className="btn btn-sm btn-primary" onClick={() => setCreating(!creating)} disabled={busy}>
-          <i className="bi bi-person-plus me-1" aria-hidden="true" />
-          Add teacher
-        </button>
+        <div className="d-flex gap-2">
+          {/* 013Fixes / 19: a trial is the school's (one plan per school), not a login's. */}
+          <button className="btn btn-sm btn-outline-info" onClick={() => setStartingTrial(true)} disabled={busy}>
+            <i className="bi bi-hourglass-split me-1" aria-hidden="true" />
+            Start trial
+          </button>
+          <button className="btn btn-sm btn-outline-success" onClick={() => setRecordingPayment(true)} disabled={busy}>
+            <i className="bi bi-cash-coin me-1" aria-hidden="true" />
+            Record payment
+          </button>
+          <button className="btn btn-sm btn-primary" onClick={() => setCreating(!creating)} disabled={busy}>
+            <i className="bi bi-person-plus me-1" aria-hidden="true" />
+            Add teacher
+          </button>
+        </div>
       </div>
+      {recordingPayment && (
+        <RecordPaymentModal
+          currentTier={subscription?.tier ?? 'gold'}
+          onClose={() => setRecordingPayment(false)}
+          onRecorded={(res) => {
+            setRecordingPayment(false);
+            showSuccess(res.window?.startsNow ? 'Payment recorded. The school is open again.' : 'Payment recorded. It starts when the current period ends.');
+            load();
+          }}
+        />
+      )}
+      {startingTrial && (
+        <StartTrialModal
+          currentTier={subscription?.tier ?? 'gold'}
+          onClose={() => setStartingTrial(false)}
+          onStarted={(res) => {
+            setStartingTrial(false);
+            showSuccess(`${res.days}-day ${TIERS[res.tier]?.name ?? res.tier} trial started.`);
+            load();
+          }}
+        />
+      )}
 
       <div className="card-body">
-        {/* Current subscription — the thing most admin actions affect. */}
-        {subscription && (
-          <div className="alert alert-light border d-flex flex-wrap gap-4 align-items-center">
-            <div>
-              <span className="text-muted small d-block">Subscription</span>
-              <strong className="text-capitalize">
-                {subscription.tier ?? 'none'} · {subscription.status ?? 'none'}
-              </strong>
-            </div>
-            {subscription.grantedBySuperadmin && (
-              <span className="badge text-bg-info">Comped — billing cron skips this</span>
-            )}
-            {subscription.trialEndsAt && (
-              <div>
-                <span className="text-muted small d-block">Trial ends</span>
-                <strong>{new Date(subscription.trialEndsAt).toLocaleDateString('en-KE')}</strong>
-              </div>
-            )}
-
-            {/* Force an expiry, so the lockout flow can be exercised without
-                waiting for calendar time. Both clear the comped flag — it
-                short-circuits the state machine, so without clearing it these
-                would appear to work and change nothing. */}
-            <div className="ms-auto d-flex gap-2">
-              <button
-                type="button"
-                className="btn btn-outline-warning btn-sm"
-                disabled={busy}
-                onClick={() =>
-                  run(expireToGrace, 'Grace period started — access continues until the clock runs out.')
-                }
-                title="Set status to grace with a 48-hour clock. Access continues."
-              >
-                <i className="bi bi-hourglass-split me-1" aria-hidden="true" />
-                Expire into grace
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline-danger btn-sm"
-                disabled={busy}
-                onClick={() => run(expireNow, 'Subscription expired — access cut immediately.')}
-                title="Set status to expired. Access is cut on the next check."
-              >
-                <i className="bi bi-slash-circle me-1" aria-hidden="true" />
-                End access now
-              </button>
-            </div>
-          </div>
-        )}
+        {/* 013Fixes / 22b: the school's account card — plan, dates, last payment,
+            SMS units and the actions. It replaced the old summary and its two
+            test buttons ("Expire into grace" made the grace state the owner
+            ruled out; "End access now" is Lock now). */}
+        <AccountCard
+          subscription={subscription}
+          plans={plans}
+          sms={sms}
+          onChanged={(message) => { if (message) showSuccess(message); load(); }}
+        />
 
         {creating && (
           <form onSubmit={handleCreate} className="border rounded p-3 mb-3 bg-light">
@@ -398,31 +404,6 @@ export default function UserManager() {
                     <td className="small text-muted">{relative(u.lastSignInAt)}</td>
                     <td>
                       <div className="d-flex gap-1 flex-wrap justify-content-end">
-                        {u.role !== 'superadmin' && (
-                          <button
-                            className="btn btn-outline-info btn-sm"
-                            disabled={busy}
-                            onClick={() =>
-                              run(
-                                // The tier from THIS ROW, not a hardcoded gold.
-                                // The dropdown to the left applies immediately,
-                                // so "pick Silver, then click Trial" now starts
-                                // a Silver trial rather than silently upgrading
-                                // the account to Gold for fourteen days.
-                                // 013Fixes / 01: the school's plan (one plan per school).
-                                () => startTrial({
-                                  uid: u.uid,
-                                  tier: subscription?.tier ?? 'bronze',
-                                  trialDays: 14,
-                                }),
-                                `14-day ${TIERS[subscription?.tier ?? 'bronze'].name} trial started.`
-                              )
-                            }
-                            title={`Start a 14-day ${TIERS[subscription?.tier ?? 'bronze'].name} trial`}
-                          >
-                            Trial
-                          </button>
-                        )}
                         {u.role === 'teacher' && !u.isOwner && !u.disabled && (
                           <button
                             className="btn btn-outline-success btn-sm"

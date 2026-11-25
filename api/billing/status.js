@@ -1,6 +1,7 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
-import { resolveSubscriptionState, publicProjection } from '../_lib/subscription.js';
+import { rolloverFields, resolveSubscriptionState, publicProjection } from '../_lib/subscription.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 import { isEnabled } from '../_lib/flags.js';
 import { invalidatePlanCache, schoolPlan } from '../_lib/schoolPlan.js';
 import { TRIAL_SMS_UNITS, PLAN_IDS, mergePlans } from '../_lib/plans.js';
@@ -31,10 +32,11 @@ export default createHandler({
 
     const db = getDb();
     const ref = db.doc('subscription/current');
-    const snap = await ref.get();
+    // 013Fixes / 18: the billing settings (cached a minute) with the document.
+    const [snap, settings] = await Promise.all([ref.get(), readBillingSettings(db)]);
     const sub = snap.exists ? snap.data() : null;
 
-    const resolved = resolveSubscriptionState(sub, Date.now());
+    const resolved = resolveSubscriptionState(sub, Date.now(), settings);
 
     if (resolved.changed) {
       log.info('On-read state transition', {
@@ -49,19 +51,23 @@ export default createHandler({
       };
       if (resolved.graceEndsAt) patch.graceEndsAt = new Date(resolved.graceEndsAt);
       if (resolved.deleteDataAt) patch.dataRetentionDeleteAt = new Date(resolved.deleteDataAt);
+      // 013Fixes / 20: a period paid for early begins.
+      if (resolved.rollover) Object.assign(patch, rolloverFields(resolved.rollover));
 
       await ref.set(patch, { merge: true });
       invalidatePlanCache();
 
       const after = { ...sub, ...patch, status: resolved.status };
-      await db.doc('subscription/public').set(publicProjection(after) ?? {}, { merge: false });
+      await db.doc('subscription/public').set(publicProjection(after, settings) ?? {}, { merge: false });
     }
 
-    const effective = resolved.changed ? { ...sub, status: resolved.status } : sub;
+    const effective = resolved.changed
+      ? { ...sub, status: resolved.status, ...(resolved.rollover ? rolloverFields(resolved.rollover) : {}) }
+      : sub;
 
     return {
       billingEnabled: true,
-      subscription: publicProjection(effective),
+      subscription: publicProjection(effective, settings),
       accessGranted: resolved.accessGranted,
       graceEndsAt: resolved.graceEndsAt,
       reason: resolved.reason,
@@ -89,6 +95,8 @@ async function planView(user) {
   const catalog = Object.fromEntries(PLAN_IDS.map((id) => [id, { limits: all[id].limits, card: all[id].card }]));
   return {
     tier: plan.tier, comp: plan.comp, features: plan.features, limits: plan.limits, trialSmsUnits: TRIAL_SMS_UNITS, catalog,
+    // 013Fixes / 22: the school has its own limits or features on top of its plan.
+    custom: plan.custom === true,
     // 013Fixes / 10: whether this login is the school owner (the logins screen).
     isOwner: Boolean(user?.uid) && user.uid === plan.ownerUid,
     usage: usageView(usageSnap),

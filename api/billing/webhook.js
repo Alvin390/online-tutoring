@@ -12,8 +12,10 @@ import {
 import { TIER_RANK } from '../_lib/auth.js';
 import { clientIp } from '../_lib/rateLimit.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
-import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
+import { STATUS, publicProjection, paymentPatch } from '../_lib/subscription.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 import { setUserClaims } from '../_lib/claims.js';
+import { paystackPaymentRef, paystackPaymentRecord } from '../_lib/payments.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 
 /**
@@ -224,6 +226,8 @@ async function processEvent({ db, event, log, requestId }) {
 
   const before = (await subRef.get()).data() ?? null;
   let patch = null;
+  // 013Fixes / 21: the payment's own record (payment history).
+  let payment = null;
 
   switch (event.event) {
     case 'charge.success': {
@@ -235,7 +239,31 @@ async function processEvent({ db, event, log, requestId }) {
       const tier = paidTier;
       const renewalMode = metadata.renewalMode ?? before?.renewalMode ?? 'manual';
       const now = Date.now();
-      const periodEnd = monthFromNow(now);
+      // 013Fixes / 20: an M-Pesa (one-time) payment follows the window rule —
+      // early extends from the current end, locked starts now. A card
+      // subscription keeps Paystack's dates (subscription.create sets the end
+      // from next_payment_date), so it starts now as before.
+      // Only an EXPLICIT metadata.renewalMode 'manual' (our M-Pesa checkout,
+      // api/billing/initialize.js) takes the rule. A recurring card charge
+      // carries no metadata, and the stored mode can be stale: the live
+      // school is gifted, stored 'manual', and still holds an old Paystack
+      // subscription; routing on the stored mode would end its gift.
+      const manual = metadata.renewalMode === 'manual' ? paymentPatch(before, { tier, now, renewalMode }) : null;
+      const windowFields = manual
+        ? manual.patch
+        : {
+          tier,
+          status: STATUS.ACTIVE,
+          currentPeriodStart: new Date(now),
+          currentPeriodEnd: monthFromNow(now),
+          nextPeriodStart: null,
+          nextTier: null,
+          graceEndsAt: null,
+          trialEndsAt: null,
+          cancelAtPeriodEnd: false,
+          paymentFailedAt: null,
+          remindersSent: [],
+        };
 
       // Switching from a card subscription to M-Pesa. No `subscription.create`
       // fires for mobile money, so without this the old card subscription keeps
@@ -251,17 +279,13 @@ async function processEvent({ db, event, log, requestId }) {
       }
 
       patch = {
-        tier,
-        status: STATUS.ACTIVE,
         renewalMode,
         paymentChannel: data.channel ?? null,
-        currentPeriodStart: new Date(now),
-        currentPeriodEnd: periodEnd,
-        graceEndsAt: null,
-        trialEndsAt: null,
-        cancelAtPeriodEnd: false,
-        // Reminders are per-period; clear them so the next cycle starts fresh.
-        remindersSent: [],
+        // The period (begun now or queued — then the tier waits in nextTier),
+        // with grace, a failed payment
+        // (013Fixes / 18: the countdown stops) and cancel cleared; reminders
+        // are per-period, so a period begun now clears them.
+        ...windowFields,
         paystackCustomerCode: data.customer?.customer_code ?? before?.paystackCustomerCode ?? null,
         // Only a reusable (card/bank) authorization is worth storing. Storing a
         // mobile-money one would imply a recurring capability that does not exist.
@@ -273,6 +297,17 @@ async function processEvent({ db, event, log, requestId }) {
         lastPaymentAmountKes: typeof data.amount === 'number' ? data.amount / 100 : null,
         updatedAt: FieldValue.serverTimestamp(),
       };
+
+      if (data.reference && typeof data.amount === 'number') {
+        payment = {
+          reference: data.reference,
+          amountKes: data.amount / 100,
+          channel: data.channel ?? null,
+          tier: patch.tier ?? patch.nextTier ?? null,
+          periodFrom: manual ? new Date(manual.window.from) : new Date(now),
+          periodTo: manual ? new Date(manual.window.to) : patch.currentPeriodEnd,
+        };
+      }
 
       if (metadata.uid) patch.ownerUid = metadata.uid;
       if (data.plan?.plan_code) patch.paystackPlanCode = data.plan.plan_code;
@@ -317,13 +352,13 @@ async function processEvent({ db, event, log, requestId }) {
       // The price should match the plan. A mismatch (a stale price on the
       // Paystack plan, say) is recorded loudly — but the money has moved, so
       // it is not rejected.
-      const expectedKes = TIER_PRICE_KES[patch.tier];
+      const expectedKes = TIER_PRICE_KES[patch.tier ?? patch.nextTier];
       const paidKes = typeof data.amount === 'number' ? data.amount / 100 : null;
       if (expectedKes && paidKes != null && paidKes !== expectedKes) {
-        log.warn('Charged amount does not match the tier price', { tier: patch.tier, paidKes, expectedKes });
+        log.warn('Charged amount does not match the tier price', { tier: patch.tier ?? patch.nextTier, paidKes, expectedKes });
         await tryWriteAudit(
           { action: 'billing.price_mismatch', actor: 'system:paystack', target: 'subscription/current',
-            after: { tier: patch.tier, paidKes, expectedKes },
+            after: { tier: patch.tier ?? patch.nextTier, paidKes, expectedKes },
             context: { requestId, reference: data.reference ?? null } },
           log
         );
@@ -394,10 +429,11 @@ async function processEvent({ db, event, log, requestId }) {
     }
 
     case 'invoice.payment_failed': {
-      const periodEnd = before?.currentPeriodEnd?.toMillis?.() ?? Date.now();
+      // 013Fixes / 18: the school stays active and the countdown starts now
+      // (billingWindow); it locks at the period end plus the renewal wait
+      // unless a payment arrives. No grace after the end.
       patch = {
-        status: STATUS.PAST_DUE,
-        graceEndsAt: new Date(periodEnd + GRACE_PERIOD_MS),
+        paymentFailedAt: before?.paymentFailedAt ?? new Date(),
         updatedAt: FieldValue.serverTimestamp(),
       };
       break;
@@ -421,11 +457,18 @@ async function processEvent({ db, event, log, requestId }) {
   await subRef.set(patch, { merge: true });
   invalidatePlanCache();
 
+  // 013Fixes / 21: one record per Paystack reference (set, so a replay that
+  // got past the event check cannot make two).
+  if (payment) {
+    const finalTier = patch.tier ?? patch.nextTier ?? payment.tier;
+    await paystackPaymentRef(db, payment.reference).set(paystackPaymentRecord({ ...payment, tier: finalTier }));
+  }
+
   const after = (await subRef.get()).data();
 
   // Redacted projection for the client. Derived from the same document read
   // that produced `after`, so the two cannot disagree.
-  await publicRef.set(publicProjection(after) ?? {}, { merge: false });
+  await publicRef.set(publicProjection(after, await readBillingSettings(db)) ?? {}, { merge: false });
 
   // Keep claims in step with the tier so rules gate correctly. Claims are the
   // fast path; subscription/current stays the authority.

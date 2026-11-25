@@ -126,15 +126,18 @@ function base64Body(text) {
  * part (both base64, UTF-8). Plain text matters for deliverability as much as
  * for accessibility — HTML-only mail scores worse with spam filters.
  */
-export function buildMimeMessage({ from, fromName = 'Online Tutoring Alerts', to, replyTo, subject, text, html }) {
+export function buildMimeMessage({ from, fromName = 'Online Tutoring Alerts', to, cc, replyTo, subject, text, html }) {
   assertAddress(from, 'sender');
   assertAddress(to, 'recipient');
+  // 013Fixes / 23: one copy address (a reminder's copy to the owner), checked like the others.
+  if (cc) assertAddress(cc, 'cc');
   if (replyTo) assertAddress(replyTo, 'reply-to');
 
   const boundary = `alt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const headers = [
     `From: ${encodeHeaderValue(fromName)} <${from}>`,
     `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
     ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
     `Subject: ${encodeHeaderValue(subject)}`,
     'MIME-Version: 1.0',
@@ -167,11 +170,12 @@ export function toBase64Url(value) {
  * Sends one message through the configured Gmail account.
  * @returns {Promise<{id: string}>}
  */
-export async function sendGmail({ to, replyTo, subject, text, html }) {
+export async function sendGmail({ to, cc, replyTo, subject, text, html }) {
   const token = await getGmailAccessToken();
   const raw = toBase64Url(buildMimeMessage({
     from: process.env.GMAIL_SENDER,
     to,
+    cc,
     replyTo,
     subject,
     text,

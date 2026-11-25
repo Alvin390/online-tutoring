@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useBilling } from '@features/billing/context/BillingContext';
@@ -15,6 +15,10 @@ import {
 import logger from '@utils/logger';
 import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
 import UsageBars from '@features/billing/usage/UsageBars';
+import { planEnd } from '@/features/billing/planEnd';
+
+// 013Fixes / 21: loaded only when "Show payments" is pressed.
+const SchoolPayments = lazy(() => import('@/features/billing/payments/SchoolPayments'));
 
 
 /**
@@ -87,6 +91,7 @@ function formatDate(value) {
 
 export default function BillingPage() {
   const { subscription, status, tier, isLocked, loading, refresh, plan: schoolPlan } = useBilling();
+  const ends = planEnd(subscription);
   // 013Fixes / 07: each card's words and limits as the superadmin set them.
   const catalog = schoolPlan?.catalog ?? null;
   const { showError, showSuccess } = useToast();
@@ -95,6 +100,7 @@ export default function BillingPage() {
   const [channel, setChannel] = useState('card');
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [showPayments, setShowPayments] = useState(false);
   const [confirmDowngrade, setConfirmDowngrade] = useState(null);
 
   const currentRank = TIER_RANK[tier] ?? 0;
@@ -266,12 +272,11 @@ export default function BillingPage() {
               </span>
             </div>
 
-            {subscription?.currentPeriodEnd && (
-              <div>
-                <span className="text-muted small d-block">
-                  {subscription.cancelAtPeriodEnd ? 'Access ends' : 'Renews on'}
-                </span>
-                <span className="fw-semibold">{formatDate(subscription.currentPeriodEnd)}</span>
+            {/* 013Fixes / 18: always say when the plan ends (Nairobi time). */}
+            {ends && (
+              <div data-testid="plan-ends">
+                <span className="text-muted small d-block">{ends.label}</span>
+                <span className="fw-semibold">{ends.text}</span>
               </div>
             )}
 
@@ -319,6 +324,27 @@ export default function BillingPage() {
           )}
         </m.div>
       )}
+
+      {/* 013Fixes / 21: the school's payments, one paged query when opened. */}
+      <section className="card mb-4" aria-labelledby="payments-heading">
+        <div className="card-body">
+          <div className="d-flex align-items-center justify-content-between gap-2">
+            <h2 id="payments-heading" className="h6 fw-bold mb-0">Payments</h2>
+            {!showPayments && (
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setShowPayments(true)}>
+                Show payments
+              </button>
+            )}
+          </div>
+          {showPayments && (
+            <div className="mt-3">
+              <Suspense fallback={<span className="spinner-border spinner-border-sm text-muted" role="status" aria-label="Loading" />}>
+                <SchoolPayments />
+              </Suspense>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Cancel confirmation — states the exact date, per Q8. */}
       {confirmCancel && (

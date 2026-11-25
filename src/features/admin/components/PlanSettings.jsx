@@ -5,6 +5,7 @@ import { getPlanSettings, savePlanSettings, resetPlanSettings } from '@services/
 import { PLAN_IDS, FEATURE_KEYS, LIMIT_KEYS, CARD_LIMITS, limitLines } from '@shared/constants/plans';
 import { TIERS, formatKes } from '@shared/constants/tiers';
 import logger from '@utils/logger';
+import { FEATURE_LABELS, LIMIT_LABELS } from '../planLabels';
 
 /**
  * Plan settings — 013Fixes / 07 (superadmin only).
@@ -15,30 +16,6 @@ import logger from '@utils/logger';
  * cheaper plan has a feature a dearer one lacks. Prices are read-only here
  * (they change in the pricing series, with the Paystack plans).
  */
-
-const FEATURE_LABELS = {
-  sessions: 'Sessions, classes and subjects',
-  calendar: 'Calendar',
-  notes: 'Private notes',
-  basicBlocks: 'Block and unblock',
-  scheduledBlocks: 'Scheduled blocks',
-  fees: 'Fees (ledger, balances)',
-  feePayments: 'Record payments',
-  feeBlocks: 'Fee blocks',
-  invoices: 'Invoices',
-  bulkSms: 'SMS to all students',
-  targetedSms: 'Choose SMS recipients',
-  whatsappOneToOne: 'WhatsApp to one person',
-  whatsappCampaigns: 'WhatsApp campaigns (retired)',
-  mpesaStk: 'M-Pesa Pay now (STK)',
-};
-
-const LIMIT_LABELS = {
-  activeStudents: 'Active students',
-  sessions: 'Sessions',
-  logins: 'Dashboard logins',
-  smsUnits: 'SMS units a month',
-};
 
 /** The editable form of one plan, from the effective settings. */
 function toDraft(plan) {

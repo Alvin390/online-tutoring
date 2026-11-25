@@ -68,12 +68,13 @@ export const externalCalls = [];
  * Knobs for the fakes. Tests mutate these to inject failures.
  *   daraja.queryResultCode  ResultCode the fake STK status query returns
  *   paystack.fail           { [pathFragment]: httpStatus } — fail matching calls
+ *   paystack.verify         { [reference]: transaction } — /transaction/verify answers (013Fixes / 21)
  *   gmail.fail              HTTP status for the next Gmail send(s), or null
  *   gmail.oauthError        error string for the token endpoint, or null
  */
 export const fakes = {
   daraja: { queryResultCode: '0', seq: 0 },
-  paystack: { fail: {}, seq: 0 },
+  paystack: { fail: {}, verify: {}, seq: 0 },
   // hold: a promise the fake Gmail send awaits before answering.
   gmail: { fail: null, oauthError: null, seq: 0, hold: null },
   storage: { fail: null, objects: new Map() },
@@ -87,6 +88,7 @@ export function resetFakes() {
   externalCalls.length = 0;
   fakes.daraja.queryResultCode = '0';
   fakes.paystack.fail = {};
+  fakes.paystack.verify = {};
   fakes.gmail.fail = null;
   fakes.gmail.oauthError = null;
   fakes.gmail.hold = null;
@@ -163,6 +165,10 @@ export function installFetchGuard() {
         if (pathname.includes(fragment)) return json({ status: false, message: 'fake failure' }, status);
       }
       fakes.paystack.seq += 1;
+      if (pathname.startsWith('/transaction/verify/')) {
+        const tx = fakes.paystack.verify[decodeURIComponent(pathname.slice('/transaction/verify/'.length))];
+        if (tx) return json({ status: true, message: 'Verification successful', data: tx });
+      }
       if (pathname === '/subscription' && call.method === 'POST') {
         return json({ status: true, data: { subscription_code: `SUB_fake_${fakes.paystack.seq}`, email_token: `tok_${fakes.paystack.seq}` } });
       }

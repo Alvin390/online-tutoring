@@ -29,6 +29,11 @@ const EMPTY = {
   status: null,
   tier: null,
   graceEndsAt: null,
+  // 013Fixes / 18: the period's window (when access stops, when the countdown
+  // starts, whether a card renews by itself), epoch millis from the server.
+  endsAt: null,
+  countdownFrom: null,
+  renews: false,
   // 013Fixes / 00: the SCHOOL's plan (features and limits) from /api/billing/status,
   // the same `schoolPlan()` the server gates use. null until it answers.
   plan: null,
@@ -65,6 +70,9 @@ export function BillingProvider({ children }) {
         status: result.subscription?.status ?? null,
         tier: result.subscription?.tier ?? null,
         graceEndsAt: result.graceEndsAt ?? toMillis(result.subscription?.graceEndsAt),
+        endsAt: toMillis(result.subscription?.endsAt),
+        countdownFrom: toMillis(result.subscription?.countdownFrom),
+        renews: result.subscription?.renews === true,
       });
     } catch (err) {
       // Fail OPEN on a status-check failure. Locking the teacher out of their
@@ -105,6 +113,9 @@ export function BillingProvider({ children }) {
           status: sub.status ?? null,
           tier: sub.tier ?? null,
           graceEndsAt: toMillis(sub.graceEndsAt),
+          endsAt: toMillis(sub.endsAt),
+          countdownFrom: toMillis(sub.countdownFrom),
+          renews: sub.renews === true,
         }));
       },
       (err) => logger.warn('Subscription listener failed', { code: err?.code })

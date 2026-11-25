@@ -6,11 +6,13 @@ import adminReports from '../api/admin/reports.js';
 import adminSetRole from '../api/admin/setRole.js';
 import adminUsers from '../api/admin/users.js';
 import adminPlans from '../api/admin/plans.js';
+import adminBilling from '../api/admin/billing.js';
 import schoolLogins from '../api/school/logins.js';
 import authLoginAttempt from '../api/auth/loginAttempt.js';
 
 import billingInitialize from '../api/billing/initialize.js';
 import billingManage from '../api/billing/manage.js';
+import billingPayments from '../api/billing/payments.js';
 import billingStatus from '../api/billing/status.js';
 import billingWebhook from '../api/billing/webhook.js';
 
@@ -97,12 +99,14 @@ export const STATIC_ROUTES = {
   '/api/admin/users': adminUsers,
   // 013Fixes / 07: plan settings (features, limits, card words).
   '/api/admin/plans': adminPlans,
+  '/api/admin/billing': adminBilling,
   // 013Fixes / 09: the school owner manages the school's logins.
   '/api/school/logins': schoolLogins,
   '/api/auth/loginAttempt': authLoginAttempt,
 
   '/api/billing/initialize': billingInitialize,
   '/api/billing/manage': billingManage,
+  '/api/billing/payments': billingPayments,
   '/api/billing/status': billingStatus,
   '/api/billing/webhook': billingWebhook,
 

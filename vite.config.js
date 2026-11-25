@@ -116,6 +116,17 @@ export default defineConfig({
           '**/usageLevels-*.js', '**/UsageBars-*.js', '**/UsageNotice-*.js',
           // 013Fixes / 16: the superadmin SMS units card.
           '**/SmsUnitsCard-*.js',
+          // 013Fixes / 18: the superadmin billing settings card (and its API calls).
+          '**/BillingSettings-*.js',
+          '**/adminBilling-*.js',
+          // 013Fixes / 19: "Your plan expires on …" (shared by the billing page and Start trial).
+          '**/planEnd-*.js',
+          // 013Fixes / 21: the payments lists (staff only).
+          '**/PaymentHistory-*.js',
+          '**/SchoolPayments-*.js',
+          '**/paymentFormat-*.js',
+          // 013Fixes / 22b: plan feature and limit names (Plans and the account card).
+          '**/planLabels-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

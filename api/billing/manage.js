@@ -14,6 +14,7 @@ import { setUserClaims } from '../_lib/claims.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 
 /**
  * Cancel, downgrade, and superadmin grant — Phase 03 D8.
@@ -64,6 +65,7 @@ export default createHandler({
         renewalMode: 'manual',
         grantedBySuperadmin: true,
         currentPeriodStart: new Date(now),
+        nextPeriodStart: null, nextTier: null, // 013Fixes / 20: no queued period under a comp
         // Deliberately far out. The cron skips grantedBySuperadmin records
         // entirely, so this date is documentation rather than an expiry.
         currentPeriodEnd: new Date(now + 365 * 24 * 60 * 60 * 1000),
@@ -74,7 +76,7 @@ export default createHandler({
 
       await ref.set(patch, { merge: true });
       invalidatePlanCache();
-      await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }), { merge: false });
+      await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }, await readBillingSettings(db)), { merge: false });
 
       await tryWriteAudit(
         {
@@ -121,7 +123,7 @@ export default createHandler({
         };
         await ref.set(patch, { merge: true });
         invalidatePlanCache();
-        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }), { merge: false });
+        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }, await readBillingSettings(db)), { merge: false });
 
         await tryWriteAudit(
           {
@@ -154,7 +156,7 @@ export default createHandler({
         };
         await ref.set(patch, { merge: true });
         invalidatePlanCache();
-        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }), { merge: false });
+        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }, await readBillingSettings(db)), { merge: false });
 
         await tryWriteAudit(
           {
@@ -252,7 +254,7 @@ export default createHandler({
         };
         await ref.set(patch, { merge: true });
         invalidatePlanCache();
-        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }), { merge: false });
+        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }, await readBillingSettings(db)), { merge: false });
 
         await tryWriteAudit(
           {
@@ -323,7 +325,7 @@ export default createHandler({
         };
         await ref.set(patch, { merge: true });
         invalidatePlanCache();
-        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }), { merge: false });
+        await db.doc('subscription/public').set(publicProjection({ ...sub, ...patch }, await readBillingSettings(db)), { merge: false });
 
         await tryWriteAudit(
           {
