@@ -95,8 +95,14 @@ describe('findDuplicateGroups', () => {
       studentName: `Student ${i % 450}`, class: `Grade ${i % 4}`, receiptMessage: `R${String(i).padStart(9, '0')} x`,
     }));
     findDuplicateGroups(students);
-    const t0 = performance.now();
-    findDuplicateGroups(students);
-    expect(performance.now() - t0).toBeLessThan(5);
+    // 014Fixes: the middle of 7 runs, not one: a single run on a shared CI
+    // machine measured 5.9 and 6.3 ms; a real slowdown still fails every run.
+    const runs = [];
+    for (let i = 0; i < 7; i += 1) {
+      const t0 = performance.now();
+      findDuplicateGroups(students);
+      runs.push(performance.now() - t0);
+    }
+    expect(runs.sort((x, y) => x - y)[3]).toBeLessThan(5);
   });
 });
