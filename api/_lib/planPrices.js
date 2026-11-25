@@ -1,5 +1,5 @@
 import { getDb } from './firebaseAdmin.js';
-import { currentMode, fetchPlan, planCodeForTier, TIER_PRICE_KES } from './paystack.js';
+import { currentMode, fetchPlan, planCodeForTier, FALLBACK_PRICE_KES } from './paystack.js';
 
 /**
  * Plan prices — 013Fixes / 25 (owner, round 3: keep the Paystack plans,
@@ -19,7 +19,7 @@ import { currentMode, fetchPlan, planCodeForTier, TIER_PRICE_KES } from './payst
  */
 
 export const TIERS = ['bronze', 'silver', 'gold'];
-export const FALLBACK_PRICE_KES = TIER_PRICE_KES;
+export { FALLBACK_PRICE_KES };
 const CACHE_MS = 10 * 60 * 1000;
 const FALLBACK_CACHE_MS = 60 * 1000;
 const DOC = 'config/planPrices';

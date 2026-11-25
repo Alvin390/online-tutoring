@@ -94,6 +94,9 @@ function formatDate(value) {
 
 export default function BillingPage() {
   const { subscription, status, tier, isLocked, loading, refresh, plan: schoolPlan } = useBilling();
+  // 013Fixes / 27: each plan's price is the server's (the shared Paystack
+  // plans, on the status call); none until it has answered.
+  const priceOf = (id) => schoolPlan?.prices?.[id] ?? null;
   const ends = planEnd(subscription);
   // 013Fixes / 07: each card's words and limits as the superadmin set them.
   const catalog = schoolPlan?.catalog ?? null;
@@ -327,7 +330,7 @@ export default function BillingPage() {
                 <i className="bi bi-info-circle me-2" aria-hidden="true" />
                 Downgrade to <strong>{TIERS[subscription.scheduledTierChange.tier]?.name}</strong> scheduled for{' '}
                 {formatDate(subscription.scheduledTierChange.effectiveAt ?? subscription.currentPeriodEnd)}
-                {' '}({formatKes(TIERS[subscription.scheduledTierChange.tier]?.priceKes ?? 0)}/month from then).
+                {priceOf(subscription.scheduledTierChange.tier) != null && ` (${formatKes(priceOf(subscription.scheduledTierChange.tier))}/month from then)`}.
                 Your data from this plan is kept and comes back if you upgrade again.
               </span>
               <button type="button" className="btn btn-outline-primary btn-sm" onClick={handleKeepPlan} disabled={busy}>
@@ -396,8 +399,8 @@ export default function BillingPage() {
             in it until{' '}
             <strong>{formatDate(subscription?.currentPeriodEnd) ?? 'the end of your period'}</strong>.
             From then you pay{' '}
-            <strong>{formatKes(TIERS[confirmDowngrade]?.priceKes ?? 0)}</strong>/month instead of{' '}
-            {formatKes(TIERS[tier]?.priceKes ?? 0)}.
+            <strong>{priceOf(confirmDowngrade) != null ? formatKes(priceOf(confirmDowngrade)) : 'its price'}</strong>/month instead of{' '}
+            {priceOf(tier) != null ? formatKes(priceOf(tier)) : 'your current price'}.
           </p>
           <p className="small text-muted mb-3">
             <strong>You are not charged now.</strong> Your fees, calendar and campaign history
@@ -503,7 +506,7 @@ export default function BillingPage() {
                   <p className="text-muted small">{plan.tagline}</p>
 
                   <div className="my-3">
-                    <span className="fs-3 fw-bold">{formatKes(plan.priceKes)}</span>
+                    <span className="fs-3 fw-bold" data-testid={`price-${id}`}>{priceOf(id) != null ? formatKes(priceOf(id)) : '—'}</span>
                     <span className="text-muted">/month</span>
                   </div>
 

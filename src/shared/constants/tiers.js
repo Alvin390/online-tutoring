@@ -26,9 +26,11 @@ function cardFor(id) {
 }
 
 export const TIERS = {
-  bronze: { id: 'bronze', name: 'Bronze', rank: 1, priceKes: 4999, ...cardFor('bronze') },
-  silver: { id: 'silver', name: 'Silver', rank: 2, priceKes: 7499, ...cardFor('silver') },
-  gold: { id: 'gold', name: 'Gold', rank: 3, priceKes: 9999, ...cardFor('gold') },
+  // 013Fixes / 27: no price here. Prices are the shared Paystack plans, from
+  // the server (plan.prices on the status call); see api/_lib/planPrices.js.
+  bronze: { id: 'bronze', name: 'Bronze', rank: 1, ...cardFor('bronze') },
+  silver: { id: 'silver', name: 'Silver', rank: 2, ...cardFor('silver') },
+  gold: { id: 'gold', name: 'Gold', rank: 3, ...cardFor('gold') },
 };
 
 export const TIER_ORDER = ['bronze', 'silver', 'gold'];

@@ -28,10 +28,10 @@ describe('tier ranking', () => {
     }
   });
 
-  it('matches the agreed prices', () => {
-    expect(TIERS.bronze.priceKes).toBe(4999);
-    expect(TIERS.silver.priceKes).toBe(7499);
-    expect(TIERS.gold.priceKes).toBe(9999);
+  // 013Fixes / 27: prices are the shared Paystack plans, from the server; the
+  // app holds none (tests/unit/fixes013/onePrice.test.jsx).
+  it('carry no price', () => {
+    for (const id of ['bronze', 'silver', 'gold']) expect(TIERS[id]).not.toHaveProperty('priceKes');
   });
 });
 

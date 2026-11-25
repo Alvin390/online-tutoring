@@ -39,10 +39,12 @@ describe('scheduled downgrade banner', () => {
   it('shows the date and new price, and "Keep Gold instead" undoes it', async () => {
     const { cancelDowngrade, showSuccess } = await renderBilling({
       scheduled: { tier: 'bronze', effectiveAt: '2026-11-14T00:00:00.000Z' },
+      // 013Fixes / 27: the price is the server's (the shared Paystack plan).
+      plan: { tier: 'gold', prices: { bronze: 5000, silver: 8000, gold: 12000 } },
     });
     const banner = screen.getByTestId('scheduled-change');
     expect(banner.textContent).toMatch(/Downgrade to Bronze scheduled for/);
-    expect(banner.textContent).toMatch(/4,999/);
+    expect(banner.textContent).toMatch(/KES 5,000\/month from then/);
 
     const keep = screen.getByRole('button', { name: /Keep Gold instead/ });
     expect(keep.disabled).toBe(false);
@@ -88,5 +90,18 @@ describe('the new-price notice', () => {
   it('none when nothing changed', async () => {
     await renderBilling({ scheduled: null, plan: { tier: 'gold', priceChange: null } });
     expect(screen.queryByTestId('price-change')).toBeNull();
+  });
+});
+
+// 013Fixes / 27: the cards show the server's prices; none before it answers.
+describe('plan card prices', () => {
+  it('each card\'s price is the server\'s', async () => {
+    await renderBilling({ scheduled: null, plan: { tier: 'gold', prices: { bronze: 5000, silver: 8000, gold: 12000 } } });
+    expect(screen.getByTestId('price-silver').textContent).toBe('KES 8,000');
+  });
+
+  it('a dash until the server has answered', async () => {
+    await renderBilling({ scheduled: null, plan: null });
+    expect(screen.getByTestId('price-silver').textContent).toBe('—');
   });
 });

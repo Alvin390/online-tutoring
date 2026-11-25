@@ -111,3 +111,14 @@ describe('the status call carries the prices', () => {
     expect(externalCalls.filter((c) => String(c.url).includes('/plan/')).length).toBe(3);
   });
 });
+
+// 013Fixes / 27: the account card and Record payment show the server's price.
+describe('the Accounts list carries the prices', () => {
+  it('each plan\'s price, for the superadmin screens', async () => {
+    fakes.paystack.plans = NEW;
+    const admin = await userWithClaims('fx013-price-admin', teacherClaims.superadmin);
+    const res = await call('/api/admin/users', { token: admin, body: { action: 'list' } });
+    expect(res.status).toBe(200);
+    expect(res.body.prices).toEqual({ bronze: 5000, silver: 8000, gold: 12000 });
+  });
+});

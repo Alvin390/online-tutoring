@@ -13,6 +13,7 @@ import { recountUsage } from '../_lib/usage.js';
 import { PLAN_IDS, mergePlans } from '../_lib/plans.js';
 import { cleanSchoolOverrides, hasSchoolOverrides } from '../_lib/schoolOverrides.js';
 import { peekCredits } from '../_lib/smsCredits.js';
+import { planPrices } from '../_lib/planPrices.js';
 
 /**
  * User administration — superadmin only.
@@ -168,7 +169,9 @@ export default createHandler({
         windowStart: u.windowStart?.toDate?.()?.toISOString?.() ?? null, windowEnd: u.windowEnd?.toDate?.()?.toISOString?.() ?? null,
         windowKind: u.windowKind ?? null, countedAt: u.countedAtMs ? new Date(u.countedAtMs).toISOString() : null,
       } : null;
-      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats, usage, plans, sms };
+      // 013Fixes / 27: each plan's price (the shared Paystack plans; cached).
+      const { prices } = await planPrices(db);
+      return { ok: true, users: staff, studentCount, subscription, ownerUid, devLoginEmail, seats, usage, plans, sms, prices };
     }
 
     // --------------------------------------------------------- createTeacher
