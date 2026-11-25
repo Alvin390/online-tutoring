@@ -8,7 +8,10 @@ import {
 } from '../_lib/billingSettings.js';
 import { STATUS, publicProjection, toMillis, paidWindow, paymentPatch } from '../_lib/subscription.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
-import { paymentSchema, checkPayment, preparePaymentInTx } from '../_lib/payments.js';
+import {
+  paymentSchema, checkPayment, preparePaymentInTx, listPayments, paystackPaymentRef, paystackPaymentRecord,
+} from '../_lib/payments.js';
+import { verifyTransaction } from '../_lib/paystack.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TIERS = ['bronze', 'silver', 'gold'];
@@ -29,6 +32,12 @@ const TIERS = ['bronze', 'silver', 'gold'];
  *                  `preview: true` returns the window and writes nothing.
  *                  A school paying by card automatically is refused (cancel
  *                  the card first, or it is charged twice). Audited.
+ *   payments       013Fixes / 21: every payment, newest first, 20 a page,
+ *                  with codes and notes (the school's list hides them)
+ *   backfillPayments  013Fixes / 21: in-app payments from before the webhook
+ *                  recorded them, from billing/events through Paystack's
+ *                  verify. A dry run by default (counts, calls nobody);
+ *                  `apply: true` writes at most BACKFILL_BATCH a run. Audited.
  */
 
 const schema = z.discriminatedUnion('action', [
@@ -40,6 +49,8 @@ const schema = z.discriminatedUnion('action', [
     days: z.number().int().min(1).max(90).optional(),
     payment: paymentSchema.optional(),
   }).strict(),
+  z.object({ action: z.literal('payments'), cursor: z.number().int().positive().optional() }).strict(),
+  z.object({ action: z.literal('backfillPayments'), apply: z.boolean().optional() }).strict(),
   paymentSchema.extend({
     action: z.literal('recordPayment'),
     tier: z.enum(TIERS),
@@ -61,6 +72,10 @@ export default createHandler({
     if (body.action === 'startTrial') return startTrial({ db, body, user, log, waitUntil });
 
     if (body.action === 'recordPayment') return recordPayment({ db, body, user, log, waitUntil });
+
+    if (body.action === 'payments') return listPayments(db, { cursor: body.cursor ?? null });
+
+    if (body.action === 'backfillPayments') return backfillPayments({ db, body, user, log, waitUntil });
 
     // saveSettings
     const before = await readBillingSettings(db);
@@ -201,4 +216,60 @@ function cardActive() {
 function toIso(t) {
   const ms = toMillis(t);
   return ms == null ? null : new Date(ms).toISOString();
+}
+
+// Each verify is one subrequest; a run stays well inside the Worker's budget.
+const BACKFILL_BATCH = 20;
+
+/** 013Fixes / 21: past in-app payments into the history, once each. */
+async function backfillPayments({ db, body, user, log, waitUntil }) {
+  const [events, recorded] = await Promise.all([
+    db.collection('billing').doc('events').collection('items').where('event', '==', 'charge.success').get(),
+    db.collection('billing/payments/items').where('source', '==', 'paystack').get(),
+  ]);
+  const have = new Set(recorded.docs.map((d) => d.id));
+  const references = [...new Set(events.docs.map((d) => d.data().reference).filter(Boolean))];
+  const missing = references.filter((ref) => !have.has(paystackPaymentRef(db, ref).id));
+
+  if (!body.apply) {
+    return { ok: true, applied: false, charges: references.length, missing: missing.length };
+  }
+
+  let written = 0;
+  let skipped = 0;
+  let failed = 0;
+  const batch = missing.slice(0, BACKFILL_BATCH);
+  for (const reference of batch) {
+    try {
+      const tx = await verifyTransaction(reference);
+      if (tx?.status !== 'success' || typeof tx.amount !== 'number') { skipped += 1; continue; }
+      const paidAt = tx.paid_at ?? tx.paidAt ?? tx.created_at ?? null;
+      await paystackPaymentRef(db, reference).create({
+        ...paystackPaymentRecord({
+          reference,
+          amountKes: tx.amount / 100,
+          channel: tx.channel ?? null,
+          tier: tx.metadata?.tier ?? null,
+          // The period each one bought was not kept before this phase.
+          periodFrom: null,
+          periodTo: null,
+          paidAt: paidAt ? new Date(paidAt) : null,
+        }),
+        backfilled: true,
+      });
+      written += 1;
+    } catch (err) {
+      if (err?.code === 6 || err?.code === 'already-exists') { skipped += 1; continue; }
+      failed += 1;
+      log.warn('Backfill: a payment could not be fetched or written', { error: String(err?.message ?? err) });
+    }
+  }
+
+  const result = { written, skipped, failed, remaining: missing.length - batch.length };
+  waitUntil(tryWriteAudit({
+    action: 'billing.payments_backfilled', actor: user.uid, actorRole: user.role, target: 'billing/payments',
+    after: result, context: { requestId: log.requestId },
+  }, log));
+  log.info('Payments backfilled', result);
+  return { ok: true, applied: true, charges: references.length, missing: missing.length, ...result };
 }

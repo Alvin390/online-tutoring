@@ -69,3 +69,74 @@ export async function preparePaymentInTx(tx, db, payment) {
     ...record,
   });
 }
+
+// ---------------------------------------------------------------- 013Fixes / 21
+
+/** Paystack's channel as a payment method. */
+export function paystackMethod(channel) {
+  if (channel === 'mobile_money') return 'mpesa';
+  if (channel === 'card') return 'card';
+  if (channel === 'bank' || channel === 'bank_transfer') return 'bank';
+  return channel || 'paystack';
+}
+
+/** The document an in-app payment is written to: one per Paystack reference. */
+export function paystackPaymentRef(db, reference) {
+  return db.collection(itemsPath).doc(`paystack_${reference}`);
+}
+
+/** An in-app payment's record (the webhook, and the backfill). */
+export function paystackPaymentRecord({ reference, amountKes, channel, tier, periodFrom, periodTo, paidAt }) {
+  return {
+    amountKes,
+    method: paystackMethod(channel),
+    code: null,
+    note: null,
+    tier: tier ?? null,
+    periodFrom: periodFrom ?? null,
+    periodTo: periodTo ?? null,
+    kind: 'payment',
+    source: 'paystack',
+    reference,
+    actor: 'system:paystack',
+    createdAt: paidAt ?? FieldValue.serverTimestamp(),
+  };
+}
+
+export const PAYMENTS_PAGE = 20;
+
+const millis = (t) => (t == null ? null : t.toMillis?.() ?? (t instanceof Date ? t.getTime() : null));
+
+/**
+ * One page of payments, newest first. `cursor` is the last item's createdAt
+ * (millis) from the previous page. The school's view (`forSchool`) leaves out
+ * the M-Pesa code, the note and who recorded it: the owner's own business.
+ */
+export async function listPayments(db, { cursor = null, forSchool = false } = {}) {
+  let query = db.collection(itemsPath).orderBy('createdAt', 'desc').limit(PAYMENTS_PAGE);
+  if (cursor != null) query = query.startAfter(new Date(cursor));
+  const snap = await query.get();
+  const items = snap.docs.map((d) => {
+    const p = d.data();
+    const base = {
+      id: d.id,
+      createdAt: millis(p.createdAt),
+      amountKes: p.amountKes ?? null,
+      method: p.method ?? null,
+      tier: p.tier ?? null,
+      periodFrom: millis(p.periodFrom),
+      periodTo: millis(p.periodTo),
+    };
+    if (forSchool) return base;
+    return {
+      ...base,
+      code: p.code ?? null,
+      note: p.note ?? null,
+      kind: p.kind ?? null,
+      source: p.source ?? null,
+      reference: p.reference ?? null,
+      backfilled: p.backfilled === true,
+    };
+  });
+  return { items, nextCursor: items.length === PAYMENTS_PAGE ? items[items.length - 1].createdAt : null };
+}

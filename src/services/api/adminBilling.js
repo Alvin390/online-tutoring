@@ -24,3 +24,9 @@ export const recordSchoolPayment = ({ tier, amountKes, method, code, note, previ
     action: 'recordPayment', tier, amountKes, method,
     ...(code ? { code } : {}), ...(note ? { note } : {}), ...(preview ? { preview: true } : {}),
   });
+
+/** 013Fixes / 21: every payment, newest first, 20 a page ({ items, nextCursor }). */
+export const listAllPayments = (cursor) => call({ action: 'payments', ...(cursor ? { cursor } : {}) });
+
+/** 013Fixes / 21: older in-app payments into the history. A dry run unless `apply`. */
+export const backfillPayments = (apply = false) => call({ action: 'backfillPayments', ...(apply ? { apply: true } : {}) });

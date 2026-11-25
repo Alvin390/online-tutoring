@@ -121,6 +121,10 @@ export default defineConfig({
           '**/adminBilling-*.js',
           // 013Fixes / 19: "Your plan expires on …" (shared by the billing page and Start trial).
           '**/planEnd-*.js',
+          // 013Fixes / 21: the payments lists (staff only).
+          '**/PaymentHistory-*.js',
+          '**/SchoolPayments-*.js',
+          '**/paymentFormat-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

@@ -25,3 +25,6 @@ export const grantTier = (tier) => apiPost('/api/billing/manage', { action: 'gra
 
 /** Undo a scheduled downgrade before it takes effect — Phase 13 / 05 D3. */
 export const cancelDowngrade = () => apiPost('/api/billing/manage', { action: 'cancel_downgrade' });
+
+/** 013Fixes / 21: the school's payments, newest first, 20 a page ({ items, nextCursor }). */
+export const getSchoolPayments = (cursor) => apiPost('/api/billing/payments', cursor ? { cursor } : {});

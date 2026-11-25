@@ -12,6 +12,7 @@ import authLoginAttempt from '../api/auth/loginAttempt.js';
 
 import billingInitialize from '../api/billing/initialize.js';
 import billingManage from '../api/billing/manage.js';
+import billingPayments from '../api/billing/payments.js';
 import billingStatus from '../api/billing/status.js';
 import billingWebhook from '../api/billing/webhook.js';
 
@@ -105,6 +106,7 @@ export const STATIC_ROUTES = {
 
   '/api/billing/initialize': billingInitialize,
   '/api/billing/manage': billingManage,
+  '/api/billing/payments': billingPayments,
   '/api/billing/status': billingStatus,
   '/api/billing/webhook': billingWebhook,
 

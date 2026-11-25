@@ -15,6 +15,7 @@ import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { STATUS, publicProjection, paymentPatch } from '../_lib/subscription.js';
 import { readBillingSettings } from '../_lib/billingSettings.js';
 import { setUserClaims } from '../_lib/claims.js';
+import { paystackPaymentRef, paystackPaymentRecord } from '../_lib/payments.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 
 /**
@@ -225,6 +226,8 @@ async function processEvent({ db, event, log, requestId }) {
 
   const before = (await subRef.get()).data() ?? null;
   let patch = null;
+  // 013Fixes / 21: the payment's own record (payment history).
+  let payment = null;
 
   switch (event.event) {
     case 'charge.success': {
@@ -240,8 +243,9 @@ async function processEvent({ db, event, log, requestId }) {
       // early extends from the current end, locked starts now. A card
       // subscription keeps Paystack's dates (subscription.create sets the end
       // from next_payment_date), so it starts now as before.
-      const windowFields = renewalMode === 'manual'
-        ? paymentPatch(before, { tier, now, renewalMode }).patch
+      const manual = renewalMode === 'manual' ? paymentPatch(before, { tier, now, renewalMode }) : null;
+      const windowFields = manual
+        ? manual.patch
         : {
           tier,
           status: STATUS.ACTIVE,
@@ -288,6 +292,17 @@ async function processEvent({ db, event, log, requestId }) {
         lastPaymentAmountKes: typeof data.amount === 'number' ? data.amount / 100 : null,
         updatedAt: FieldValue.serverTimestamp(),
       };
+
+      if (data.reference && typeof data.amount === 'number') {
+        payment = {
+          reference: data.reference,
+          amountKes: data.amount / 100,
+          channel: data.channel ?? null,
+          tier: patch.tier ?? patch.nextTier ?? null,
+          periodFrom: manual ? new Date(manual.window.from) : new Date(now),
+          periodTo: manual ? new Date(manual.window.to) : patch.currentPeriodEnd,
+        };
+      }
 
       if (metadata.uid) patch.ownerUid = metadata.uid;
       if (data.plan?.plan_code) patch.paystackPlanCode = data.plan.plan_code;
@@ -436,6 +451,13 @@ async function processEvent({ db, event, log, requestId }) {
 
   await subRef.set(patch, { merge: true });
   invalidatePlanCache();
+
+  // 013Fixes / 21: one record per Paystack reference (set, so a replay that
+  // got past the event check cannot make two).
+  if (payment) {
+    const finalTier = patch.tier ?? patch.nextTier ?? payment.tier;
+    await paystackPaymentRef(db, payment.reference).set(paystackPaymentRecord({ ...payment, tier: finalTier }));
+  }
 
   const after = (await subRef.get()).data();
 
