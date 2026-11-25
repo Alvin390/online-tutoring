@@ -117,7 +117,7 @@ describe('requesting a code', () => {
     const res = await call('/api/student/requestCode', { body: { session: 'evening', phone: P(9) } });
     expect(res.status).toBe(200);
     const ok = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(9), code: lastCode() } });
-    expect(ok.body).toMatchObject({ next: 'chooseNumber' });
+    expect(ok.body).toMatchObject({ next: 'assignNumber' });
   });
 
   it('a confirmed phone with a number is refused (no repeated SMS cost); an unknown number gets 404', async () => {
@@ -177,7 +177,7 @@ describe('confirming the code', () => {
     await call('/api/student/requestCode', { body: { session: 'evening', phone: P(20) } });
     const res = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(20), code: lastCode() } });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, next: 'chooseNumber', numberKind: 'student' });
+    expect(res.body).toMatchObject({ ok: true, next: 'assignNumber', numberKind: 'student' });
     expect(res.body.ticket).toMatch(/^v1\.\d{10}\.[A-Za-z0-9_-]{43}$/);
     expect(res.body.customToken).toBeUndefined();
     const record = (await db.doc(`sessions/evening/students/${P(20)}`).get()).data();
@@ -185,12 +185,12 @@ describe('confirming the code', () => {
     expect(record.studentUid).toBeUndefined();
   });
 
-  it('a staff record is told it chooses a staff number; one with a number goes to check-in', async () => {
+  it('a staff record is told it is given a staff number next; one with a number goes to check-in', async () => {
     await seed('evening', P(21), { staff: true });
     await seed('evening', P(22), { admissionNumber: '4071' });
     await call('/api/student/requestCode', { body: { session: 'evening', phone: P(21) } });
     const staff = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(21), code: lastCode() } });
-    expect(staff.body).toMatchObject({ next: 'chooseNumber', numberKind: 'staff' });
+    expect(staff.body).toMatchObject({ next: 'assignNumber', numberKind: 'staff' });
     await call('/api/student/requestCode', { body: { session: 'evening', phone: P(22) } });
     const numbered = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(22), code: lastCode() } });
     expect(numbered.body).toMatchObject({ next: 'checkin', numberKind: 'student' });

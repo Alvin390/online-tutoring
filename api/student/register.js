@@ -10,8 +10,10 @@ import { subjectsForClass, checkSubjectChoice, MAX_SUBJECTS, MAX_SUBJECT_NAME, M
 import { isDuplicatePair, retiredMessage } from '../_lib/duplicates.js';
 import { accountRef } from '../_lib/ledger.js';
 import { getFlags } from '../_lib/flags.js';
-import { verifyTicket } from '../_lib/verifyTicket.js';
-import { numberProblem, numberProblemMessage, reservationId } from '../_lib/admissionNumber.js';
+import { verifyTicket, TICKET_LIFETIME_SECONDS } from '../_lib/verifyTicket.js';
+import { recordNumber, formatNumber } from '../_lib/admissionNumber.js';
+import { reserveGivenNumber } from '../_lib/assignNumber.js';
+import { sendNumberSms } from '../_lib/numberSms.js';
 import { schoolPlan } from '../_lib/schoolPlan.js';
 
 /**
@@ -45,7 +47,8 @@ const schema = z
       z.array(text(1, MAX_SUBJECT_NAME)).min(1).max(MAX_SUBJECTS),
     ]),
     receiptMessage: text(10, 500),
-    // 008Fixes / 03: the admission number the student chose (4 digits).
+    // 008Fixes / 03: the number a student chose. 014Fixes / 02: numbers are
+    // GIVEN now; only an old page still sends one (it is told to reload).
     number: z.string().trim().max(8).optional(),
     // 009Fixes / 01: the verified-phone ticket (code-first registration).
     ticket: z.string().max(80).optional(),
@@ -60,23 +63,21 @@ export default createHandler({
   // 008Fixes / 03: 10 → 30 an hour — new students behind one carrier address.
   // The per-number limit below stays the bound.
   rateLimit: { bucket: 'student_register', limit: 30, windowSeconds: 3600, keyBy: 'ip' },
-  handle: async ({ body, log }) => {
+  handle: async ({ body, log, waitUntil }) => {
     const { session, phone } = body;
 
-    // 008Fixes / 03: with admission numbers on, a number is chosen here and
-    // checked before anything else (an old cached page sends none).
+    // 009Fixes / 01: with admission numbers on, code-first: the phone is
+    // confirmed before the record is saved, so a number that can't receive a
+    // code can't register. 014Fixes / 02 (owner, 2026-11-24): the school
+    // GIVES the number when the record is saved; this switch alone decides.
     const flags = await getFlags();
     const numbersOn = flags['checkin.admissionNumbers'] === true;
-    // 009Fixes / 01: code-first - the phone is confirmed before the record is
-    // saved, so a number that can't receive a code can't register.
-    const codeFirst = numbersOn && flags['student.fixNumber'] === true;
     if (numbersOn) {
-      if (!body.number || (codeFirst && !body.ticket)) {
-        throw new ApiError(400, 'refresh_needed', 'This page is out of date. Close it, then open the class link again and register.');
-      }
-      const problem = numberProblem(body.number);
-      if (problem) throw new ApiError(400, problem === 'easy' ? 'easy_number' : 'invalid_number', numberProblemMessage(problem));
-      if (codeFirst && !verifyTicket(body.ticket, { session, phone })) {
+      const outOfDate = 'This page is out of date. Close it, then open the class link again and register.';
+      // A page that still lets students choose a number, or one from before code-first.
+      if (body.number) throw new ApiError(409, 'refresh_needed', outOfDate);
+      if (!body.ticket) throw new ApiError(400, 'refresh_needed', outOfDate);
+      if (!verifyTicket(body.ticket, { session, phone })) {
         throw new ApiError(403, 'verify_first', 'Confirm your phone number first: we will send you a code.');
       }
     }
@@ -113,7 +114,9 @@ export default createHandler({
     // the student is never told who the other record is.
     const sameClass = await db.collection(`sessions/${session}/students`).where('class', '==', body.class).get();
     const candidate = { parentPhone: phone, studentName: body.studentName, class: body.class, receiptMessage: body.receiptMessage };
+    // 014Fixes / 02: never this phone's own record (a retried registration).
     const original = sameClass.docs
+      .filter((doc) => doc.id !== phone)
       .map((doc) => ({ ...doc.data(), parentPhone: doc.data().parentPhone ?? doc.id }))
       .find((other) => isDuplicatePair(candidate, other));
 
@@ -132,21 +135,30 @@ export default createHandler({
       receiptStatus: 'pending',
       feeBalance: 0,
       ...(original ? { duplicateHold: true, duplicateOf: original.parentPhone } : {}),
-      ...(numbersOn ? { admissionNumber: body.number, numberChosenAt: FieldValue.serverTimestamp() } : {}),
-      ...(codeFirst ? { phoneVerifiedAt: FieldValue.serverTimestamp() } : {}),
+      ...(numbersOn ? { phoneVerifiedAt: FieldValue.serverTimestamp() } : {}),
     };
 
     const alreadyRegistered = () => new ApiError(409, 'already_registered', 'That number is already registered for this class.');
+    let given = null;
     if (numbersOn) {
-      // 008Fixes / 03: the record and its number in ONE transaction, so the
-      // answer says which one was the problem and nothing is half-made.
-      const reservation = db.doc(`sessions/${session}/numbers/${reservationId('student', body.number)}`);
-      await db.runTransaction(async (tx) => {
-        const [mine, taken] = await Promise.all([tx.get(ref), tx.get(reservation)]);
-        if (mine.exists) throw alreadyRegistered();
-        if (taken.exists) throw new ApiError(409, 'number_taken', 'That admission number is taken. Choose another.');
-        tx.create(ref, student);
-        tx.create(reservation, { phone, kind: 'student', number: body.number, at: FieldValue.serverTimestamp() });
+      // 014Fixes / 02: the record and its GIVEN number in ONE transaction, so
+      // nothing is half-made. Safe to retry: the same phone, confirmed by a
+      // ticket, within the ticket's lifetime of the number being given, gets
+      // the same answer instead of "already registered" (a lost answer).
+      given = await db.runTransaction(async (tx) => {
+        const mine = await tx.get(ref);
+        if (mine.exists) {
+          const saved = mine.data();
+          const held = recordNumber(saved);
+          const givenMs = saved.numberGivenAt?.toMillis?.() ?? 0;
+          if (held && givenMs && Date.now() - givenMs <= TICKET_LIFETIME_SECONDS * 1000) {
+            return { kind: held.kind, digits: held.digits, again: true, saved };
+          }
+          throw alreadyRegistered();
+        }
+        const digits = await reserveGivenNumber(tx, db, { session, phone, kind: 'student' });
+        tx.create(ref, { ...student, admissionNumber: digits, numberGivenAt: FieldValue.serverTimestamp() });
+        return { kind: 'student', digits, again: false };
       });
     } else {
       try {
@@ -159,10 +171,10 @@ export default createHandler({
 
     // The same number registering again after being deleted: the fee account
     // (closed at zero on deletion) belongs to a live student once more.
-    // 004Fixes / 06: this session's account only.
+    // 004Fixes / 06: this session's account only. (A retry did this already.)
     const account = accountRef(db, session, phone);
-    const accountSnap = await account.get();
-    if (accountSnap.exists && accountSnap.data().studentDeletedAt) {
+    const accountSnap = given?.again ? null : await account.get();
+    if (accountSnap?.exists && accountSnap.data().studentDeletedAt) {
       await account.set({
         session,
         studentDeletedAt: FieldValue.delete(),
@@ -171,7 +183,13 @@ export default createHandler({
       }, { merge: true });
     }
 
-    log.info('Student registered', { session, held: Boolean(original) });
+    if (given && !given.again) {
+      // 014Fixes / 01: the number by SMS, once — after the answer.
+      waitUntil(sendNumberSms({ db, session, phone, log }));
+    }
+    const shown = given?.again ? given.saved : { ...student, registeredAt: { toDate: () => new Date() } };
+    const heldFor = given?.again ? given.saved.duplicateHold === true : Boolean(original);
+    log.info('Student registered', { session, held: heldFor, ...(given?.again ? { retried: true } : {}) });
     // 002Fixes / 07: a new student usually goes straight to the waiting
     // screen; its "Check again" and automatic checks carry this pass.
     // 008Fixes / 03: with admission numbers, the phone is confirmed next
@@ -180,10 +198,11 @@ export default createHandler({
     return {
       ok: true,
       // 009Fixes / 01: code-first records are already confirmed - check in next.
-      ...(numbersOn ? { next: codeFirst ? 'checkin' : 'verify' } : {}),
-      ...(original ? { held: 'duplicate' } : {}),
+      // 014Fixes / 02: with the number the school gave (the pop-up shows it).
+      ...(numbersOn ? { next: 'checkin', number: { kind: given.kind, digits: given.digits, display: formatNumber(given.kind, given.digits) } } : {}),
+      ...(heldFor ? { held: 'duplicate' } : {}),
       student: projectStudent(
-        { ...student, registeredAt: { toDate: () => new Date() } },
+        shown,
         // 013Fixes / 05: fee status only on a plan with fees.
         { fees: await schoolPlan(db).then((p) => p.features.fees === true, () => false) }
       ),

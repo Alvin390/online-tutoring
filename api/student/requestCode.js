@@ -30,7 +30,7 @@ import { retiredMessage } from '../_lib/duplicates.js';
  * 10 minutes; the student endpoints never return either.
  *
  * 009Fixes / 01 - code-first registration (owner, 2026-11-16): with admission
- * numbers and `student.fixNumber` on, `purpose: 'register'` asks for a code
+ * numbers on (014Fixes: that switch alone), `purpose: 'register'` asks for a code
  * for a number with NO record yet, so the phone is confirmed before the
  * registration is saved. A number already registered (or retired by the
  * teacher) is refused before any SMS. With the flag off that kind does not
@@ -54,15 +54,19 @@ export default createHandler({
   method: 'POST',
   schema,
   // 008Fixes / 01: 10 → 120 an hour. A class behind one carrier address.
-  rateLimit: { bucket: 'otp_request_ip', limit: 120, windowSeconds: 3600, keyBy: 'ip' },
+  // 014Fixes / 07: 120 → 240 an hour per address — the first class after
+  // admission numbers are switched on: about 40 first-timers behind one
+  // carrier address, a code each and a resend or two. Each number stays
+  // bounded at CODES_PER_HOUR (6), and only registered numbers get codes.
+  rateLimit: { bucket: 'otp_request_ip', limit: 240, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, req, log, waitUntil }) => {
     const { session, phone } = body;
     const db = getDb();
     const otpRef = db.collection('otp').doc(sha256(phone));
     const studentRef = db.doc(`sessions/${session}/students/${phone}`);
     const flags = body.purpose ? await getFlags() : null;
-    const forRegistration = body.purpose === 'register'
-      && flags['checkin.admissionNumbers'] === true && flags['student.fixNumber'] === true;
+    // 014Fixes / 00: one switch — admission numbers alone (not student.fixNumber).
+    const forRegistration = body.purpose === 'register' && flags['checkin.admissionNumbers'] === true;
 
     // The record and the live code in one round trip, beside the limiter.
     const [[studentSnap, otpSnap, retiredSnap]] = await Promise.all([

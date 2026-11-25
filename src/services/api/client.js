@@ -75,7 +75,7 @@ const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
  * not a null result — on 26 Oct a connection that dropped mid-body handed
  * `null` to check-in, which crashed destructuring it. A 204 is an empty object.
  */
-async function send(method, path, body, { timeoutMs, signal, headers }) {
+async function send(method, path, body, { timeoutMs, signal, headers, cache }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -91,6 +91,8 @@ async function send(method, path, body, { timeoutMs, signal, headers }) {
       ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }),
       signal: controller.signal,
       credentials: 'same-origin',
+      // 014Fixes / 07 (from 012Fixes / 05): 'no-store' asks past the HTTP cache.
+      ...(cache ? { cache } : {}),
     });
 
     let payload = null;
@@ -135,10 +137,10 @@ async function send(method, path, body, { timeoutMs, signal, headers }) {
  * 429. Opt-in, and only for reads that are safe to repeat (check-in, the
  * class link); a registration or a receipt is never sent twice.
  */
-async function request(method, path, body, { timeoutMs = DEFAULT_TIMEOUT_MS, signal, retry = 0, headers } = {}) {
+async function request(method, path, body, { timeoutMs = DEFAULT_TIMEOUT_MS, signal, retry = 0, headers, cache } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await send(method, path, body, { timeoutMs, signal, headers });
+      return await send(method, path, body, { timeoutMs, signal, headers, cache });
     } catch (err) {
       const transient = err.code === 'timeout' || err.code === 'network_error';
       if (!transient || attempt >= retry || signal?.aborted) throw err;

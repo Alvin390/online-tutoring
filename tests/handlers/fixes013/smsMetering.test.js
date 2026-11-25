@@ -184,7 +184,7 @@ describe('who may send', () => {
 });
 
 describe('what is never charged', () => {
-  it('every place that sends an SMS is known: campaigns are charged; check-in codes and the setup test are not', () => {
+  it('every place that sends an SMS is known: campaigns are charged; check-in codes, the number SMS and the setup test are not', () => {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'api');
     const callers = [];
     const walk = (dir) => {
@@ -197,8 +197,9 @@ describe('what is never charged', () => {
     };
     walk(root);
     // _lib/smsCampaign.js — charged (sendChunk); _lib/otpIssue.js — check-in codes, the owner's wallet;
-    // messages/sms.js — only the one setup test text to the teacher's own phone.
-    expect(callers.sort()).toEqual(['_lib/otpIssue.js', '_lib/smsCampaign.js', 'messages/sms.js']);
+    // messages/sms.js — only the one setup test text to the teacher's own phone;
+    // _lib/numberSms.js — 014Fixes / 01: the one-time admission number, the owner's wallet.
+    expect(callers.sort()).toEqual(['_lib/numberSms.js', '_lib/otpIssue.js', '_lib/smsCampaign.js', 'messages/sms.js']);
     const smsRoute = readFileSync(join(root, 'messages/sms.js'), 'utf8');
     expect(smsRoute.match(/\bsendSms\(/g)).toHaveLength(1);
     expect(smsRoute.slice(smsRoute.indexOf("body.action === 'sendTest'"), smsRoute.indexOf("body.action === 'unlock'"))).toMatch(/sendSms\(/);

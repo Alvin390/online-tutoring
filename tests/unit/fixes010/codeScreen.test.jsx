@@ -29,13 +29,15 @@ beforeEach(() => vi.resetModules());
 afterEach(() => { cleanup(); unmockSessionPage(); });
 
 describe('01 registration with out-of-date switches', () => {
+  // 014Fixes: one switch. A page that still thinks admission numbers are off
+  // is told so by the server, and goes on to the code without a toast.
   it('the server asks for the code first: the page goes to the code step, then registers with the ticket; no toast', async () => {
     const register = vi.fn()
       .mockRejectedValueOnce(refusal('refresh_needed', 'This page is out of date. Close it, then open the class link again and register.', 400))
-      .mockResolvedValue({ ok: true, next: 'checkin', student: pending });
-    const { api, toast, typed } = await renderSessionPage({
+      .mockResolvedValue({ ok: true, next: 'checkin', student: pending, number: { kind: 'student', digits: '7319', display: '7319' } });
+    const { api, toast } = await renderSessionPage({
       checkinCard: probeCard,
-      flags: { 'checkin.admissionNumbers': true }, // the page doesn't know the fix is on
+      flags: {}, // the page's switches are out of date: numbers off
       api: {
         checkinStudent: vi.fn().mockResolvedValueOnce({ exists: false, student: null }).mockResolvedValue({ exists: true, student: pending }),
         verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.reg', next: 'register' }),
@@ -43,43 +45,32 @@ describe('01 registration with out-of-date switches', () => {
       },
     });
     await click('Check in');
-    typed.regNumber = '5820';
     await click('Register');
-    expect(await screen.findByTestId('code-step')).toBeTruthy();
+    expect(await screen.findByTestId('confirm-step')).toBeTruthy();
+    await click('Send code');
     expect(api.requestCode).toHaveBeenCalledWith('evening', PHONE, 'register');
     await type('Code', '123456');
     await click('Confirm');
     await waitFor(() => expect(register).toHaveBeenCalledTimes(2));
-    expect(register.mock.calls[1][0]).toMatchObject({ number: '5820', ticket: 'v1.reg' });
+    expect(register.mock.calls[1][0]).toMatchObject({ ticket: 'v1.reg' });
+    await click("I've saved it");
     expect(await screen.findByTestId('pending')).toBeTruthy();
     expect(toast.showError).not.toHaveBeenCalled();
   });
 });
 
 describe('04 the code screen', () => {
-  it('where the code went; "Didn\'t get it? Ask your teacher"; the real-number note with the fix on', async () => {
+  it('where the code goes; after Send code, "Didn\'t get it?" and the teacher', async () => {
     await renderSessionPage({
       checkinCard: probeCard, flags: ON,
       api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.')) },
     });
     await click('Check in');
+    expect((await screen.findByTestId('confirm-step')).textContent).toContain(PHONE.slice(-3));
+    await click('Send code');
     await screen.findByTestId('code-step');
-    expect(screen.getByText(/to the phone number you registered with, ending in/).textContent).toContain(PHONE.slice(-3));
     const help = screen.getByTestId('code-help');
-    expect(help.textContent).toMatch(/Didn't get it\? Ask your teacher for your code\. Send again sends the same code\./);
-    expect(help.textContent).toMatch(/Registered with a number that doesn't work \(switched off, not yours, or made up\)\? You can change to your real number, the one you'll use from now on\./);
-    expect(within(help).getByRole('button', { name: 'Use my real number' })).toBeTruthy();
-  });
-
-  it('with the fix off: the help, without the real-number note', async () => {
-    await renderSessionPage({
-      checkinCard: probeCard, flags: { 'checkin.admissionNumbers': true },
-      api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal('verify_required', 'Confirm.')) },
-    });
-    await click('Check in');
-    const help = await screen.findByTestId('code-help');
-    expect(help.textContent).toMatch(/Ask your teacher for your code/);
-    expect(help.textContent).not.toMatch(/real number/);
+    expect(help.textContent).toBe("Didn't get it? Tap Send again when the countdown ends. Still nothing? Your teacher can see your code. Ask your teacher.");
   });
 });
 
@@ -93,6 +84,7 @@ describe('03 no silent lockout', () => {
       },
     });
     await click('Check in');
+    await click('Send code');
     await type('Code', '123456');
     await click('Confirm');
     expect((await screen.findByRole('alert')).textContent).toBe('Too many wrong tries. Tap Send again for a new code, or ask your teacher to read you your code.');
@@ -108,6 +100,7 @@ describe('03 no silent lockout', () => {
       },
     });
     await click('Check in');
+    await click('Send code');
     expect((await screen.findByRole('alert')).textContent).toBe('Too many codes for this number this hour. Ask your teacher to read you your code.');
     const again = screen.getByRole('button', { name: 'Send again later' });
     expect(again.disabled).toBe(true);

@@ -80,58 +80,52 @@ describe('the requests', () => {
   });
 });
 
-describe('the first time: phone → code → choose → check in afresh', () => {
+// 014Fixes / 04: the number is GIVEN (tests/unit/fixes014/firstTime.test.jsx
+// walks every path); what stays here is that repeat checks carry it.
+describe('the first time: phone → confirm → number given → in', () => {
   it('walks the whole way, and the repeat checks carry the number', async () => {
     const checkin = vi.fn()
       .mockRejectedValueOnce(refusal('verify_required', 'Confirm your phone number first.'))
       .mockResolvedValue({ exists: true, student: pending, pass: 'p1' });
-    const { api, typed } = await renderSessionPage({ checkinCard: probeCard, api: { checkinStudent: checkin } });
+    const { api } = await renderSessionPage({
+      checkinCard: probeCard,
+      api: { checkinStudent: checkin, verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 'v1.ticket', next: 'assignNumber', numberKind: 'student' }) },
+    });
 
     await click('Check in');
-    expect(await screen.findByTestId('code-step')).toBeTruthy();
+    expect(await screen.findByTestId('confirm-step')).toBeTruthy();
+    expect(api.requestCode).not.toHaveBeenCalled();
+    await click('Send code');
     expect(api.requestCode).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/ending in/).textContent).toContain(PHONE.slice(-3));
-
     await type('Code', '123456');
     await click('Confirm');
     expect(api.verifyCode).toHaveBeenCalledWith('evening', PHONE, '123456');
-    expect(await screen.findByTestId('choose-step')).toBeTruthy();
-
-    await type(/Choose your 4-digit admission number/, '4071');
-    await waitFor(() => expect(api.checkNumber).toHaveBeenCalledWith('evening', '4071', 'student', expect.anything()));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Use 4071' }).disabled).toBe(false));
-    await click('Use 4071');
-    expect(api.chooseNumber).toHaveBeenCalledWith('evening', PHONE, '4071', 'v1.ticket');
-
-    // Back on the card: the number named, the phone refilled, numbers on.
-    expect((await screen.findByTestId('notice')).textContent).toMatch(/Your number is 4071\. Don't forget it!/);
-    expect(screen.getByTestId('refill').textContent).toBe(PHONE);
-    expect(screen.getByTestId('numbers').textContent).toBe('true');
-
-    typed.number = '4071';
-    await click('Check in');
+    expect(api.assignNumber).toHaveBeenCalledWith('evening', PHONE, 'v1.ticket');
+    await click("I've saved it. Go to class");
     expect(await screen.findByTestId('pending')).toBeTruthy();
-    expect(checkin.mock.calls.at(-1).slice(0, 4)).toEqual(['evening', PHONE, undefined, '4071']);
+    expect(checkin.mock.calls.at(-1).slice(0, 4)).toEqual(['evening', PHONE, undefined, '7319']);
 
     // "Check again" sends the number too.
     await click('Check again');
-    expect(checkin.mock.calls.at(-1)[3]).toBe('4071');
+    expect(checkin.mock.calls.at(-1)[3]).toBe('7319');
   });
 
   it('confirmed earlier but no number and no ticket in this visit: a code first', async () => {
     const checkin = vi.fn().mockRejectedValueOnce(refusal('choose_number', 'Choose your admission number to continue.'));
     await renderSessionPage({ checkinCard: probeCard, api: { checkinStudent: checkin } });
     await click('Check in');
-    expect(await screen.findByTestId('code-step')).toBeTruthy();
+    expect(await screen.findByTestId('confirm-step')).toBeTruthy();
   });
 });
 
-describe('refusals, in plain words on the card (no toast)', () => {
-  for (const [code, message] of [
-    ['number_mismatch', "That admission number and phone don't match. Check both, or ask your teacher."],
-    ['other_device', 'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.'],
-    ['number_required', 'Enter your admission number too.'],
-    ['duplicate_records', 'Your teacher needs to sort out duplicate records. Please try again later.'],
+// 014Fixes / 03: a refused typed number is said on the number step (phone
+// first, then the number); the first screen is the phone only.
+describe('refusals of a typed number, on the number step (no toast)', () => {
+  for (const [code, message, shown] of [
+    ['number_mismatch', "That admission number and phone don't match. Check both, or ask your teacher.", true],
+    ['other_device', 'Your number is already checked in on another device for this class. You can use this device next class, or ask your teacher to allow this one now.', true],
+    ['number_required', 'Enter your admission number too.', false],
+    ['duplicate_records', 'Your teacher needs to sort out duplicate records. Please try again later.', true],
   ]) {
     it(code, async () => {
       const { toast } = await renderSessionPage({
@@ -139,12 +133,10 @@ describe('refusals, in plain words on the card (no toast)', () => {
         api: { checkinStudent: vi.fn().mockRejectedValueOnce(refusal(code, message, code === 'number_required' ? 409 : 403)) },
       });
       await click('Check in');
-      const notice = await screen.findByTestId('notice');
-      expect(notice.textContent).toBe(message);
-      expect(notice.dataset.tone).toBe('error');
+      await screen.findByTestId('number-step');
+      if (shown) expect(screen.getByRole('alert').textContent).toBe(message);
+      else expect(screen.queryByRole('alert')).toBeNull();
       expect(toast.showError).not.toHaveBeenCalled();
-      // "Try again" is the card's own button.
-      expect(screen.getByRole('button', { name: 'Check in' })).toBeTruthy();
     });
   }
 });
@@ -160,38 +152,19 @@ describe('the code step', () => {
       },
     });
     await click('Check in');
+    await click('Send code'); // 014Fixes / 04: sent only on the tap
     expect((await screen.findByText(/We couldn.t send an SMS right now/)).textContent).toMatch(/Ask your teacher for your code\./);
     const again = await screen.findByRole('button', { name: /Send again in \d+ s/ });
     expect(again.disabled).toBe(true);
     await type('Code', '654321');
     await click('Confirm');
-    expect((await screen.findByRole('alert')).textContent).toMatch(/not right, or it has expired/);
+    expect((await screen.findByRole('alert')).textContent).toBe('That code is not valid or has expired.');
     expect(api.requestCode).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('registration with a number', () => {
-  it('registers with the number, confirms the phone, then checks in with that number by itself', async () => {
-    const checkin = vi.fn().mockResolvedValueOnce({ exists: false, student: null }).mockResolvedValue({ exists: true, student: pending });
-    const { api, typed } = await renderSessionPage({
-      checkinCard: probeCard,
-      api: {
-        checkinStudent: checkin,
-        registerStudentApi: vi.fn().mockResolvedValue({ ok: true, next: 'verify', student: pending }),
-        verifyCode: vi.fn().mockResolvedValue({ ok: true, ticket: 't', next: 'checkin', numberKind: 'student' }),
-      },
-    });
-    await click('Check in');
-    typed.regNumber = '5820';
-    await click('Register');
-    expect(api.registerStudentApi.mock.calls[0][0]).toMatchObject({ number: '5820' });
-    expect(await screen.findByTestId('code-step')).toBeTruthy();
-    await type('Code', '123456');
-    await click('Confirm');
-    expect(await screen.findByTestId('pending')).toBeTruthy();
-    expect(checkin.mock.calls.at(-1)[3]).toBe('5820');
-  });
-});
+// 014Fixes / 02: registration no longer answers next 'verify' (code first,
+// the number given): tests/unit/fixes014/registerSteps.test.jsx (phase 06).
 
 describe('the check-in card itself', () => {
   beforeEach(() => { unmockSessionPage(); });
@@ -209,32 +182,18 @@ describe('the check-in card itself', () => {
     expect(screen.queryByTestId('phone-only-toggle')).toBeNull();
   });
 
-  it('numbers on: both fields; "Forgot your number? Ask your teacher."; submits phone and number', async () => {
+  // 014Fixes / 03: the number has its own step (tests/unit/fixes014/phoneFirst.test.jsx).
+  it('numbers on: the phone only, too; submits the phone alone', async () => {
     const onSubmit = await renderCard({ numbers: true });
-    expect(screen.getByText('Forgot your number? Ask your teacher.')).toBeTruthy();
-    await type(/Admission number/, 'S-4071');
-    await typeTel('0712345678');
-    await click('Continue');
-    expect(onSubmit).toHaveBeenCalledWith('+254712345678', 'S-4071');
-  });
-
-  it('a malformed number is refused on the phone; "phone only" sends none', async () => {
-    const onSubmit = await renderCard({ numbers: true });
-    await type(/Admission number/, '40');
-    await typeTel('0712345678');
-    await click('Continue');
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText(/Enter your 4-digit admission number/)).toBeTruthy();
-    await click(/Check in with your phone only/);
     expect(screen.queryByLabelText(/Admission number/)).toBeNull();
+    await typeTel('0712345678');
     await click('Continue');
-    expect(onSubmit).toHaveBeenCalledWith('+254712345678', '');
+    expect(onSubmit).toHaveBeenCalledWith('+254712345678');
   });
 
-  it('refills the phone, shows the notice, focuses the number field', async () => {
-    await renderCard({ numbers: true, initialPhone: '+254712345678', focusNumber: true, notice: { tone: 'info', text: 'Your number is 4071.' } });
+  it('refills the phone and shows the notice', async () => {
+    await renderCard({ numbers: true, initialPhone: '+254712345678', notice: { tone: 'info', text: 'Your number is 4071.' } });
     await waitFor(() => expect(document.querySelector('input[type="tel"]').value).toBe('712345678'));
     expect(screen.getByRole('status').textContent).toBe('Your number is 4071.');
-    expect(document.activeElement).toBe(screen.getByLabelText(/Admission number/));
   });
 });

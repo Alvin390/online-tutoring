@@ -22,7 +22,7 @@ let db;
 
 const form = (phone, extra = {}) => ({
   session: 'evening', phone, studentName: 'New Student', class: 'Form 3', subjects: ['English', 'Kiswahili', 'Mathematics'],
-  receiptMessage: 'Paid by M-Pesa QWE123 for the class', number: '4071', ...extra,
+  receiptMessage: 'Paid by M-Pesa QWE123 for the class', ...extra,
 });
 const requestCode = (phone, purpose) => call('/api/student/requestCode', { body: { session: 'evening', phone, ...(purpose ? { purpose } : {}) } });
 const verifyCode = (phone, code, purpose) => call('/api/student/verifyCode', { body: { session: 'evening', phone, code, ...(purpose ? { purpose } : {}) } });
@@ -45,7 +45,7 @@ beforeEach(async () => {
 });
 
 describe('code first', () => {
-  it('code → ticket → registered, already confirmed, with the chosen number', async () => {
+  it('code → ticket → registered, already confirmed, with a given number (014Fixes)', async () => {
     const asked = await requestCode(P(1), 'register');
     expect(asked.status).toBe(200);
     expect(asked.body.deliveryChannel).toBe('sms');
@@ -63,7 +63,7 @@ describe('code first', () => {
     expect(res.body.next).toBe('checkin');
     const saved = await record(P(1));
     expect(saved.phoneVerifiedAt).toBeTruthy();
-    expect(saved.admissionNumber).toBe('4071');
+    expect(saved.admissionNumber).toBe(res.body.number.digits);
   });
 
   it('no ticket (an old page): told to refresh; a wrong or other-number ticket: confirm first; nothing saved', async () => {
@@ -122,14 +122,14 @@ describe('code first', () => {
     expect(statuses[30]).toBe(429);
   });
 
-  it('flag off: registration as before (saved first, then the code)', async () => {
+  it('student.fixNumber off changes nothing (014Fixes: one switch): still code first', async () => {
     await setFlags(db, { 'auth.legacyStudentRead': true, 'checkin.admissionNumbers': true, 'student.fixNumber': false });
     const res = await register(form(P(7)));
-    expect(res.status).toBe(200);
-    expect(res.body.next).toBe('verify');
-    expect((await record(P(7))).phoneVerifiedAt).toBeUndefined();
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('refresh_needed');
+    expect(await record(P(7))).toBeNull();
     const reg = await requestCode(P(8), 'register');
-    expect(reg.status).toBe(404); // the register kind does not exist with the flag off
-    expect(fakes.hashback.sent).toHaveLength(0);
+    expect(reg.status).toBe(200);
+    expect(fakes.hashback.sent).toHaveLength(1);
   });
 });

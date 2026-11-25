@@ -14,7 +14,6 @@ const NumberFixesPanel = lazy(() => import('../components/admission/NumberFixesP
  */
 export default function ApprovalsTab({ pending, rosters, onApprove, onReject, loading, sessions, onOpenStudent }) {
   const numbers = useFlag('checkin.admissionNumbers');
-  const fixes = useFlag('student.fixNumber');
   const sessionNames = Object.fromEntries((sessions ?? []).map((s) => [s.id, s.name ?? s.id]));
   return (
     <>
@@ -23,7 +22,7 @@ export default function ApprovalsTab({ pending, rosters, onApprove, onReject, lo
           <WaitingCodesPanel sessionNames={sessionNames} />
         </Suspense>
       )}
-      {numbers && fixes && (
+      {numbers && (
         <Suspense fallback={null}>
           <NumberFixesPanel rosters={rosters} sessionNames={sessionNames} onOpen={onOpenStudent} />
         </Suspense>

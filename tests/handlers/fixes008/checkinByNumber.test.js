@@ -220,21 +220,21 @@ describe('the lock lasts until the class ends', () => {
   });
 });
 
-describe('the first time: phone → code → choose → check in afresh', () => {
+describe('the first time: phone → code → number given → check in (014Fixes)', () => {
   it('works end to end', async () => {
     await seed('evening', P(30));
     expect((await checkin({ phone: P(30) })).body.error.code).toBe('verify_required');
     await call('/api/student/requestCode', { body: { session: 'evening', phone: P(30) } });
     const code = /(\d{6})/.exec(fakes.hashback.sent.at(-1).message)[1];
     const verified = await call('/api/student/verifyCode', { body: { session: 'evening', phone: P(30), code } });
-    expect(verified.body.next).toBe('chooseNumber');
+    expect(verified.body.next).toBe('assignNumber');
     expect((await checkin({ phone: P(30) })).body.error.code).toBe('choose_number');
-    const chosen = await call('/api/student/number', {
-      body: { action: 'choose', session: 'evening', phone: P(30), number: '4071', ticket: verified.body.ticket },
+    const given = await call('/api/student/number', {
+      body: { action: 'assign', session: 'evening', phone: P(30), ticket: verified.body.ticket },
     });
-    expect(chosen.status).toBe(200);
+    expect(given.status).toBe(200);
     expect((await checkin({ phone: P(30) })).body.error.code).toBe('number_required');
-    expect((await checkin({ phone: P(30), number: '4071' })).status).toBe(200);
+    expect((await checkin({ phone: P(30), number: given.body.number })).status).toBe(200);
   });
 });
 
@@ -246,28 +246,14 @@ describe('registration with a number', () => {
     },
   });
 
-  it('reserves the number with the record; the phone is confirmed next (no pass yet)', async () => {
+  // 014Fixes / 02: numbers are GIVEN at registration (after the code); the
+  // given-number registration is tests/handlers/fixes014/registerGiven.test.js.
+  it('an old page that still sends a chosen number: told to reload, nothing created', async () => {
     const res = await register(P(40), '4071');
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, next: 'verify' });
-    expect(res.body.pass).toBeUndefined();
-    const r = (await db.doc(`sessions/evening/students/${P(40)}`).get()).data();
-    expect(r.admissionNumber).toBe('4071');
-    expect(r.phoneVerifiedAt).toBeUndefined();
-    expect((await db.doc('sessions/evening/numbers/A4071').get()).data().phone).toBe(P(40));
-  });
-
-  it('a taken number: refused, nothing created; easy and missing numbers refused', async () => {
-    await register(P(41), '4071');
-    const taken = await register(P(42), '4071');
-    expect(taken.status).toBe(409);
-    expect(taken.body.error.code).toBe('number_taken');
-    expect((await db.doc(`sessions/evening/students/${P(42)}`).get()).exists).toBe(false);
-    expect((await register(P(43), '1234')).body.error.code).toBe('easy_number');
-    // An old cached page sends none.
-    expect((await register(P(44))).body.error.code).toBe('refresh_needed');
-    // The same number registering twice is still "already registered".
-    expect((await register(P(41), '5820')).body.error.code).toBe('already_registered');
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('refresh_needed');
+    expect((await db.doc(`sessions/evening/students/${P(40)}`).get()).exists).toBe(false);
+    expect((await db.doc('sessions/evening/numbers/A4071').get()).exists).toBe(false);
   });
 });
 

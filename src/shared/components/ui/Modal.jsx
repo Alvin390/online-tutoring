@@ -30,6 +30,9 @@ export default function Modal({
   // `wide` gives forms with side-by-side fields room. Both optional.
   footer,
   wide = false,
+  // 014Fixes / 03: false = closed only by its own buttons (no ×, no tap
+  // outside, no Escape) — for a pop-up that must be read and acknowledged.
+  dismissible = true,
 }) {
   const dialogRef = useRef(null);
   const previouslyFocused = useRef(null);
@@ -70,7 +73,7 @@ export default function Modal({
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose?.();
+        if (dismissible) onClose?.();
         return;
       }
 
@@ -97,7 +100,7 @@ export default function Modal({
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [onClose, dismissible]);
 
   return createPortal(
     <AnimatePresence>
@@ -106,7 +109,7 @@ export default function Modal({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="modal-overlay"
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
       >
         <m.div
           ref={dialogRef}
@@ -124,7 +127,7 @@ export default function Modal({
         >
           <div className="modal-header">
             <h2 id={titleId} className="modal-title h5 mb-0">{title}</h2>
-            <button
+            {dismissible && <button
               className="modal-close"
               onClick={onClose}
               // Was a bare × with no accessible name.
@@ -132,7 +135,7 @@ export default function Modal({
               type="button"
             >
               <span aria-hidden="true">×</span>
-            </button>
+            </button>}
           </div>
 
           <div className="modal-body">{children}</div>

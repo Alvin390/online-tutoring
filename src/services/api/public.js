@@ -59,11 +59,13 @@ function readCopy() {
  * as well, so the flags provider and the session list cost one round trip.
  *
  * 007Fixes / 02: one quiet retry (a GET, safe to repeat), then the saved copy.
+ * 014Fixes / 07: `fresh` also asks past the browser's HTTP cache (the
+ * settings changed while the page was open).
  */
-export function getPublicBootstrap({ force = false } = {}) {
-  if (force || !bootstrapPromise || Date.now() - bootstrapAt > BOOTSTRAP_TTL_MS) {
+export function getPublicBootstrap({ force = false, fresh = false } = {}) {
+  if (force || fresh || !bootstrapPromise || Date.now() - bootstrapAt > BOOTSTRAP_TTL_MS) {
     bootstrapAt = Date.now();
-    bootstrapPromise = apiGet('/api/public/bootstrap', { retry: 1 })
+    bootstrapPromise = apiGet('/api/public/bootstrap', { retry: 1, ...(fresh ? { cache: 'no-store' } : {}) })
       .then((data) => {
         saveCopy(data);
         return data;

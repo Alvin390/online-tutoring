@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { m } from 'framer-motion';
@@ -6,11 +6,10 @@ import { registrationSchema } from '../schemas/registrationSchema';
 import { DEFAULT_CLASSES } from '@shared/constants/sessions';
 import { subjectsForClass } from '@shared/constants/subjects';
 import SubjectPicker, { compulsoryNames } from './SubjectPicker';
-import AdmissionNumberField from './AdmissionNumberField';
 
 export default function RegistrationForm({
-  session,
-  // 008Fixes / 04: with admission numbers on, the student chooses theirs here.
+  // 008Fixes / 04: admission numbers on. 014Fixes / 06: the number is GIVEN
+  // after the code (no box here); the form only says a code comes next.
   numbers = false,
   phoneNumber,
   onSubmit,
@@ -34,11 +33,7 @@ export default function RegistrationForm({
     defaultValues: { subjects: '' },
   });
 
-  // 008Fixes / 04: kept outside the form library; checked live (one read).
-  const [admissionNumber, setAdmissionNumber] = useState('');
-  const [numberStatus, setNumberStatus] = useState('format');
-  const numberReady = !numbers || numberStatus === 'free' || numberStatus === 'unknown';
-  const submit = (data) => onSubmit(numbers ? { ...data, number: admissionNumber } : data);
+  const submit = (data) => onSubmit(data);
 
   const selectedClass = watch('class');
   const picked = watch('subjects');
@@ -90,21 +85,6 @@ export default function RegistrationForm({
           )}
           {numbers && <div className="form-text">We will send a code to this number to confirm it.</div>}
         </div>
-
-        {numbers && (
-          <>
-            <AdmissionNumberField
-              session={session}
-              value={admissionNumber}
-              onChange={setAdmissionNumber}
-              onStatus={setNumberStatus}
-              disabled={loading}
-            />
-            <p className="small text-muted mb-3">
-              <strong>Don&apos;t forget it:</strong> you&apos;ll use it with this phone number every time you check in.
-            </p>
-          </>
-        )}
 
         {/* Student Name */}
         <div className="mb-3">
@@ -204,7 +184,7 @@ export default function RegistrationForm({
         <button
           type="submit"
           className="btn btn-primary btn-lg w-100 mb-2"
-          disabled={loading || !isValid || !numberReady}
+          disabled={loading || !isValid}
         >
           {loading ? (
             <>

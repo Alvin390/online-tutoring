@@ -8,7 +8,7 @@ import { enforceRateLimit } from '../_lib/rateLimit.js';
 import { getFlags } from '../_lib/flags.js';
 import { issueTicket, verifyTicket } from '../_lib/verifyTicket.js';
 import { recordNumber } from '../_lib/admissionNumber.js';
-import { retiredMessage, sameStudentName } from '../_lib/duplicates.js';
+import { retiredMessage } from '../_lib/duplicates.js';
 import { issueCode, tooManyCodes, tooManyTries, CODES_PER_HOUR } from '../_lib/otpIssue.js';
 import { moveStudent } from '../_lib/moveStudent.js';
 
@@ -20,9 +20,10 @@ import { moveStudent } from '../_lib/moveStudent.js';
  * receive the confirmation code. Once, and only for a record that was NEVER
  * confirmed, the student moves it to their real number:
  *
- *   request  { session, newPhone, oldPhone }            the number they registered with
- *            { session, newPhone, studentName, class }  or, forgotten: their name and class
+ *   request  { session, newPhone, oldPhone }   the number they registered with
  *            → finds the record, sends a code to the REAL number
+ *            (014Fixes / 08: the name-and-class way is gone; the check-in code
+ *            step offers this as "That phone isn't near me")
  *   confirm  the same, plus `code`
  *            → the whole record moves to the real number (approval, fees and
  *              ledger, notes, admission number) and is CONFIRMED; then the
@@ -35,19 +36,16 @@ import { moveStudent } from '../_lib/moveStudent.js';
  * words). None or several: the same "not found" as a wrong number — the
  * server never reveals names. A confirmed record (including one already
  * fixed) is refused: changing it is the teacher's (owner: once only).
- * Behind `checkin.admissionNumbers` + `student.fixNumber`. The move is the
+ * Behind `checkin.admissionNumbers` (014Fixes / 05: that switch alone; the
+ * check-in code step offers it as "That phone isn't near me"). The move is the
  * teacher edit's (api/_lib/moveStudent.js); the code is requestCode's
  * (api/_lib/otpIssue.js), with its limits and the teacher's "Codes waiting".
  */
 
-const name = z.string().trim().min(3).max(80);
-const className = z.string().trim().min(1).max(60);
-const who = { oldPhone: phoneSchema.optional(), studentName: name.optional(), class: className.optional() };
-
 const schema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('request'), session: sessionSchema, newPhone: phoneSchema, ...who }).strict(),
+  z.object({ action: z.literal('request'), session: sessionSchema, newPhone: phoneSchema, oldPhone: phoneSchema }).strict(),
   z.object({
-    action: z.literal('confirm'), session: sessionSchema, newPhone: phoneSchema, ...who,
+    action: z.literal('confirm'), session: sessionSchema, newPhone: phoneSchema, oldPhone: phoneSchema.optional(),
     code: otpCodeSchema.optional(), ticket: z.string().max(80).optional(),
   }).strict(),
 ]);
@@ -56,24 +54,12 @@ const RECORD_TRIES_PER_HOUR = 5;
 const notFoundError = () => new ApiError(404, 'not_found', "We couldn't find you. Check the details, or ask your teacher.");
 const invalidCode = () => badRequest('That code is not valid or has expired.', 'invalid_code');
 
-/** The record this student means: by the number they registered with, or by name and class. */
+/** The record this student means: the number they registered with. */
 async function findRecord(db, session, body) {
-  if (body.oldPhone) {
-    const snap = await db.doc(`sessions/${session}/students/${body.oldPhone}`).get();
-    if (!snap.exists) throw notFoundError();
-    return { phone: snap.id, data: snap.data() };
-  }
-  if (!body.studentName || !body.class) {
-    throw badRequest('Enter the number you registered with, or your name and class.', 'details_required');
-  }
-  const snap = await db.collection(`sessions/${session}/students`).where('class', '==', body.class).get();
-  const matches = snap.docs.filter((d) => {
-    const data = d.data();
-    return !data.phoneVerifiedAt && !data.numberFixedAt && data.moveInProgress !== true
-      && sameStudentName(body.studentName, data.studentName);
-  });
-  if (matches.length !== 1) throw notFoundError();
-  return { phone: matches[0].id, data: matches[0].data() };
+  if (!body.oldPhone) throw badRequest('Enter the number you registered with.', 'details_required');
+  const snap = await db.doc(`sessions/${session}/students/${body.oldPhone}`).get();
+  if (!snap.exists) throw notFoundError();
+  return { phone: snap.id, data: snap.data() };
 }
 
 /** Only a never-confirmed record, not mid-move, moving to a number that is new here. */
@@ -113,7 +99,8 @@ async function finished(db, session, newPhone) {
     ok: true,
     phone: newPhone,
     ticket: issueTicket({ session, phone: newPhone }),
-    next: recordNumber(record) ? 'checkin' : 'chooseNumber',
+    // 014Fixes / 00: given, not chosen.
+    next: recordNumber(record) ? 'checkin' : 'assignNumber',
     numberKind: record.staff === true ? 'staff' : 'student',
   };
 }
@@ -127,7 +114,8 @@ export default createHandler({
   rateLimit: { bucket: 'fix_number_ip', limit: 60, windowSeconds: 3600, keyBy: 'ip' },
   handle: async ({ body, log, waitUntil }) => {
     const flags = await getFlags();
-    if (flags['checkin.admissionNumbers'] !== true || flags['student.fixNumber'] !== true) {
+    // 014Fixes / 05: one switch — admission numbers alone (not student.fixNumber).
+    if (flags['checkin.admissionNumbers'] !== true) {
       throw new ApiError(404, 'not_available', 'This is not available.');
     }
     const { session, newPhone } = body;
@@ -212,7 +200,7 @@ export default createHandler({
       }
       throw err;
     }
-    log.info('Student fixed their number', { session, by: body.oldPhone ? 'number' : 'name' });
+    log.info('Student fixed their number', { session });
     return finished(db, session, newPhone);
   },
 });

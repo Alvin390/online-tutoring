@@ -24,8 +24,8 @@ export const verifyCode = (session, phone, code, purpose) =>
   apiPost('/api/student/verifyCode', { session, phone, code, ...(purpose ? { purpose } : {}) }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
 
 /**
- * 009Fixes / 02-03: fix my number, once, for a record never confirmed.
- * `who` is { oldPhone } or { studentName, class }; confirm adds { code }, or
+ * 009Fixes / 02-03, 014Fixes / 05: move to the phone they have, once, for a
+ * record never confirmed. `who` is { oldPhone }; confirm adds { code }, or
  * { ticket } alone to finish a move that stopped half-way.
  */
 export const fixNumberRequest = (session, newPhone, who) =>
@@ -36,9 +36,15 @@ export const fixNumberConfirm = (session, newPhone, who, { code, ticket } = {}) 
     action: 'confirm', session, newPhone, ...(ticket ? {} : who), ...(code ? { code } : {}), ...(ticket ? { ticket } : {}),
   }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
 
-/** Live check: { status: 'free' | 'taken' | 'easy' | 'format', message }. */
+/** Live check: { status: 'free' | 'taken' | 'easy' | 'format', message }. The teacher's number box. */
 export const checkNumber = (session, number, kind, { signal } = {}) =>
   apiPost('/api/student/number', { action: 'check', session, number, ...(kind ? { kind } : {}) }, { signal });
 
-export const chooseNumber = (session, phone, number, ticket) =>
-  apiPost('/api/student/number', { action: 'choose', session, phone, number, ticket }, { timeoutMs: CLASS_TIME_TIMEOUT_MS });
+
+/**
+ * 014Fixes / 00: the school GIVES a number once the phone is confirmed:
+ * { number, kind, display }. Safe to retry (the server answers the same
+ * number for the same ticket), so one automatic retry on a flaky network.
+ */
+export const assignNumber = (session, phone, ticket) =>
+  apiPost('/api/student/number', { action: 'assign', session, phone, ticket }, { retry: 1, timeoutMs: CLASS_TIME_TIMEOUT_MS });

@@ -46,8 +46,9 @@ describe('NumberFixesPanel', () => {
     expect(screen.queryByRole('button', { name: 'Open' })).toBeNull();
   });
 
-  it('the Approvals tab shows it only with numbers and the fix switched on', async () => {
-    const flags = { 'checkin.admissionNumbers': true, 'student.fixNumber': true, 'registration.requireApproval': true };
+  // 014Fixes / 08: one switch — the panel follows checkin.admissionNumbers alone.
+  it('the Approvals tab shows it only with admission numbers on', async () => {
+    const flags = { 'checkin.admissionNumbers': true, 'registration.requireApproval': true };
     vi.doMock('@shared/config/FlagsContext', () => ({ useFlag: (k) => flags[k] === true }));
     vi.doMock('@features/dashboard/components/PendingApprovalsPanel', () => ({ default: () => <div /> }));
     vi.doMock('@features/dashboard/components/admission/WaitingCodesPanel', () => ({ default: () => <div /> }));
@@ -55,7 +56,7 @@ describe('NumberFixesPanel', () => {
     render(<ApprovalsTab pending={[]} rosters={rosters} sessions={[]} />);
     expect(await screen.findByTestId('number-fixes')).toBeTruthy();
     cleanup();
-    flags['student.fixNumber'] = false;
+    flags['checkin.admissionNumbers'] = false;
     render(<ApprovalsTab pending={[]} rosters={rosters} sessions={[]} />);
     await new Promise((r) => { setTimeout(r, 50); });
     expect(screen.queryByTestId('number-fixes')).toBeNull();

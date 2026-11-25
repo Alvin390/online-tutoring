@@ -68,6 +68,8 @@ export const CHECKIN_STEP = Object.freeze({
 });
 const step = (code, message) => new ApiError(409, code, message);
 const MISMATCH_MESSAGE = "That admission number and phone don't match. Check both, or ask your teacher.";
+// 014Fixes / 03 (copy.md §2a): what to do now, not just what happened.
+const OTHER_DEVICE_MESSAGE = 'Your number is already checked in on another device for this class. You can use this device next class, or ask your teacher to allow this one now.';
 
 /**
  * 008Fixes / 03: with `checkin.admissionNumbers` on, who may come in. Returns
@@ -98,7 +100,7 @@ function admissionGate({ data, phone, number, reservation, lock, hash }) {
   const state = lockState(lock, hash);
   if (state === 'other') {
     throw forbidden(
-      'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.',
+      OTHER_DEVICE_MESSAGE,
       CHECKIN_STEP.OTHER_DEVICE,
     );
   }
@@ -115,10 +117,13 @@ export default createHandler({
   method: 'POST',
   // 002Fixes / 06: 30 → 120 an hour. Everyone behind one carrier NAT or family
   // router shares this budget; at class time one address sent 34 check-ins in
-  // an hour on 26 Oct. Probing many numbers stays bounded at 120 an hour.
+  // an hour on 26 Oct. 014Fixes / 07: 120 → 240 — with admission numbers each
+  // student checks in twice before the pass (phone, then number), so 40
+  // first-timers behind one address are 80; 240 keeps 3x headroom. Probing
+  // ONE number stays bounded by the per-phone limit below (20 per 10 min).
   rateLimit: {
     bucket: 'student_checkin',
-    limit: 120,
+    limit: 240,
     windowSeconds: 3600,
     keyBy: 'ip',
     // 002Fixes / 07: a valid check-in pass skips this (and the phone limit).
@@ -249,7 +254,7 @@ export default createHandler({
           const raced = (await lockRef(db, session, phone).get()).data();
           if (lockState(raced, hash) !== 'same') {
             throw forbidden(
-              'This admission number is already checked in on another device for this class. Ask your teacher if you need to switch.',
+              OTHER_DEVICE_MESSAGE,
               CHECKIN_STEP.OTHER_DEVICE,
             );
           }
