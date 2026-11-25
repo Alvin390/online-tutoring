@@ -1,6 +1,7 @@
 import { createHandler } from '../_lib/handler.js';
 import { getDb, FieldValue } from '../_lib/firebaseAdmin.js';
 import { resolveSubscriptionState, publicProjection } from '../_lib/subscription.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 import { isEnabled } from '../_lib/flags.js';
 import { invalidatePlanCache, schoolPlan } from '../_lib/schoolPlan.js';
 import { TRIAL_SMS_UNITS, PLAN_IDS, mergePlans } from '../_lib/plans.js';
@@ -31,10 +32,11 @@ export default createHandler({
 
     const db = getDb();
     const ref = db.doc('subscription/current');
-    const snap = await ref.get();
+    // 013Fixes / 18: the billing settings (cached a minute) with the document.
+    const [snap, settings] = await Promise.all([ref.get(), readBillingSettings(db)]);
     const sub = snap.exists ? snap.data() : null;
 
-    const resolved = resolveSubscriptionState(sub, Date.now());
+    const resolved = resolveSubscriptionState(sub, Date.now(), settings);
 
     if (resolved.changed) {
       log.info('On-read state transition', {
@@ -54,14 +56,14 @@ export default createHandler({
       invalidatePlanCache();
 
       const after = { ...sub, ...patch, status: resolved.status };
-      await db.doc('subscription/public').set(publicProjection(after) ?? {}, { merge: false });
+      await db.doc('subscription/public').set(publicProjection(after, settings) ?? {}, { merge: false });
     }
 
     const effective = resolved.changed ? { ...sub, status: resolved.status } : sub;
 
     return {
       billingEnabled: true,
-      subscription: publicProjection(effective),
+      subscription: publicProjection(effective, settings),
       accessGranted: resolved.accessGranted,
       graceEndsAt: resolved.graceEndsAt,
       reason: resolved.reason,

@@ -14,15 +14,26 @@
  * I/O, no randomness — `now` is always injected.
  *
  * States:
- *   trialing   14 days, no card. Full tier access.
+ *   trialing   14 days (config/billing), no card. Full tier access.
  *   active     normal.
- *   past_due   auto: a charge failed. manual: the period ended unpaid.
- *   grace      48 hours after past_due. FULL ACCESS RETAINED. The countdown
- *              clock lives here.
+ *   past_due   LEGACY (before 013Fixes / 18): the period ended unpaid.
+ *   grace      LEGACY: 48 hours after past_due, full access. A school already
+ *              here at the release keeps its graceEndsAt.
  *   locked     billing page only. Students see "temporarily unavailable".
  *   cancelled  cancelAtPeriodEnd, full access until currentPeriodEnd.
  *   expired    cancelled and elapsed. 90-day retention clock starts.
+ *
+ * 013Fixes / 18 (owner answers round 3): the countdown runs INSIDE the
+ * period, and the school locks at its end — no grace after it. A trial, an
+ * M-Pesa or a manual period counts down in its last `countdownHours`; a card
+ * subscription is expected to renew (no countdown) and gets a technical
+ * `cardRenewalToleranceHours` for Paystack's renewal webhook before locking;
+ * a failed card payment (`paymentFailedAt`) starts the countdown at once.
+ * The window (`billingWindow`) is what the screens show.
  */
+
+/** 013Fixes / 18: the defaults behind config/billing (api/_lib/billingSettings.js). */
+export const BILLING_DEFAULTS = Object.freeze({ trialDays: 14, countdownHours: 48, cardRenewalToleranceHours: 6 });
 
 export const STATUS = {
   TRIALING: 'trialing',
@@ -71,7 +82,7 @@ export function toMillis(value) {
  *            graceEndsAt: number|null, accessGranted: boolean,
  *            deleteDataAt: number|null}}
  */
-export function resolveSubscriptionState(sub, now = Date.now()) {
+export function resolveSubscriptionState(sub, now = Date.now(), settings = BILLING_DEFAULTS) {
   const current = sub?.status ?? null;
 
   const unchanged = (reason, extra = {}) => ({
@@ -124,24 +135,24 @@ export function resolveSubscriptionState(sub, now = Date.now()) {
       // Strictly greater-than: at the exact millisecond the trial ends, it has
       // not yet elapsed. Boundary conditions in billing are worth being
       // deliberate about — this one is tested explicitly.
-      if (now > trialEnd) {
-        return transition(STATUS.PAST_DUE, 'trial_ended', {
-          graceEndsAt: trialEnd + GRACE_PERIOD_MS,
-        });
-      }
+      // 013Fixes / 18: the countdown ran on days 13–14; the end LOCKS.
+      if (now > trialEnd) return transition(STATUS.LOCKED, 'trial_ended', { graceEndsAt: null });
       return unchanged('trial_active');
     }
 
     case STATUS.ACTIVE: {
       if (periodEnd == null) return unchanged('active_no_period_end');
-      if (now > periodEnd) {
-        // Auto-renewal has not landed, or a manual renewal was not made.
-        // Either way the period has lapsed; Paystack's charge.success webhook
-        // moves it back to active if a payment arrives.
-        return transition(STATUS.PAST_DUE, 'period_ended', {
-          graceEndsAt: periodEnd + GRACE_PERIOD_MS,
-        });
+      // 013Fixes / 18: a card subscription waits a few hours for Paystack's
+      // renewal webhook (a technical wait, not a grace period); M-Pesa and
+      // manual periods lock at their end. Paystack's charge.success moves a
+      // locked school back to active when a payment arrives.
+      if (sub.renewalMode === 'auto') {
+        if (now > periodEnd + hours(settings.cardRenewalToleranceHours)) {
+          return transition(STATUS.LOCKED, 'renewal_not_received', { graceEndsAt: null });
+        }
+        return unchanged('active');
       }
+      if (now > periodEnd) return transition(STATUS.LOCKED, 'period_ended', { graceEndsAt: null });
       return unchanged('active');
     }
 
@@ -201,6 +212,54 @@ export function resolveSubscriptionState(sub, now = Date.now()) {
   }
 }
 
+const hours = (n) => Number(n) * 60 * 60 * 1000;
+
+/**
+ * 013Fixes / 18 — what the screens show about the period, as epoch millis:
+ *   endsAt         when access stops unless the school pays (or, for a card
+ *                  expected to renew, when it locks if the renewal never
+ *                  arrives);
+ *   countdownFrom  when the countdown banner starts (null: none expected —
+ *                  a card that renews);
+ *   renews         a card subscription expected to renew by itself.
+ * Null for a comp school, or when there is no period to show. A function of
+ * the stored subscription and the settings only — never the clock — so it
+ * can be stored in subscription/public.
+ */
+export function billingWindow(sub, settings = BILLING_DEFAULTS) {
+  if (!sub?.status || sub.grantedBySuperadmin === true) return null;
+  const countdown = hours(settings.countdownHours);
+  const periodEnd = toMillis(sub.currentPeriodEnd);
+  switch (sub.status) {
+    case STATUS.TRIALING: {
+      const end = toMillis(sub.trialEndsAt) ?? periodEnd;
+      return end == null ? null : { endsAt: end, countdownFrom: end - countdown, renews: false };
+    }
+    case STATUS.ACTIVE: {
+      if (periodEnd == null) return null;
+      if (sub.renewalMode === 'auto') {
+        const failedAt = toMillis(sub.paymentFailedAt);
+        return {
+          endsAt: periodEnd + hours(settings.cardRenewalToleranceHours),
+          countdownFrom: failedAt ?? null,
+          renews: failedAt == null && sub.cancelAtPeriodEnd !== true,
+        };
+      }
+      return { endsAt: periodEnd, countdownFrom: periodEnd - countdown, renews: false };
+    }
+    case STATUS.CANCELLED:
+      return periodEnd == null ? null : { endsAt: periodEnd, countdownFrom: periodEnd - countdown, renews: false };
+    case STATUS.PAST_DUE:
+    case STATUS.GRACE: {
+      // Legacy: a school already in grace counts down to its graceEndsAt.
+      const graceEnd = toMillis(sub.graceEndsAt) ?? (periodEnd != null ? periodEnd + GRACE_PERIOD_MS : null);
+      return graceEnd == null ? null : { endsAt: graceEnd, countdownFrom: periodEnd ?? graceEnd - GRACE_PERIOD_MS, renews: false };
+    }
+    default:
+      return null;
+  }
+}
+
 /** True when the teacher should retain feature access at `now`. */
 export function hasAccess(sub, now = Date.now()) {
   return resolveSubscriptionState(sub, now).accessGranted;
@@ -253,9 +312,14 @@ export function dueReminders(sub, now = Date.now()) {
 }
 
 /** Redacted projection safe to expose at `subscription/public`. */
-export function publicProjection(sub) {
+export function publicProjection(sub, settings = BILLING_DEFAULTS) {
   if (!sub) return null;
+  // 013Fixes / 18: the window the screens count down to (see billingWindow).
+  const window = billingWindow(sub, settings);
   return {
+    endsAt: window?.endsAt ?? null,
+    countdownFrom: window?.countdownFrom ?? null,
+    renews: window?.renews === true,
     tier: sub.tier ?? null,
     status: sub.status ?? null,
     // 013Fixes / 00: a comp plan and the period start, for the plan's window

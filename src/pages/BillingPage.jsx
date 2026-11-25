@@ -15,6 +15,7 @@ import {
 import logger from '@utils/logger';
 import HelpFeedbackButton from '@features/reports/components/HelpFeedbackButton';
 import UsageBars from '@features/billing/usage/UsageBars';
+import { planEnd } from '@/features/billing/planEnd';
 
 
 /**
@@ -87,6 +88,7 @@ function formatDate(value) {
 
 export default function BillingPage() {
   const { subscription, status, tier, isLocked, loading, refresh, plan: schoolPlan } = useBilling();
+  const ends = planEnd(subscription);
   // 013Fixes / 07: each card's words and limits as the superadmin set them.
   const catalog = schoolPlan?.catalog ?? null;
   const { showError, showSuccess } = useToast();
@@ -266,12 +268,11 @@ export default function BillingPage() {
               </span>
             </div>
 
-            {subscription?.currentPeriodEnd && (
-              <div>
-                <span className="text-muted small d-block">
-                  {subscription.cancelAtPeriodEnd ? 'Access ends' : 'Renews on'}
-                </span>
-                <span className="fw-semibold">{formatDate(subscription.currentPeriodEnd)}</span>
+            {/* 013Fixes / 18: always say when the plan ends (Nairobi time). */}
+            {ends && (
+              <div data-testid="plan-ends">
+                <span className="text-muted small d-block">{ends.label}</span>
+                <span className="fw-semibold">{ends.text}</span>
               </div>
             )}
 

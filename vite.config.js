@@ -116,6 +116,9 @@ export default defineConfig({
           '**/usageLevels-*.js', '**/UsageBars-*.js', '**/UsageNotice-*.js',
           // 013Fixes / 16: the superadmin SMS units card.
           '**/SmsUnitsCard-*.js',
+          // 013Fixes / 18: the superadmin billing settings card (and its API calls).
+          '**/BillingSettings-*.js',
+          '**/adminBilling-*.js',
           '**/jspdf*.js', '**/html2canvas*.js', '**/index.es-*.js', '**/purify.es-*.js',
           '**/stats.html', '**/stats.json',
         ],

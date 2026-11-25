@@ -49,22 +49,25 @@ describe('trialing', () => {
     expect(r.status).toBe(STATUS.TRIALING);
   });
 
-  it('moves to past_due one millisecond after expiry', () => {
+  // 013Fixes / 18 (owner answers round 3): the countdown runs INSIDE the
+  // trial (days 13–14); the end locks — no grace window after it.
+  it('locks one millisecond after expiry', () => {
     const r = resolveSubscriptionState(
       sub({ status: STATUS.TRIALING, trialEndsAt: NOW - 1 }),
       NOW
     );
-    expect(r.status).toBe(STATUS.PAST_DUE);
+    expect(r.status).toBe(STATUS.LOCKED);
     expect(r.changed).toBe(true);
-    expect(r.graceEndsAt).toBe(NOW - 1 + GRACE_PERIOD_MS);
+    expect(r.reason).toBe('trial_ended');
+    expect(r.graceEndsAt).toBeNull();
   });
 
-  it('retains access immediately after the trial ends (grace window)', () => {
+  it('loses access right after the trial ends (no grace after the end)', () => {
     const r = resolveSubscriptionState(
       sub({ status: STATUS.TRIALING, trialEndsAt: NOW - 1 }),
       NOW
     );
-    expect(r.accessGranted).toBe(true);
+    expect(r.accessGranted).toBe(false);
   });
 
   it('does not transition when the trial has no end date', () => {
@@ -74,7 +77,7 @@ describe('trialing', () => {
   });
 });
 
-describe('active → past_due', () => {
+describe('active → locked at the end (013Fixes / 18)', () => {
   it('stays active inside the period', () => {
     const r = resolveSubscriptionState(
       sub({ status: STATUS.ACTIVE, currentPeriodEnd: NOW + 5 * DAY }),
@@ -92,14 +95,21 @@ describe('active → past_due', () => {
     expect(r.status).toBe(STATUS.ACTIVE);
   });
 
-  it('moves to past_due after the period ends and stamps grace', () => {
+  it('a card waits a few hours for Paystack\'s renewal, then locks (no grace)', () => {
     const periodEnd = NOW - HOUR;
+    expect(resolveSubscriptionState(sub({ status: STATUS.ACTIVE, currentPeriodEnd: periodEnd }), NOW).status).toBe(STATUS.ACTIVE);
+    const late = resolveSubscriptionState(sub({ status: STATUS.ACTIVE, currentPeriodEnd: NOW - 7 * HOUR }), NOW);
+    expect(late.status).toBe(STATUS.LOCKED);
+    expect(late.reason).toBe('renewal_not_received');
+  });
+
+  it('an M-Pesa or manual period locks right after its end', () => {
     const r = resolveSubscriptionState(
-      sub({ status: STATUS.ACTIVE, currentPeriodEnd: periodEnd }),
+      sub({ status: STATUS.ACTIVE, renewalMode: 'manual', currentPeriodEnd: NOW - 1 }),
       NOW
     );
-    expect(r.status).toBe(STATUS.PAST_DUE);
-    expect(r.graceEndsAt).toBe(periodEnd + GRACE_PERIOD_MS);
+    expect(r.status).toBe(STATUS.LOCKED);
+    expect(r.reason).toBe('period_ended');
   });
 });
 

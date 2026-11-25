@@ -6,6 +6,7 @@ import { badRequest, notFound, forbidden } from '../_lib/errors.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 import { seatState, mirrorDisabled } from '../_lib/logins.js';
 import { recountUsage } from '../_lib/usage.js';
@@ -234,7 +235,7 @@ export default createHandler({
       // Keep the public projection in step, because the teacher's dashboard
       // listens to that document rather than to this one.
       const after = { ...((await ref.get()).data() ?? {}) };
-      await db.doc('subscription/public').set(publicProjection(after) ?? {}, { merge: false });
+      await db.doc('subscription/public').set(publicProjection(after, await readBillingSettings(db)) ?? {}, { merge: false });
 
       log.warn('Subscription expired by superadmin', {
         to: patch.status,
@@ -419,7 +420,8 @@ export default createHandler({
 
     // ---------------------------------------------------------- startTrial
     if (action === 'startTrial') {
-      const days = body.trialDays ?? 14;
+      // 013Fixes / 18: the trial's length from the billing settings.
+      const days = body.trialDays ?? (await readBillingSettings(db)).trialDays;
       const tier = body.tier ?? 'gold';
       const now = Date.now();
       const endsAt = new Date(now + days * 24 * 60 * 60 * 1000);
@@ -533,5 +535,5 @@ export default createHandler({
 async function refreshPublicProjection(db) {
   const snap = await db.doc('subscription/current').get();
   if (!snap.exists) return;
-  await db.doc('subscription/public').set(publicProjection(snap.data()) ?? {}, { merge: false });
+  await db.doc('subscription/public').set(publicProjection(snap.data(), await readBillingSettings(db)) ?? {}, { merge: false });
 }

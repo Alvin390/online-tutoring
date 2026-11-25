@@ -14,6 +14,7 @@ import { ensureDefaultSessions } from '../_lib/sessions.js';
 import { getAdminAuth } from '../_lib/firebaseAdmin.js';
 import { setUserClaims } from '../_lib/claims.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 
 /**
  * Claims self-heal — Phase 13 / 05 D4.
@@ -134,9 +135,15 @@ export default async function handler(req, res) {
     // 013Fixes / 00: a projection written before it carried `comp` and the
     // period start is refreshed once — before the comp skip below, since a
     // comped school (the pilot) is exactly the one no other writer touches.
+    // 013Fixes / 18: also when its window (endsAt / countdownFrom / renews)
+    // no longer matches the settings (the superadmin changed them).
+    const settings = await readBillingSettings(db);
     const pub = await db.doc('subscription/public').get();
-    if (!pub.exists || !Object.prototype.hasOwnProperty.call(pub.data() ?? {}, 'comp')) {
-      await db.doc('subscription/public').set(publicProjection(sub) ?? {}, { merge: false });
+    const fresh = publicProjection(sub, settings) ?? {};
+    const stored = pub.exists ? pub.data() ?? {} : {};
+    if (!pub.exists || !Object.prototype.hasOwnProperty.call(stored, 'comp')
+        || stored.endsAt !== fresh.endsAt || stored.countdownFrom !== fresh.countdownFrom || stored.renews !== fresh.renews) {
+      await db.doc('subscription/public').set(fresh, { merge: false });
       result.reprojected = true;
       log.info('Subscription projection refreshed');
     }
@@ -148,7 +155,7 @@ export default async function handler(req, res) {
     }
 
     // --- 1. State
-    const resolved = resolveSubscriptionState(sub, now);
+    const resolved = resolveSubscriptionState(sub, now, settings);
 
     if (resolved.changed) {
       const patch = { status: resolved.status, updatedAt: FieldValue.serverTimestamp() };
@@ -159,7 +166,7 @@ export default async function handler(req, res) {
       invalidatePlanCache();
       await db
         .doc('subscription/public')
-        .set(publicProjection({ ...sub, ...patch }) ?? {}, { merge: false });
+        .set(publicProjection({ ...sub, ...patch }, settings) ?? {}, { merge: false });
 
       result.transitioned = { from: sub.status, to: resolved.status, reason: resolved.reason };
       log.info('Subscription transitioned', result.transitioned);

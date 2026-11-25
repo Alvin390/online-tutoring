@@ -12,7 +12,8 @@ import {
 import { TIER_RANK } from '../_lib/auth.js';
 import { clientIp } from '../_lib/rateLimit.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
-import { STATUS, GRACE_PERIOD_MS, publicProjection } from '../_lib/subscription.js';
+import { STATUS, publicProjection } from '../_lib/subscription.js';
+import { readBillingSettings } from '../_lib/billingSettings.js';
 import { setUserClaims } from '../_lib/claims.js';
 import { invalidatePlanCache } from '../_lib/schoolPlan.js';
 
@@ -260,6 +261,8 @@ async function processEvent({ db, event, log, requestId }) {
         graceEndsAt: null,
         trialEndsAt: null,
         cancelAtPeriodEnd: false,
+        // 013Fixes / 18: a payment clears a failed one (the countdown stops).
+        paymentFailedAt: null,
         // Reminders are per-period; clear them so the next cycle starts fresh.
         remindersSent: [],
         paystackCustomerCode: data.customer?.customer_code ?? before?.paystackCustomerCode ?? null,
@@ -394,10 +397,11 @@ async function processEvent({ db, event, log, requestId }) {
     }
 
     case 'invoice.payment_failed': {
-      const periodEnd = before?.currentPeriodEnd?.toMillis?.() ?? Date.now();
+      // 013Fixes / 18: the school stays active and the countdown starts now
+      // (billingWindow); it locks at the period end plus the renewal wait
+      // unless a payment arrives. No grace after the end.
       patch = {
-        status: STATUS.PAST_DUE,
-        graceEndsAt: new Date(periodEnd + GRACE_PERIOD_MS),
+        paymentFailedAt: before?.paymentFailedAt ?? new Date(),
         updatedAt: FieldValue.serverTimestamp(),
       };
       break;
@@ -425,7 +429,7 @@ async function processEvent({ db, event, log, requestId }) {
 
   // Redacted projection for the client. Derived from the same document read
   // that produced `after`, so the two cannot disagree.
-  await publicRef.set(publicProjection(after) ?? {}, { merge: false });
+  await publicRef.set(publicProjection(after, await readBillingSettings(db)) ?? {}, { merge: false });
 
   // Keep claims in step with the tier so rules gate correctly. Claims are the
   // fast path; subscription/current stays the authority.

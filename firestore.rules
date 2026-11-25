@@ -610,6 +610,9 @@ service cloud.firestore {
     match /reportUploads/{document=**} { allow read, write: if false; }
     match /counters/{document=**}      { allow read, write: if false; }
     match /config/notifications        { allow read, write: if false; }
+    // 013Fixes / 18: the billing settings (trial length, countdown) are the
+    // server's: read and saved through /api/admin/billing.
+    match /config/billing              { allow read, write: if false; }
     // 008Fixes / 07: SMS campaigns, credit, usage, pending delivery checks and
     // the setup are the server's (read through /api/messages/sms and the
     // superadmin endpoint).

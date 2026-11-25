@@ -13,6 +13,8 @@ const SmsCostCard = lazy(() => import('@features/sms/components/SmsCostCard'));
 const SmsUnitsCard = lazy(() => import('@features/sms/components/SmsUnitsCard'));
 // 013Fixes / 07: what each plan includes, its limits and its card words.
 const PlanSettings = lazy(() => import('@features/admin/components/PlanSettings'));
+// 013Fixes / 18: trial length, countdown and card-renewal wait.
+const BillingSettings = lazy(() => import('@features/admin/components/BillingSettings'));
 
 // Phase 13 / 06: bugs and feature requests are separate inboxes. `?tab=` is
 // what the link in every alert email targets, with `&report=<id>`.
@@ -267,7 +269,7 @@ export default function SuperadminPage() {
         }
       >
         {tab === 'users' && <UserManager />}
-        {tab === 'plans' && <PlanSettings />}
+        {tab === 'plans' && <><PlanSettings /><BillingSettings /></>}
         {tab === 'bugs' && (
           <ReportsInbox key="bug" type="bug" initialReportId={requestedTab === 'bugs' ? linkedReport : null} onCountsChange={onCountsChange} />
         )}
