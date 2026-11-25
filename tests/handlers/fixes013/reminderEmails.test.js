@@ -59,7 +59,8 @@ describe('a reminder is sent once', () => {
     const mail = decodeGmailRaw(sends()[0]);
     expect(mail).toMatch(new RegExp(`^To: ${OWNER_EMAIL}\\s*$`, 'm'));
     expect(mail).toMatch(new RegExp(`^Cc: ${COPY_EMAIL}\\s*$`, 'm'));
-    expect(mail).toMatch(/Subject: Your plan ends in 3 days/);
+    // 2.5 days out: 2 or 3 Nairobi calendar days, by the time of day the test runs.
+    expect(mail).toMatch(/Subject: Your plan ends in [23] days/);
     expect((await sub()).remindersSent).toEqual(['days_3']);
     await sweep();
     expect(sends()).toHaveLength(1);
@@ -70,7 +71,8 @@ describe('a reminder is sent once', () => {
     await manual(Date.now() + 12 * H);
     await sweep();
     expect(sends()).toHaveLength(1);
-    expect(decodeGmailRaw(sends()[0])).toMatch(/Subject: Your plan ends tomorrow/);
+    // 12 hours out: today or tomorrow in Nairobi, by the time of day the test runs.
+    expect(decodeGmailRaw(sends()[0])).toMatch(/Subject: Your plan ends (today|tomorrow)/);
     expect((await sub()).remindersSent.sort()).toEqual(['days_1', 'days_3']);
     expect((await queue()).map((q) => q.reminderId)).toEqual(['days_1']);
   });

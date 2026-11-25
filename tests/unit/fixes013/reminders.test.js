@@ -71,18 +71,31 @@ describe('the email', () => {
   const end = Date.parse('2026-12-13T14:00:00Z'); // 5:00 pm in Nairobi
 
   it('a trial, 3 days out: the date in Nairobi, the plan\'s price, where to pay', () => {
-    const m = buildReminderEmail({ reminderId: 'days_3', kind: 'trial', tier: 'gold', endsAt: end, priceKes: 5000, baseUrl: 'https://example.test' });
+    const m = buildReminderEmail({ reminderId: 'days_3', kind: 'trial', tier: 'gold', endsAt: end, priceKes: 5000, baseUrl: 'https://example.test', now: end - 3 * D });
     expect(m.subject).toBe('Your free trial ends in 3 days');
     expect(m.text).toMatch(/Gold/);
     expect(m.text).toMatch(/13 December 2026.*5:00\s?pm/i);
     expect(m.text).toMatch(/KES 5,000 a month/);
     expect(m.text).toMatch(/https:\/\/example\.test\/billing/);
     expect(m.text).not.toMatch(/grace/i);
+    // One blank line between paragraphs, the sign-off included.
+    expect(m.text).not.toMatch(/\n{3,}/);
+    expect(m.text.endsWith('\n\nOnline Tutoring')).toBe(true);
   });
 
   it('a paid month, 1 day out', () => {
-    const m = buildReminderEmail({ reminderId: 'days_1', kind: 'period', tier: 'silver', endsAt: end, priceKes: 3000, baseUrl: 'https://example.test' });
+    const m = buildReminderEmail({ reminderId: 'days_1', kind: 'period', tier: 'silver', endsAt: end, priceKes: 3000, baseUrl: 'https://example.test', now: end - D });
     expect(m.subject).toBe('Your plan ends tomorrow');
+  });
+
+  it('the wording follows the time actually left, not the step (a school reaching the ladder late)', () => {
+    const late = (now) => buildReminderEmail({ reminderId: 'days_3', kind: 'trial', tier: 'gold', endsAt: end, priceKes: 5000, baseUrl: 'https://example.test', now }).subject;
+    // 30 hours before 13 Dec 5:00 pm Nairobi is 12 Dec 11:00 am: tomorrow.
+    expect(late(end - 30 * H)).toBe('Your free trial ends tomorrow');
+    // The same Nairobi day: today.
+    expect(late(end - 2 * H)).toBe('Your free trial ends today');
+    // 13 Dec 5 pm, from 10 Dec 9 pm Nairobi (2 days 20 h): 3 calendar days.
+    expect(late(end - (2 * D + 20 * H))).toBe('Your free trial ends in 3 days');
   });
 
   it('at lock', () => {
