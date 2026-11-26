@@ -1,5 +1,6 @@
 import { toNodeRequest, createNodeResponse } from './nodeCompat.js';
 import { resolveRoute, CRON_HANDLERS } from './routes.js';
+import { refreshRuntimeModes } from '../api/_lib/runtimeModes.js';
 import { runWithSubrequestBudget } from '../api/_lib/firestoreRest.js';
 import { runInRequestContext } from '../api/_lib/requestContext.js';
 
@@ -131,6 +132,10 @@ async function handleFetch(request, env, ctx) {
   const route = resolveRoute(url.pathname);
   if (!route) return jsonError(404, 'not_found', 'Not found.');
 
+  // 013Fixes / 33: the superadmin's mode switches (one cached read per
+  // isolate per 30 s; never throws, keeps the last good value).
+  await refreshRuntimeModes();
+
   try {
     const req = await toNodeRequest(request, route.params);
 
@@ -203,6 +208,9 @@ async function handleScheduled(controller, env, ctx) {
     }));
     return;
   }
+
+  // 013Fixes / 33: the crons see the same mode switches as requests.
+  await refreshRuntimeModes();
 
   // Sweeps sharing a trigger run in order, in ONE invocation, so they share
   // the subrequest budget armed above — each checks what is left.

@@ -17,12 +17,48 @@
  * silently start charging real cards.
  */
 
+import { runtimeModes } from './runtimeModes.js';
+
 function normalise(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+/**
+ * 013Fixes / 33a: the superadmin's switch (config/mode.payments, 'live' or
+ * 'test') first, then PAYSTACK_MODE, then the safe default (dev = test).
+ */
+function paystackSetting() {
+  const v = runtimeModes().payments;
+  return v === 'live' || v === 'test' ? v : null;
+}
+
 export function paystackMode() {
+  const setting = paystackSetting();
+  if (setting) return setting === 'live' ? 'live' : 'dev';
   return normalise(process.env.PAYSTACK_MODE) === 'live' ? 'live' : 'dev';
+}
+
+/** Where the Paystack mode came from: 'setting' (superadmin) or 'env'. */
+export function paystackModeSource() {
+  return paystackSetting() ? 'setting' : 'env';
+}
+
+/**
+ * 013Fixes / 33b: SMS 'real' or 'fake' — the superadmin's switch
+ * (config/mode.sms), then SMS_MODE, then real (today's behaviour). Fake sends
+ * nothing to the provider and uses no SMS units.
+ */
+function smsSetting() {
+  const v = runtimeModes().sms;
+  return v === 'real' || v === 'fake' ? v : null;
+}
+
+export function smsMode() {
+  return smsSetting() ?? (normalise(process.env.SMS_MODE) === 'fake' ? 'fake' : 'real');
+}
+
+export function smsModeSource() {
+  return smsSetting() ? 'setting' : 'env';
 }
 
 export function darajaMode() {

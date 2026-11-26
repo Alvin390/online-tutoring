@@ -49,6 +49,8 @@ function credentialState() {
 
 export default createHandler({
   method: 'GET',
+  // 013Fixes / 34: monitoring keeps working in maintenance.
+  maintenance: false,
   handle: async () => {
     const wasWarm = firstInvocationAt !== null;
     if (!firstInvocationAt) firstInvocationAt = Date.now();

@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { safeCompare } from './crypto.js';
 import { ApiError } from './errors.js';
-import { paystackMode, paystackVar } from './mode.js';
+import { paystackMode, paystackVar, modeVar } from './mode.js';
 import { countExternalSubrequest } from './firestoreRest.js';
 
 /**
@@ -308,6 +308,22 @@ export function verifyWebhookSignature(rawBody, signatureHeader) {
 
   return safeCompare(expected, signatureHeader);
 }
+
+/**
+ * 013Fixes / 33a: was this signed with the OTHER mode's key? Used only to tell
+ * a wrong-mode event (refused, 409, so Paystack retries) from a forgery (401).
+ * The key is read for verification only, never used to call Paystack.
+ */
+export function signedByOtherMode(rawBody, signatureHeader) {
+  if (!signatureHeader) return false;
+  const other = paystackMode() === 'live' ? 'dev' : 'live';
+  const key = modeVar('PAYSTACK_SECRET_KEY', other);
+  if (!key || key === modeVar('PAYSTACK_SECRET_KEY', paystackMode())) return false;
+  return safeCompare(createHmac('sha512', key).update(rawBody).digest('hex'), signatureHeader);
+}
+
+/** Whether a live Paystack key is configured (the superadmin's switch to live needs it). */
+export const hasLivePaystackKeys = () => Boolean(process.env.PAYSTACK_SECRET_KEY_LIVE);
 
 export function isPaystackIp(ip) {
   return PAYSTACK_IPS.includes(ip);

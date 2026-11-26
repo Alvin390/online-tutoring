@@ -1,5 +1,5 @@
 import { FieldValue } from './firebaseAdmin.js';
-import { sendSms, smsAvailable, recordSmsBalance } from './sms.js';
+import { sendSms, smsAvailable, smsFake, recordSmsBalance } from './sms.js';
 import { assertAboveReserve } from './smsCampaign.js';
 import { smsCost, smsLength, smsPlainValue, smsUnits } from './smsText.js';
 import { recordNumber } from './admissionNumber.js';
@@ -33,6 +33,8 @@ export function numberSmsMessage({ kind, digits, session }) {
 export async function sendNumberSms({ db, session, phone, log }) {
   try {
     if (!smsAvailable()) return { sent: false, reason: 'unavailable' };
+    // 013Fixes / 33b: fake SMS — the student would never get the number.
+    if (smsFake()) return { sent: false, reason: 'fake' };
     const ref = db.doc(`sessions/${session}/students/${phone}`);
     const name = smsPlainValue(await sessionName(db, session));
 

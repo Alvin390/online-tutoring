@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger } from './log.js';
-import { sendError, badRequest, methodNotAllowed, payloadTooLarge } from './errors.js';
+import { sendError, badRequest, methodNotAllowed, payloadTooLarge, ApiError } from './errors.js';
+import { maintenanceState } from './runtimeModes.js';
 import { authenticate, requireRole } from './auth.js';
 import { requireFeature } from './schoolPlan.js';
 import { enforceRateLimit, clientIp } from './rateLimit.js';
@@ -151,6 +152,10 @@ export function createHandler(opts) {
     rateLimit = null,
     rawBody = false,
     sessions = null,
+    // 013Fixes / 34: false for the few endpoints that must keep working in
+    // maintenance (health, the sign-in counter). Webhooks, callbacks, crons
+    // and the bootstrap don't use this chain, so they are never stopped.
+    maintenance = true,
     handle,
   } = opts;
 
@@ -230,6 +235,16 @@ export function createHandler(opts) {
         const authStart = perf.detailed ? performance.now() : 0;
         user = await authenticate(req);
         if (perf.detailed) perf.auth = performance.now() - authStart;
+      }
+
+      // 5a. Maintenance (013Fixes / 34): everyone but the superadmin is told
+      //     to come back later. From the cached switches: no read here.
+      if (maintenance && maintenanceState().on && user?.role !== 'superadmin') {
+        const m = maintenanceState();
+        throw new ApiError(503, 'maintenance', m.message ?? 'The school is under maintenance. Please come back soon.', { expose: true });
+      }
+
+      if (auth) {
         if (role) requireRole(user, role);
         if (feature) await requireFeature(user, feature);
       }

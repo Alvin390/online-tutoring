@@ -5,7 +5,7 @@ import { resolveRecipients } from './messageRecipients.js';
 import {
   normalizeSmsText, unsupportedChars, smsLength, smsUnits, smsCost, SMS_MAX_CHARS, SMS_MAX_UNITS, smsPlainValue as plainValue,
 } from './smsText.js';
-import { sendSms, smsStatus, SmsError, smsAvailable } from './sms.js';
+import { sendSms, smsStatus, SmsError, smsAvailable, smsFake } from './sms.js';
 import { recordSmsBalance, recordSmsUsage, lastKnownBalance, SMS_RESERVE_KES, smsAlertRecipient } from './smsCredit.js';
 import { gmailConfigured, sendGmail } from './gmail.js';
 import { creditContext, reserveInTx, refundUnits, unitsExhausted } from './smsCredits.js';
@@ -222,8 +222,11 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
     return { done: finished, sent: 0, failed: 0, counts: campaign.counts };
   }
 
+  // 013Fixes / 33b: fake SMS — no wallet check, no units reserved, nothing
+  // sent to HashBack; each message is recorded as sent and fake.
+  const fake = smsFake();
   const chunkCost = smsCost(batchDocs.reduce((n, d) => n + (d.data().units ?? 1), 0));
-  await assertAboveReserve(db, chunkCost, log);
+  if (!fake) await assertAboveReserve(db, chunkCost, log);
 
   // Claim — and, in the same transaction, take the chunk's units from the
   // school's SMS units (013Fixes / 15): exactly once per claimed chunk, or
@@ -235,7 +238,7 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
     const mine = fresh.filter((d) => d.exists && d.data().status === 'queued');
     const units = mine.reduce((n, d) => n + (d.data().units ?? 1), 0);
     let reservation = null;
-    if (units > 0) {
+    if (units > 0 && !fake) {
       reservation = await reserveInTx(tx, db, { ...creditCtx, nowMs, units, campaignId, chunkId, actor: user.uid });
       if (!reservation) return { exhausted: true, claimed: [] };
     }
@@ -256,7 +259,9 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
     try {
       const sent = await sendSms({ to: r.phone, message: r.text });
       if (Number.isFinite(sent.balance)) lastBalance = sent.balance;
-      results.push({ r, status: 'sent', smsId: sent.id, units: sent.units || r.units, cost: sent.cost || smsCost(r.units) });
+      results.push(sent.fake
+        ? { r, status: 'sent', smsId: sent.id, units: 0, cost: 0, fake: true }
+        : { r, status: 'sent', smsId: sent.id, units: sent.units || r.units, cost: sent.cost || smsCost(r.units) });
     } catch (err) {
       const code = err instanceof SmsError ? err.code : 'error';
       if (code === 'RATE_LIMITED') { retryAfter = err.retryAfter ?? 30; results.push({ r, status: 'queued' }); return; }
@@ -279,7 +284,7 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
   const cost = Math.round(sent.reduce((n, x) => n + x.cost, 0) * 100) / 100;
 
   const batch = db.batch();
-  for (const x of sent) batch.update(x.r.ref, { status: 'sent', smsId: x.smsId, sentAt: now, statusAt: now, error: null });
+  for (const x of sent) batch.update(x.r.ref, { status: 'sent', smsId: x.smsId, sentAt: now, statusAt: now, error: null, ...(x.fake ? { fake: true } : {}) });
   for (const x of failed) batch.update(x.r.ref, { status: 'failed', error: x.error, statusAt: now });
   for (const x of requeued) batch.update(x.r.ref, { status: 'queued', claimedAt: FieldValue.delete() });
   for (const d of staleFails) batch.update(d.ref, { status: 'failed', error: 'interrupted', statusAt: now });
@@ -290,12 +295,13 @@ export async function sendChunk({ db, user, campaignId, log, nowMs = Date.now() 
     sentUnits: FieldValue.increment(units),
     sentCost: FieldValue.increment(cost),
     ...(sent.length ? { lastSentAt: now } : {}),
+    ...(fake && sent.length ? { fake: true } : {}),
   });
   await batch.commit();
 
   // 013Fixes / 15: give back the units of everyone not sent this chunk.
   const unsentUnits = [...failed, ...requeued].reduce((n, x) => n + (x.r.units ?? 1), 0);
-  if (unsentUnits > 0) {
+  if (unsentUnits > 0 && claim.reservation) {
     await refundUnits(db, { units: unsentUnits, reservation: claim.reservation, campaignId, chunkId, nowMs, actor: user.uid });
   }
 

@@ -97,3 +97,19 @@ describe('config/darajaCredentials and config/mpesaStatus are closed to every cl
     }
   });
 });
+
+/** 013Fixes / 33 — the superadmin's mode switches are the server's (/api/admin/modes). */
+describe('config/mode is closed to every client', () => {
+  beforeEach(async () => {
+    await seed(env, 'config/mode', { payments: 'test', sms: 'fake' });
+  });
+
+  it('nobody reads or writes it', async () => {
+    for (const db of [anon(env), teacher(env), superadmin(env)]) {
+      // eslint-disable-next-line no-await-in-loop
+      await assertFails(getDoc(doc(db, 'config/mode')));
+      // eslint-disable-next-line no-await-in-loop
+      await assertFails(setDoc(doc(db, 'config/mode'), { payments: 'live' }));
+    }
+  });
+});

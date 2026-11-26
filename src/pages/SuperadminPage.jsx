@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAuthState, useAuthActions } from '@features/auth/context/AuthContext';
+import { useModes } from '@shared/config/modesStore';
 
 const AuditLogViewer = lazy(() => import('@features/audit/components/AuditLogViewer'));
 const UserManager = lazy(() => import('@features/admin/components/UserManager'));
@@ -19,6 +20,8 @@ const BillingSettings = lazy(() => import('@features/admin/components/BillingSet
 const PriceSettings = lazy(() => import('@features/admin/components/PriceSettings'));
 // 013Fixes / 30: the STK switch, the school's M-Pesa keys and the KES 1 test.
 const MpesaCard = lazy(() => import('@features/admin/components/MpesaCard'));
+// 013Fixes / 33: the mode switches (payments, then SMS, maintenance, demo).
+const ModesCard = lazy(() => import('@features/admin/components/ModesCard'));
 // 013Fixes / 21: every payment, and the fill-in of older in-app ones.
 const PaymentHistory = lazy(() => import('@features/admin/components/PaymentHistory'));
 
@@ -57,6 +60,8 @@ const TAB_IDS = new Set(TABS.map((t) => t.id));
 export default function SuperadminPage() {
   const { isSuperadmin, isAuthenticated, loading, user } = useAuthState();
   const { signIn, signOut } = useAuthActions();
+  // 013Fixes / 34: maintenance is shown here in red while on.
+  const { maintenance } = useModes();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -245,6 +250,13 @@ export default function SuperadminPage() {
         </div>
       </div>
 
+      {maintenance && (
+        <div className="alert alert-danger d-flex align-items-center gap-2" role="alert" data-testid="superadmin-maintenance">
+          <i className="bi bi-tools" aria-hidden="true" />
+          <span><strong>Maintenance is on.</strong> Students and teachers see &ldquo;Under maintenance&rdquo;. Switch it off in Settings → Modes.</span>
+        </div>
+      )}
+
       <ul className="nav nav-tabs mb-4" role="tablist">
         {TABS.map((t) => (
           <li className="nav-item" key={t.id} role="presentation">
@@ -286,7 +298,7 @@ export default function SuperadminPage() {
         )}
         {tab === 'audit' && <AuditLogViewer />}
         {tab === 'sms' && <><SmsCostCard /><SmsUnitsCard /></>}
-        {tab === 'settings' && <><NotificationsSettingsCard /><MpesaCard /></>}
+        {tab === 'settings' && <><ModesCard /><NotificationsSettingsCard /><MpesaCard /></>}
       </Suspense>
     </div>
   );

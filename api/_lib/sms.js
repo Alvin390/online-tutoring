@@ -15,6 +15,9 @@
  * Nothing here logs a phone number or a message body.
  */
 
+import { randomUUID } from 'node:crypto';
+import { smsMode } from './mode.js';
+
 const HASHBACK = 'https://api.hashback.co.ke/sms';
 
 /**
@@ -37,11 +40,26 @@ export class SmsError extends Error {
   }
 }
 
-export const smsAvailable = () =>
+/** HashBack itself is usable (a key, and not disabled). */
+const providerAvailable = () =>
   Boolean(process.env.HASHBACK_API_KEY) && process.env.SMS_DISABLED !== 'true';
 
+/**
+ * 013Fixes / 33b: SMS on fake (the superadmin's switch or SMS_MODE=fake):
+ * nothing is sent to HashBack and no units are used. Callers where a real
+ * person waits for the message (check-in codes, the test SMS, the number SMS)
+ * check this and take their "not sent" route instead.
+ */
+export const smsFake = () => smsMode() === 'fake';
+
+/** Sending can go ahead: fake always (no key needed), real with HashBack. */
+export const smsAvailable = () => smsFake() || providerAvailable();
+
+const FAKE_PREFIX = 'fake_';
+export const isFakeSmsId = (id) => typeof id === 'string' && id.startsWith(FAKE_PREFIX);
+
 async function request(path, { method = 'GET', body } = {}) {
-  if (!smsAvailable()) throw new SmsError('sms_unavailable', 'SMS is not configured.');
+  if (!providerAvailable()) throw new SmsError('sms_unavailable', 'SMS is not configured.');
   let res;
   try {
     res = await fetch(`${baseUrl()}${path}`, {
@@ -68,8 +86,12 @@ async function request(path, { method = 'GET', body } = {}) {
   return json;
 }
 
-/** One message to one number. @returns {{ id, units, cost, balance, status }} */
+/** One message to one number. @returns {{ id, units, cost, balance, status, fake? }} */
 export async function sendSms({ to, message }) {
+  if (smsFake()) {
+    // Recorded as fake by the caller; HashBack never sees it.
+    return { id: `${FAKE_PREFIX}${randomUUID()}`, units: 0, cost: 0, balance: null, status: 'fake', senderId: null, fake: true };
+  }
   const json = await request('/send', { method: 'POST', body: { to, message } });
   return {
     id: json.id ?? null,
@@ -85,7 +107,10 @@ export async function sendSms({ to, message }) {
 export const quoteSms = (body) => request('/quote', { method: 'POST', body });
 export const smsBalance = () => request('/balance');
 export const smsSenders = () => request('/senders');
-export const smsStatus = (id) => request(`/status?id=${encodeURIComponent(id)}`);
+export const smsStatus = (id) => (isFakeSmsId(id)
+  // 013Fixes / 33b: a fake message is never asked about; it counts as delivered.
+  ? Promise.resolve({ success: true, sms: { status: 'delivered', fake: true } })
+  : request(`/status?id=${encodeURIComponent(id)}`));
 export const smsMessages = ({ limit = 50, offset = 0 } = {}) => request(`/messages?limit=${limit}&offset=${offset}`);
 
 /**

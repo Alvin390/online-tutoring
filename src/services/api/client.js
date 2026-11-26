@@ -1,4 +1,5 @@
 import logger from '@utils/logger';
+import { modesStore } from '@shared/config/modesStore';
 
 /**
  * Serverless API client — Phase 01 D4.
@@ -103,6 +104,11 @@ async function send(method, path, body, { timeoutMs, signal, headers, cache }) {
     }
 
     if (!response.ok) {
+      // 013Fixes / 34: the server is under maintenance — show the screen now,
+      // without waiting for the next bootstrap.
+      if (response.status === 503 && payload?.error?.code === 'maintenance') {
+        modesStore.setFromRemote({ ...modesStore.get(), maintenance: { message: payload.error.message ?? null, until: null } });
+      }
       throw new ApiError(
         payload?.error?.message ?? 'Request failed. Please try again.',
         { code: payload?.error?.code, status: response.status, path, retryAfter: retryAfterSeconds(response) }
