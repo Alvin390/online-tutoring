@@ -12,11 +12,10 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
 
-  // The registry of schools and the digest setting. Create it once:
-  //   npx wrangler kv namespace create CONSOLE_KV
-  // and put its id here.
+  // The registry of schools and the digest setting (created 2026-11-26 with
+  // `npx wrangler kv namespace create CONSOLE_KV`; an id, not a secret).
   "kv_namespaces": [
-    { "binding": "CONSOLE_KV", "id": "SET_AT_DEPLOY" }
+    { "binding": "CONSOLE_KV", "id": "f2f15cfa90124ef69bb4e373bd0a5b02" }
   ],
 
   // Sign-in tries: 5 a minute per address.
