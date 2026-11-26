@@ -127,6 +127,8 @@ export async function toNodeRequest(request, pathParams = {}) {
   return {
     method: request.method,
     url: url.pathname + url.search,
+    // 013Fixes / 37: the host asked for (signed console requests cover it).
+    host: url.host,
     headers,
     query,
     // The exact signed bytes. `readRawBody()` returns this untouched, and

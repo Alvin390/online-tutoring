@@ -32,6 +32,8 @@ export const TEST_ENV = Object.freeze({
   GCE_METADATA_HOST: '0.0.0.0',
   PUBLIC_BASE_URL: 'https://validation.example',
   CRON_SECRET: 'test-cron-secret',
+  // 013Fixes / 37: the owner console's shared signing secret (placeholder).
+  CONSOLE_SECRET: 'console-harness-secret',
   APP_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
   // 013Fixes / 32: the first-time report recipient comes from the environment (placeholder).
   REPORT_RECIPIENT: 'reports.owner@harness.example',

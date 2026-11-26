@@ -115,6 +115,8 @@ function contextFor(ctx, env) {
   return {
     waitUntil: typeof ctx?.waitUntil === 'function' ? (p) => ctx.waitUntil(p) : null,
     passLimiter: env?.CHECKIN_PASS_LIMITER ?? null,
+    // 013Fixes / 37: the deployed version, for the owner console.
+    version: env?.CF_VERSION_METADATA ?? null,
   };
 }
 

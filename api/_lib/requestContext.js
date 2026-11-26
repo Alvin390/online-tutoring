@@ -20,6 +20,16 @@ export function runInRequestContext(context, fn) {
 }
 
 /**
+ * 013Fixes / 37: the deployed Worker version (the CF_VERSION_METADATA
+ * binding): { id, tag, timestamp }, or null outside a deployed Worker.
+ */
+export function workerVersion() {
+  const v = store.getStore()?.version;
+  if (!v?.id) return null;
+  return { id: v.id, tag: v.tag || null, timestamp: v.timestamp || null };
+}
+
+/**
  * Hands `promise` to the invocation's waitUntil when there is one.
  * @returns {boolean} true if deferred; false = no context, caller should await
  */
