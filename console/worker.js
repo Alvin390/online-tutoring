@@ -3,6 +3,7 @@ import { pageHtml } from './page.js';
 import { configured, passwordMatches, issueCookie, clearCookie, hasSession } from './lib/session.js';
 import { readRegistry, addSchool, removeSchool, RegistryError } from './lib/registry.js';
 import { schoolsTable } from './lib/table.js';
+import { readSettings, saveDigestTo, runDigest } from './lib/digest.js';
 
 /**
  * The owner console — 013Fixes / 38 (owner suggestion 9). A separate Worker
@@ -16,7 +17,8 @@ import { schoolsTable } from './lib/table.js';
  *   GET  /api/registry   the schools listed          (session)
  *   POST /api/registry   { action: add|remove, … }   (session, JSON)
  *   GET  /api/schools    one row per school, checked now  (session; 38b)
- *   +38c /api/settings and the daily digest
+ *   GET/POST /api/settings  the daily digest's address   (session; 38c)
+ *   scheduled            the daily digest (console/lib/digest.js)
  */
 
 const SECURITY = {
@@ -89,8 +91,22 @@ async function schools(request, env) {
   return json(200, { rows, checkedAt });
 }
 
-/** Routes for the signed-in console; later phases add theirs here. */
-export const API_ROUTES = { '/api/registry': registry, '/api/schools': schools };
+/** 38c: the daily digest's address (a console setting). */
+async function settings(request, env) {
+  if (request.method === 'GET') return json(200, await readSettings(env.CONSOLE_KV));
+  if (request.method !== 'POST') return fail(405, 'method_not_allowed', 'Not allowed.');
+  const { body, error } = await readJson(request);
+  if (error) return error;
+  try {
+    return json(200, await saveDigestTo(env.CONSOLE_KV, body?.digestTo));
+  } catch (err) {
+    if (err?.status === 400) return fail(400, err.code, err.message);
+    throw err;
+  }
+}
+
+/** Routes for the signed-in console. */
+export const API_ROUTES = { '/api/registry': registry, '/api/schools': schools, '/api/settings': settings };
 
 export async function handle(request, env, ctx) {
   const { pathname } = new URL(request.url);
@@ -117,5 +133,12 @@ export default {
       console.error(JSON.stringify({ level: 'error', msg: 'Console error', error: String(err?.message ?? err) }));
       return fail(500, 'internal_error', 'Something went wrong.');
     }
+  },
+
+  // 013Fixes / 38c: the daily digest (console/wrangler.jsonc triggers).
+  scheduled(_controller, env, ctx) {
+    const job = runDigest(env).then((r) => console.log(JSON.stringify({ level: 'info', msg: 'Console digest', ...r })));
+    if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(job);
+    return job;
   },
 };

@@ -22,7 +22,10 @@
   // Sign-in tries: 5 a minute per address.
   "ratelimits": [
     { "name": "LOGIN_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
-  ]
+  ],
+
+  // The daily digest: 04:00 UTC = 07:00 Nairobi.
+  "triggers": { "crons": ["0 4 * * *"] }
 
   // Secrets (npx wrangler secret put <NAME> -c console/wrangler.jsonc):
   //   CONSOLE_PASSWORD, CONSOLE_SESSION_SECRET, CONSOLE_SECRET (the same value
