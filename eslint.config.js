@@ -15,7 +15,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
  * React plugin; `motion` is exempt for the same reason (`<motion.div>`).
  */
 export default [
-  { ignores: ['dist/**', 'node_modules/**', 'archive-pre-react-version/**', 'issues/**', 'coverage/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'archive-pre-react-version/**', 'issues/**', 'coverage/**', '**/.wrangler/**'] },
   js.configs.recommended,
   {
     files: ['src/**/*.{js,jsx}'],
