@@ -67,3 +67,4 @@ test-results
 
 # 013Fixes / 39: the owner console secret, piped into wrangler and deleted (console/README.md)
 .console-secret.tmp
+.console-kv.tmp

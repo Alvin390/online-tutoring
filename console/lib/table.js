@@ -15,8 +15,10 @@ const kes = (n) => `KES ${Number(n).toLocaleString('en-KE', { maximumFractionDig
 const day = (ms) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: TZ });
 
 function daysLeft(plan, now) {
-  const end = plan?.endsAt ?? plan?.trialEndsAt ?? plan?.currentPeriodEnd ?? null;
-  if (end == null) return { text: '—', cls: '' };
+  // The school's own countdown date (its billing window: trial or paid period
+  // end). A gift has none by design — never fall back to an old period end.
+  const end = plan?.endsAt ?? null;
+  if (end == null) return { text: plan?.comp ? 'No end (gift)' : '—', cls: '' };
   const n = Math.ceil((end - now) / D);
   if (n <= 0) return { text: 'Ended', cls: 'bad' };
   return { text: n === 1 ? '1 day' : `${n} days`, cls: n <= 7 ? 'warn' : '' };
