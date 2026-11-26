@@ -1,0 +1,31 @@
+// The owner console — 013Fixes / 38 (owner suggestion 9). A SEPARATE Worker
+// from the school's (deployed by hand: `npx wrangler deploy -c console/wrangler.jsonc`),
+// see console/README.md.
+{
+  "name": "online-tutoring-console",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-13",
+  // nodejs_compat: node:crypto. global_fetch_strictly_public: the console and
+  // the schools share the workers.dev zone, where a plain fetch to another
+  // Worker fails (Cloudflare error 1042); this sends it over the public
+  // internet like any client (console/lib/fetchStatus.js).
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+
+  // The registry of schools and the digest setting. Create it once:
+  //   npx wrangler kv namespace create CONSOLE_KV
+  // and put its id here.
+  "kv_namespaces": [
+    { "binding": "CONSOLE_KV", "id": "SET_AT_DEPLOY" }
+  ],
+
+  // Sign-in tries: 5 a minute per address.
+  "ratelimits": [
+    { "name": "LOGIN_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
+  ]
+
+  // Secrets (npx wrangler secret put <NAME> -c console/wrangler.jsonc):
+  //   CONSOLE_PASSWORD, CONSOLE_SESSION_SECRET, CONSOLE_SECRET (the same value
+  //   as the schools'), and for the digest GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
+  //   GMAIL_REFRESH_TOKEN, GMAIL_SENDER.
+}

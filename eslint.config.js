@@ -31,4 +31,16 @@ export default [
       'no-unused-vars': ['error', { varsIgnorePattern: '^([A-Z_]|motion$|m$)', argsIgnorePattern: '^_', caughtErrors: 'none' }],
     },
   },
+  // 013Fixes / 38: the owner console, a Worker (node_compat).
+  {
+    files: ['console/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: { ...globals.serviceworker, ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+    },
+  },
 ];
