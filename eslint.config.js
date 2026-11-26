@@ -15,7 +15,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
  * React plugin; `motion` is exempt for the same reason (`<motion.div>`).
  */
 export default [
-  { ignores: ['dist/**', 'node_modules/**', 'archive-pre-react-version/**', 'issues/**', 'coverage/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'archive-pre-react-version/**', 'issues/**', 'coverage/**', '**/.wrangler/**'] },
   js.configs.recommended,
   {
     files: ['src/**/*.{js,jsx}'],
@@ -29,6 +29,18 @@ export default [
     rules: {
       ...reactHooks.configs.recommended.rules,
       'no-unused-vars': ['error', { varsIgnorePattern: '^([A-Z_]|motion$|m$)', argsIgnorePattern: '^_', caughtErrors: 'none' }],
+    },
+  },
+  // 013Fixes / 38: the owner console, a Worker (node_compat).
+  {
+    files: ['console/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: { ...globals.serviceworker, ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
     },
   },
 ];

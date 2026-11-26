@@ -94,7 +94,7 @@ describe('the dashboard notice', () => {
 });
 
 describe('nothing refuses because of usage', () => {
-  it('only the status, the superadmin console and the counter touch config/usage', () => {
+  it('only the status, the superadmin console, the console status link and the counter touch config/usage', () => {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'api');
     const readers = [];
     const walk = (dir) => {
@@ -105,6 +105,7 @@ describe('nothing refuses because of usage', () => {
       }
     };
     walk(root);
-    expect(readers.sort()).toEqual(['_lib/usage.js', 'admin/users.js', 'billing/status.js']);
+    // 013Fixes / 37: the owner console's status link reports it (read-only).
+    expect(readers.sort()).toEqual(['_lib/usage.js', 'admin/users.js', 'billing/status.js', 'platform/status.js']);
   });
 });

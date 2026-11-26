@@ -15,7 +15,7 @@
     "deploy": "npm run build && npx wrangler versions upload",
     "cf:tail": "wrangler tail",
     "cf:secrets": "node scripts/pushSecrets.js",
-    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "lint": "eslint src console --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{js,jsx,css,scss}\"",
     "test": "vitest",
     "test:ui": "vitest --ui",

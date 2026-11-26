@@ -85,6 +85,11 @@
     }
   ],
 
+  // 013Fixes / 37: the deployed version (id, tag, upload time), reported by
+  // the signed status link to the owner console. Passed to the code through
+  // api/_lib/requestContext.js (bindings are not in process.env).
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+
   "vars": {
     // Non-secret only. Everything sensitive is a secret — see
     // scripts/pushSecrets.js and upgrade/ENV-SETUP-GUIDE.md.
