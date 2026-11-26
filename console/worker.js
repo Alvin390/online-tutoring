@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { pageHtml } from './page.js';
 import { configured, passwordMatches, issueCookie, clearCookie, hasSession } from './lib/session.js';
 import { readRegistry, addSchool, removeSchool, RegistryError } from './lib/registry.js';
+import { schoolsTable } from './lib/table.js';
 
 /**
  * The owner console — 013Fixes / 38 (owner suggestion 9). A separate Worker
@@ -14,7 +15,8 @@ import { readRegistry, addSchool, removeSchool, RegistryError } from './lib/regi
  *   POST /logout
  *   GET  /api/registry   the schools listed          (session)
  *   POST /api/registry   { action: add|remove, … }   (session, JSON)
- *   +38b /api/schools, +38c /api/settings and the daily digest
+ *   GET  /api/schools    one row per school, checked now  (session; 38b)
+ *   +38c /api/settings and the daily digest
  */
 
 const SECURITY = {
@@ -79,8 +81,16 @@ async function registry(request, env) {
   }
 }
 
+/** 38b: every school's row, checked now (in parallel, 5 s each). */
+async function schools(request, env) {
+  if (request.method !== 'GET') return fail(405, 'method_not_allowed', 'Not allowed.');
+  const checkedAt = Date.now();
+  const rows = await schoolsTable(await readRegistry(env.CONSOLE_KV), env, { now: checkedAt });
+  return json(200, { rows, checkedAt });
+}
+
 /** Routes for the signed-in console; later phases add theirs here. */
-export const API_ROUTES = { '/api/registry': registry };
+export const API_ROUTES = { '/api/registry': registry, '/api/schools': schools };
 
 export async function handle(request, env, ctx) {
   const { pathname } = new URL(request.url);
