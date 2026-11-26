@@ -156,3 +156,22 @@ describe('GET /api/schools (signed in)', () => {
     }
   });
 });
+
+// 013Fixes / 39 (found on the live console): a gift has no end date — the
+// school's billing window is null for it — so an old currentPeriodEnd from
+// before the gift must not show "Ended", nor put the school in the digest.
+describe('a gift that never ends', () => {
+  it('shows "No end (gift)", not "Ended" from a stale period end', () => {
+    const row = rowFor(PILOT, { reachable: true, status: status({
+      plan: { tier: 'gold', status: 'active', comp: true, endsAt: null, trialEndsAt: null, currentPeriodEnd: NOW - 40 * D },
+    }) }, NOW);
+    expect(row).toMatchObject({ plan: 'Gold (gift)', status: 'Active', daysLeft: 'No end (gift)', daysClass: '' });
+  });
+
+  it('a paid plan with no window yet: a dash, not a stale date', () => {
+    const row = rowFor(PILOT, { reachable: true, status: status({
+      plan: { tier: 'silver', status: 'active', comp: false, endsAt: null, currentPeriodEnd: NOW - 40 * D },
+    }) }, NOW);
+    expect(row).toMatchObject({ daysLeft: '—', daysClass: '' });
+  });
+});
