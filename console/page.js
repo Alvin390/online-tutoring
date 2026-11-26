@@ -31,6 +31,8 @@ export function pageHtml(nonce) {
   .bad { color: var(--bad); font-weight: 600; } .warn { color: var(--warn); font-weight: 600; } .ok { color: var(--ok); }
   .scroll { overflow-x: auto; }
   [hidden] { display: none !important; }
+  .card h2 { font-size: 16px; margin-top: 0; }
+  .between { justify-content: space-between; }
 </style>
 </head>
 <body>
@@ -48,7 +50,7 @@ export function pageHtml(nonce) {
 
   <section id="app" hidden>
     <div class="card">
-      <div class="row" style="justify-content: space-between">
+      <div class="row between">
         <span class="muted" id="checked">Not loaded yet.</span>
         <span class="row">
           <button type="button" id="refresh">Refresh</button>
@@ -68,7 +70,7 @@ export function pageHtml(nonce) {
     </div>
 
     <div class="card">
-      <h2 style="font-size:16px;margin-top:0">Schools</h2>
+      <h2>Schools</h2>
       <form id="add-form" class="row">
         <input id="add-name" placeholder="School name" required maxlength="60">
         <input id="add-url" placeholder="https://school.example" required>
@@ -80,7 +82,7 @@ export function pageHtml(nonce) {
     </div>
 
     <div class="card" id="digest-card">
-      <h2 style="font-size:16px;margin-top:0">Daily digest</h2>
+      <h2>Daily digest</h2>
       <form id="digest-form" class="row">
         <label for="digest-to">Email to</label>
         <input id="digest-to" type="email" maxlength="200">

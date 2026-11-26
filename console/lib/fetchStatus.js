@@ -36,7 +36,7 @@ export async function fetchSchoolStatus(school, env, { fetchImpl = (...a) => fet
     return { reachable: true, status };
   } catch (err) {
     if (err?.name === 'AbortError' || controller.signal.aborted) return { reachable: false, error: `no answer within ${Math.round(timeoutMs / 1000) || 1} s` };
-    return { reachable: false, error: 'no answer (unreachable)' };
+    return { reachable: false, error: 'no answer: the address may be wrong, or the school is down' };
   } finally {
     clearTimeout(timer);
   }
