@@ -40,7 +40,12 @@ const audits = async (action) => (await db.collection('audit').where('action', '
 let seq = 4400;
 async function charge(data) {
   seq += 1;
-  const raw = JSON.stringify({ event: 'charge.success', data: { id: seq, channel: 'mobile_money', ...data } });
+  // 013Fixes / 39: an in-app checkout's charge carries the paying teacher
+  // (metadata.uid), a user of this school. No checkout record is made here on
+  // purpose: the price checks below decide on it.
+  await db.doc('users/fx013-price-teacher').set({ role: 'teacher' }, { merge: true });
+  const meta = data.metadata ? { metadata: { uid: 'fx013-price-teacher', ...data.metadata } } : {};
+  const raw = JSON.stringify({ event: 'charge.success', data: { id: seq, channel: 'mobile_money', ...data, ...meta } });
   const sig = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY_TEST).update(raw).digest('hex');
   return call('/api/billing/webhook', { body: raw, headers: { 'x-paystack-signature': sig } });
 }

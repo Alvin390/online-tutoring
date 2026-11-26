@@ -43,7 +43,9 @@ beforeEach(async () => {
 const paystack = (pathFragment) => externalCalls.filter((c) => c.url.startsWith('https://api.paystack.co') && c.url.includes(pathFragment));
 
 async function webhook(event) {
-  const raw = JSON.stringify(event);
+  // 013Fixes / 39: real Paystack events carry the customer; here, always the
+  // school's own (CUS_owner, seeded above).
+  const raw = JSON.stringify({ ...event, data: { customer: { customer_code: 'CUS_owner' }, ...(event.data ?? {}) } });
   const sig = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY_TEST).update(raw).digest('hex');
   return call('/api/billing/webhook', { body: raw, headers: { 'x-paystack-signature': sig } });
 }

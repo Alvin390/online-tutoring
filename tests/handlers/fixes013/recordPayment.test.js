@@ -40,6 +40,12 @@ const ms = (t) => t?.toMillis?.() ?? null;
 let seq = 9000;
 async function webhook(event) {
   seq += 1;
+  // 013Fixes / 39: an in-app checkout's charge carries the paying teacher
+  // (metadata.uid, api/billing/initialize.js), a user of this school.
+  if (event.data?.metadata) {
+    await db.doc('users/fx013-pay-teacher').set({ role: 'teacher' }, { merge: true });
+    event = { ...event, data: { ...event.data, metadata: { uid: 'fx013-pay-teacher', ...event.data.metadata } } };
+  }
   const raw = JSON.stringify({ id: seq, ...event });
   const sig = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY_TEST).update(raw).digest('hex');
   return call('/api/billing/webhook', { body: raw, headers: { 'x-paystack-signature': sig } });
@@ -176,7 +182,8 @@ describe('in-app M-Pesa (the webhook) follows the same rule', () => {
   it('the same payment delivered twice (Paystack\'s shape: no top-level id) extends once', async () => {
     const end = Date.now() + 10 * D;
     await db.doc('subscription/current').set({ tier: 'silver', status: 'active', renewalMode: 'manual', currentPeriodStart: new Date(end - 30 * D), currentPeriodEnd: new Date(end) });
-    const raw = JSON.stringify({ event: 'charge.success', data: { id: 4_400_123, reference: 'mpesa_twice', amount: 299900, channel: 'mobile_money', metadata: { tier: 'silver', renewalMode: 'manual' } } });
+    await db.doc('users/fx013-pay-teacher').set({ role: 'teacher' }, { merge: true });
+    const raw = JSON.stringify({ event: 'charge.success', data: { id: 4_400_123, reference: 'mpesa_twice', amount: 299900, channel: 'mobile_money', metadata: { uid: 'fx013-pay-teacher', tier: 'silver', renewalMode: 'manual' } } });
     const sig = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY_TEST).update(raw).digest('hex');
     const send = () => call('/api/billing/webhook', { body: raw, headers: { 'x-paystack-signature': sig } });
     expect((await send()).status).toBe(200);
