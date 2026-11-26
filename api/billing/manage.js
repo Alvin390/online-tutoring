@@ -250,6 +250,10 @@ export default createHandler({
 
         const patch = {
           scheduledTierChange: schedule,
+          // 013Fixes / 39: the current subscription was just turned off by the
+          // app (it runs to the period end); Paystack's disable event for it
+          // must not cancel the school.
+          ...(schedule.previousSubscriptionCode ? { disabledByApp: FieldValue.arrayUnion(schedule.previousSubscriptionCode) } : {}),
           updatedAt: FieldValue.serverTimestamp(),
         };
         await ref.set(patch, { merge: true });

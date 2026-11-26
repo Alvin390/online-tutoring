@@ -99,15 +99,16 @@ describe('the countdown inside the period', () => {
 describe('card payments', () => {
   it('a failed payment keeps the school active and starts the countdown; the next success clears it', async () => {
     const periodEnd = Date.now() + 2 * D;
-    await db.doc('subscription/current').set({ status: 'active', tier: 'silver', renewalMode: 'auto', currentPeriodEnd: new Date(periodEnd) });
-    await webhook({ event: 'invoice.payment_failed', data: {} });
+    // A card school (its Paystack subscription and customer), as Paystack sends them.
+    await db.doc('subscription/current').set({ status: 'active', tier: 'silver', renewalMode: 'auto', currentPeriodEnd: new Date(periodEnd), paystackSubscriptionCode: 'SUB_silver', paystackCustomerCode: 'CUS_card' });
+    await webhook({ event: 'invoice.payment_failed', data: { subscription: { subscription_code: 'SUB_silver' }, customer: { customer_code: 'CUS_card' } } });
     let s = await sub();
     expect(s.status).toBe('active');
     expect(s.paymentFailedAt).toBeTruthy();
     const pub = (await db.doc('subscription/public').get()).data();
     expect(pub).toMatchObject({ renews: false });
     expect(pub.countdownFrom).toBe(s.paymentFailedAt.toMillis());
-    await webhook({ event: 'charge.success', data: { reference: 'renew_1', amount: 299900, channel: 'card', plan: { plan_code: 'PLN_silver' } } });
+    await webhook({ event: 'charge.success', data: { reference: 'renew_1', amount: 299900, channel: 'card', plan: { plan_code: 'PLN_silver' }, customer: { customer_code: 'CUS_card' } } });
     s = await sub();
     expect(s.paymentFailedAt ?? null).toBeNull();
     expect((await db.doc('subscription/public').get()).data()).toMatchObject({ renews: true, countdownFrom: null });

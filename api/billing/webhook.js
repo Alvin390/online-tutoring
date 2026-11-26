@@ -11,6 +11,7 @@ import {
 } from '../_lib/paystack.js';
 import { TIER_RANK } from '../_lib/auth.js';
 import { clientIp } from '../_lib/rateLimit.js';
+import { eventOwnership, ignoredSummary } from '../_lib/webhookOwnership.js';
 import { paystackMode } from '../_lib/mode.js';
 import { tryWriteAudit, AuditAction } from '../_lib/audit.js';
 import { STATUS, publicProjection, paymentPatch } from '../_lib/subscription.js';
@@ -173,7 +174,26 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, ignored: true });
     }
 
-    await processEvent({ db, event, log, requestId });
+    const outcome = await processEvent({ db, event, log, requestId });
+
+    // 013Fixes / 39: not this school's event (another payment on the same
+    // Paystack account, another school's subscription, a KES 100 check) —
+    // 200 so Paystack doesn't retry it, but recorded and audited loudly: the
+    // event record is the only trace if a real payment were ever refused.
+    if (outcome === 'not_ours' || outcome === 'expected') {
+      const ignored = ignoredSummary(event);
+      await eventRef.set({ status: outcome, ignored }, { merge: true });
+      if (outcome === 'not_ours') {
+        log.warn('Webhook event is not for this school; ignored', { event: event.event, reference: ignored.reference });
+        await tryWriteAudit({
+          action: 'billing.webhook_ignored', actor: 'paystack', target: 'subscription/current',
+          context: { reason: 'not_ours', ...ignored, requestId },
+        }, log);
+      } else {
+        log.info('Disable of a subscription the app turned off itself; nothing to change', { code: ignored.subscriptionCode });
+      }
+      return res.status(200).json({ ok: true, ignored: outcome });
+    }
     await eventRef.set({ status: 'processed' }, { merge: true });
 
     return res.status(200).json({ ok: true });
@@ -204,9 +224,9 @@ async function disablePreviousSubscription({ before, newCode, log, requestId }) 
   const code = before?.paystackSubscriptionCode ?? null;
   const token = before?.paystackEmailToken ?? null;
 
-  if (!code) return;
+  if (!code) return null;
   // Same subscription renewing, not a replacement.
-  if (newCode && newCode === code) return;
+  if (newCode && newCode === code) return null;
 
   if (!token) {
     // Without the email token Paystack will not accept the disable. Recorded
@@ -220,7 +240,7 @@ async function disablePreviousSubscription({ before, newCode, log, requestId }) 
         context: { requestId, needsManualAction: true } },
       log
     );
-    return;
+    return null;
   }
 
   try {
@@ -233,6 +253,9 @@ async function disablePreviousSubscription({ before, newCode, log, requestId }) 
         context: { requestId, change: 'superseded' } },
       log
     );
+    // 013Fixes / 39: the caller records it, so Paystack's disable event for
+    // it is expected rather than a cancellation.
+    return code;
   } catch (err) {
     log.error('Failed to disable the previous subscription', err);
     await tryWriteAudit(
@@ -242,6 +265,7 @@ async function disablePreviousSubscription({ before, newCode, log, requestId }) 
         context: { requestId, needsManualAction: true } },
       log
     );
+    return null;
   }
 }
 
@@ -251,6 +275,9 @@ async function processEvent({ db, event, log, requestId }) {
   const data = event.data ?? {};
 
   const before = (await subRef.get()).data() ?? null;
+  // 013Fixes / 39: only this school's events change it.
+  const ownership = await eventOwnership(db, event, before);
+  if (ownership !== 'ours') return ownership;
   let patch = null;
   // 013Fixes / 21: the payment's own record (payment history).
   let payment = null;
@@ -432,7 +459,7 @@ async function processEvent({ db, event, log, requestId }) {
       // known to exist at this point. Disabling when checkout merely STARTS
       // would leave a teacher who abandoned the page with no active
       // subscription and no charge to show for it.
-      await disablePreviousSubscription({
+      const replaced = await disablePreviousSubscription({
         before,
         newCode: data.subscription_code ?? null,
         log,
@@ -440,6 +467,8 @@ async function processEvent({ db, event, log, requestId }) {
       });
 
       patch = {
+        // 013Fixes / 39: Paystack will report the replaced one as disabled.
+        ...(replaced ? { disabledByApp: FieldValue.arrayUnion(replaced) } : {}),
         status: STATUS.ACTIVE,
         renewalMode: 'auto',
         paystackSubscriptionCode: data.subscription_code ?? null,
@@ -483,10 +512,10 @@ async function processEvent({ db, event, log, requestId }) {
     }
 
     default:
-      return;
+      return 'processed';
   }
 
-  if (!patch) return;
+  if (!patch) return 'processed';
 
   await subRef.set(patch, { merge: true });
   invalidatePlanCache();

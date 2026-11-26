@@ -274,7 +274,8 @@ async function backfillPayments({ db, body, user, log, waitUntil }) {
   const have = new Set(recorded.docs.map((d) => d.id));
   const state = stateSnap.exists ? stateSnap.data() : {};
   const settled = new Set([...(state.notVerifiable ?? []), ...(state.notSuccessful ?? [])]);
-  const references = [...new Set(events.docs.map((d) => d.data().reference).filter(Boolean))];
+  // 013Fixes / 39: never an event that wasn't this school's.
+  const references = [...new Set(events.docs.filter((d) => d.data().status !== 'not_ours').map((d) => d.data().reference).filter(Boolean))];
   const missing = references.filter((ref) => !have.has(paystackPaymentRef(db, ref).id) && !settled.has(ref));
 
   if (!body.apply) {

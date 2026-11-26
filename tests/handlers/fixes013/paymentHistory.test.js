@@ -40,9 +40,15 @@ const items = () => db.collection('billing/payments/items');
 const ms = (t) => t?.toMillis?.() ?? null;
 
 function signed(event) {
-  const raw = JSON.stringify(event);
+  // 013Fixes / 39: an in-app checkout's charge carries the paying teacher
+  // (metadata.uid), a user of this school.
+  const withUid = event.data?.metadata ? { ...event, data: { ...event.data, metadata: { uid: 'fx013-hist-teacher', ...event.data.metadata } } } : event;
+  const raw = JSON.stringify(withUid);
   const sig = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY_TEST).update(raw).digest('hex');
-  return () => call('/api/billing/webhook', { body: raw, headers: { 'x-paystack-signature': sig } });
+  return async () => {
+    await db.doc('users/fx013-hist-teacher').set({ role: 'teacher' }, { merge: true });
+    return call('/api/billing/webhook', { body: raw, headers: { 'x-paystack-signature': sig } });
+  };
 }
 
 async function seedPayments(n) {
