@@ -117,7 +117,7 @@ export default function ModesCard() {
               </h3>
               <p className="small text-muted mb-0">
                 One click: payments to test, SMS to fake, and a DEMO ribbon for teachers and students. Off puts both back as they were.
-                M-Pesa &ldquo;Pay now&rdquo; is not changed.
+                M-Pesa &ldquo;Pay now&rdquo; is not changed. While it is on, check-in and registration codes don&apos;t arrive by SMS: the teacher reads them out.
               </p>
             </div>
             <button type="button" className={`btn btn-sm ${demoOn ? 'btn-outline-dark' : 'btn-warning'}`} disabled={busy} onClick={toggleDemo}>

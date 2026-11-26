@@ -72,6 +72,10 @@ describe('the payments switch', () => {
     expect(res.body.payments).toMatchObject({ mode: 'live', source: 'setting' });
     await initialize();
     expect(authOf(lastPaystack())).toBe('Bearer sk_live_harness_only');
+    // The live plan (and its price) too, never the test plan's.
+    const init = externalCalls.filter((c) => String(c.url).includes('/transaction/initialize')).pop();
+    expect(init.body.plan).toBe('PLN_gold_live');
+    expect(externalCalls.some((c) => String(c.url).includes('/plan/PLN_gold') && !String(c.url).includes('PLN_gold_live'))).toBe(false);
     await drainWaitUntil();
     const [a] = await audits('mode.payments_changed');
     expect(a).toMatchObject({ before: { mode: 'test' }, after: { mode: 'live' } });
